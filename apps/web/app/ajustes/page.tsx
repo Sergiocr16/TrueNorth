@@ -28,7 +28,7 @@ export default function SettingsPage() {
   const { t, locale } = prefs;
   const store = useStore();
   const riskCount = useRiskCount();
-  const [notify, setNotify] = useState(true);
+  const [pushState, setPushState] = useState<'idle' | 'busy' | 'denied' | 'unsupported'>('idle');
   const [confirming, arm, disarm] = useConfirm();
 
   const themeOptions: { value: ThemePreference; label: string }[] = [
@@ -121,16 +121,26 @@ export default function SettingsPage() {
       <FieldGroup header={t.settings.notifications}>
         <ToggleField
           label={t.settings.pushEnabled}
-          value={notify}
-          onChange={setNotify}
+          description={
+            pushState === 'denied'
+              ? t.settings.pushDenied
+              : pushState === 'unsupported'
+                ? t.settings.pushUnsupported
+                : t.settings.pushHint
+          }
+          value={store.pushEnabled}
+          onChange={(on) => {
+            setPushState('busy');
+            void (on ? store.enablePush() : store.disablePush().then(() => 'off' as const)).then(
+              (result) => setPushState(result === 'denied' || result === 'unsupported' ? result : 'idle'),
+            );
+          }}
         />
         <SelectField
           label={t.settings.deliveryTime}
-          value={String(store.currentUser.notifyHour)}
+          value={String(store.notifyHour)}
           options={hours}
-          onChange={() => {
-            /* Wired to the user document once Firebase Auth is in place. */
-          }}
+          onChange={(value) => store.setNotifyHour(Number(value))}
           isLast
         />
       </FieldGroup>

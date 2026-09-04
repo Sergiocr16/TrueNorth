@@ -55,6 +55,7 @@ import {
 } from '@truenorth/core';
 import { useAuth } from './auth';
 import { firebase } from './firebase';
+import { currentPushToken, disablePush, enablePush, type PushState } from './push';
 
 /**
  * The editable business data, backed by Firestore.
@@ -237,6 +238,14 @@ interface StoreValue {
   resetToSeed: () => Promise<void>;
   /** Asks the engine on this server to recompute my plan for today. */
   replan: () => Promise<void>;
+
+  /** Local hour at which this person wants the plan announced. */
+  notifyHour: number;
+  setNotifyHour: (hour: number) => void;
+  /** Whether this device is subscribed to push. */
+  pushEnabled: boolean;
+  enablePush: () => Promise<PushState>;
+  disablePush: () => Promise<void>;
   /** One question about today, answered from the day's context. */
   ask: (question: string, history: { role: 'user' | 'assistant'; text: string }[]) => Promise<AskAnswer>;
 }
@@ -294,6 +303,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [analyses, setAnalyses] = useState<CompanyAnalysis[]>([]);
   const [voiceUpdates, setVoiceUpdates] = useState<VoiceUpdate[]>([]);
   const [engine, setEngine] = useState<WorkerHeartbeat | null>(null);
+  const [profile, setProfile] = useState<{ notifyHour: number; fcmTokens: string[] }>({
+    notifyHour: 6,
+    fcmTokens: [],
+  });
   const [ready, setReady] = useState(false);
   const [needsBootstrap, setNeedsBootstrap] = useState(false);
   const [pendingInvite, setPendingInvite] = useState<PendingInvite | null>(null);
@@ -318,7 +331,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!uid) return;
     const { db } = firebase();
-    return onSnapshot(
+    // The person's own document: the hour they want the plan, and the devices
+    // subscribed to push. Nobody else can read it, so it is not a member field.
+    const stopProfile = onSnapshot(
+      doc(db, 'users', uid),
+      (snap) => {
+        const data = snap.data() ?? {};
+        setProfile({
+          notifyHour: typeof data.notifyHour === 'number' ? data.notifyHour : 6,
+          fcmTokens: Array.isArray(data.fcmTokens) ? (data.fcmTokens as string[]) : [],
+        });
+      },
+      () => undefined,
+    );
+    const stopMemberships = onSnapshot(
       collection(db, 'users', uid, 'memberships'),
       (snap) => {
         const list = snap.docs.map(
@@ -358,6 +384,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       (cause) => setError(cause.message),
     );
+    return () => {
+      stopProfile();
+      stopMemberships();
+    };
   }, [uid, user]);
 
   // Live subscriptions. Everything a screen shows updates without a refresh,
@@ -695,7 +725,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       email: m.email,
       initials: m.initials || initialsFrom(m.displayName),
       timezone: 'America/Costa_Rica',
-      notifyHour: 6,
+      notifyHour: id === uid ? profile.notifyHour : 6,
       locale: 'es',
       theme: 'system',
       reduceTransparency: false,
@@ -1142,6 +1172,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
 
+      notifyHour: profile.notifyHour,
+      setNotifyHour: (hour) => {
+        if (!uid) return;
+        const { db } = firebase();
+        void updateDoc(doc(db, 'users', uid), { notifyHour: hour }).catch((cause: unknown) =>
+          setError(cause instanceof Error ? cause.message : String(cause)),
+        );
+      },
+      pushEnabled: (() => {
+        const token = currentPushToken();
+        return Boolean(token && profile.fcmTokens.includes(token));
+      })(),
+      enablePush: async () => (uid ? enablePush(uid) : 'unsupported'),
+      disablePush: async () => {
+        if (uid) await disablePush(uid);
+      },
+
       ask: async (question, history) => {
         if (!user || !companyId) throw new Error('not signed in');
         const token = await user.getIdToken();
@@ -1209,6 +1256,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     risks,
     situations,
     followUp,
+    profile,
     plan,
     planHistory,
     analyses,

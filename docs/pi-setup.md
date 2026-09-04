@@ -292,6 +292,45 @@ sudo systemctl enable --now truenorth-daily.timer
 systemctl list-timers truenorth-daily.timer
 ```
 
+### The reminder timer
+
+Push is sent by the same server, once per person per day, at the hour each
+person chose in *Ajustes*. A second timer calls the route every hour; the
+route only sends to people whose hour it is.
+
+`/etc/systemd/system/truenorth-notify.service`:
+
+```ini
+[Unit]
+Description=TrueNorth reminder push
+
+[Service]
+Type=oneshot
+User=truenorth
+EnvironmentFile=/etc/truenorth/env
+ExecStart=/usr/bin/curl -fsS --max-time 120 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" http://localhost:3000/api/push/hourly
+```
+
+`/etc/systemd/system/truenorth-notify.timer`:
+
+```ini
+[Unit]
+Description=Send the TrueNorth reminder to whoever chose this hour
+
+[Timer]
+OnCalendar=*-*-* *:05:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+```
+
+`Persistent=false` on purpose: a reminder that fires late is noise, not a
+reminder. Enable it like the daily timer. Push needs the person to have turned
+on *Aviso diario* on the phone, from the installed app — iOS delivers nothing to
+Safari — and `NEXT_PUBLIC_FIREBASE_VAPID_KEY` in the env (Firebase console →
+Cloud Messaging → Web Push certificates).
+
 ### Checking the engine
 
 Two routes exist for this, both behind the same token. The first talks to
@@ -391,6 +430,7 @@ A release is then: merge `main` into `production`, push, and run
 | Engine says Claude failed | `claude -p` by hand as the `truenorth` user; a signed-out session or an exhausted usage window both surface there. |
 | Firestore permission errors in the log | The service account is missing or not readable by the service user. |
 | "Insufficient permissions" in the app on a new screen | The rules in the repo were not deployed (§5b). |
+| No reminder arrived | Is the timer running (`systemctl list-timers truenorth-notify.timer`)? Was the toggle turned on from the installed app? `curl … /api/push/hourly?hour=<h>` reports sent/skipped/dead per run. |
 | *Seguimiento* is empty for an admin | The engine has not run today, or the company has nobody on the team but you. Members with `access: member` never see it. |
 | The engine ran but every message repeats yesterday's | It should not: identical signals are dropped in code. Check `followups/{date}_{uid}` in Firestore for what was actually written. |
 

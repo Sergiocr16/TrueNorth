@@ -153,6 +153,15 @@ server validates and the screen shows as a card. Nothing is written until you
 confirm, and a message is never sent from the app: it is copied. That is
 ADR-004 in practice: Claude interprets, code writes.
 
+## Reminders
+
+Reminders are push: one at the hour you choose with the day's headline, another
+when follow-ups are waiting, sent by `POST /api/push/hourly` from an hourly
+timer on the Pi. On iPhone they reach only the app installed to the home screen. A
+token identifies one device; turning the toggle on subscribes that device and
+records it on the user's document, and a token Firebase reports dead is
+dropped on the next send.
+
 ## Branches and deploying
 
 | Branch | Role |
