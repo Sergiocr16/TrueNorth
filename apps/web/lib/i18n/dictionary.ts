@@ -525,6 +525,15 @@ export const dictionary = {
       notion: 'Notion',
       app: 'TrueNorth',
     },
+
+    error: {
+      title: 'Esta pantalla se rompió',
+      body: 'Es un error de la app, no algo que hayas hecho mal. Tus datos están a salvo en Firebase; solo falló el dibujo de esta pantalla.',
+      cause: 'Causa',
+      reference: 'Referencia',
+      retry: 'Reintentar',
+      goToday: 'Ir a Hoy',
+    },
   },
 
   en: {
@@ -1045,6 +1054,15 @@ export const dictionary = {
       notion: 'Notion',
       app: 'TrueNorth',
     },
+
+    error: {
+      title: 'This screen broke',
+      body: 'This is a bug in the app, not something you did wrong. Your data is safe in Firebase; only the drawing of this screen failed.',
+      cause: 'Cause',
+      reference: 'Reference',
+      retry: 'Try again',
+      goToday: 'Go to Today',
+    },
   },
 } as const;
 
@@ -1054,9 +1072,21 @@ export function getDictionary(locale: Locale): Dictionary {
   return dictionary[locale] as Dictionary;
 }
 
-/** Costa Rica conventions: "jue 3 sep", 24-hour clock. */
+/** A date that is not set yet. A company starts empty, so this is normal. */
+const NO_DATE = '—';
+
+/**
+ * Costa Rica conventions: "jue 3 sep", 24-hour clock.
+ *
+ * A company now starts empty, so every date it holds — the north-star
+ * deadline, an objective's or a project's target — can be the empty string
+ * until somebody fills it in. `Intl.DateTimeFormat.format()` throws
+ * `RangeError: Invalid time value` on an invalid Date, and a throw here takes
+ * the whole screen down, so an unset date renders as a dash instead.
+ */
 export function formatShortDate(iso: string, locale: Locale): string {
   const date = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return NO_DATE;
   const formatted = new Intl.DateTimeFormat(locale === 'es' ? 'es-CR' : 'en-US', {
     weekday: 'short',
     day: 'numeric',
@@ -1065,8 +1095,10 @@ export function formatShortDate(iso: string, locale: Locale): string {
   return formatted.replace(/\.,?/g, '').replace(/,/g, '');
 }
 
+/** Zero when either date is unset, so an empty company reads as "0 days". */
 export function daysUntil(iso: string, from: string): number {
   const a = new Date(`${from}T00:00:00`).getTime();
   const b = new Date(`${iso}T00:00:00`).getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
   return Math.max(0, Math.round((b - a) / 86_400_000));
 }
