@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { Situation, Standing } from '@truenorth/core';
 import { todayIso } from '@truenorth/core';
 import { LargeTitle, Screen } from '../../components/shell';
-import { Avatar, Card, EmptyState, GlanceTile, SectionLabel, TextButton } from '../../components/ui';
+import { Avatar, Card, EmptyState, GlanceTile, PrimaryButton, SectionLabel, TextButton } from '../../components/ui';
 import {
   DateField,
   DestructiveRow,
@@ -35,8 +35,22 @@ export default function FollowUpsPage() {
   const store = useStore();
   const riskCount = useRiskCount();
   const [showDecided, setShowDecided] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
-  const { followUp, users } = store;
+  const { followUp, users, activeRole } = store;
+
+  const generate = () => {
+    if (!activeRole) return;
+    setGenerating(true);
+    setGenerateError(null);
+    store
+      .generateFollowUp(activeRole.id)
+      .catch((cause: unknown) =>
+        setGenerateError(cause instanceof Error ? cause.message : String(cause)),
+      )
+      .finally(() => setGenerating(false));
+  };
   const isManager = store.currentMembership.access !== 'member';
   const messages = followUp?.messages ?? [];
   const pending = messages.filter((m) => !followUp?.outcome?.[m.id]);
@@ -62,9 +76,26 @@ export default function FollowUpsPage() {
         <Card className="mx-4 mt-4">
           <EmptyState icon={<SendIcon size={34} />} title={t.followUps.title} body={t.followUps.notManager} />
         </Card>
+      ) : !followUp && activeRole ? (
+        <Card className="mx-4 mt-4">
+          <EmptyState
+            icon={<SendIcon size={34} />}
+            title={t.roles.noFollowUp(activeRole.name)}
+            body={generateError ? `${t.roles.generateFailed} ${generateError}` : t.roles.noFollowUpBody}
+            action={
+              <PrimaryButton onClick={generating ? undefined : generate}>
+                {generating ? t.roles.generating : t.roles.generate}
+              </PrimaryButton>
+            }
+          />
+        </Card>
       ) : !followUp ? (
         <Card className="mx-4 mt-4">
           <EmptyState icon={<SendIcon size={34} />} title={t.followUps.title} body={t.team.followUpNotYet} />
+        </Card>
+      ) : followUp.readings.length === 0 && followUp.messages.length === 0 ? (
+        <Card className="mx-4 mt-4">
+          <EmptyState icon={<SendIcon size={34} />} title={t.followUps.title} body={t.roles.nobodyInView} />
         </Card>
       ) : (
         <>

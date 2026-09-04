@@ -40,6 +40,16 @@ export const companyAnalysisSchema = z.object({
   perspectives: z.array(perspectiveSchema).length(5),
 });
 
+/**
+ * The morning call for one person in one role: their briefing and their plan
+ * together, from the same context (ADR-008). Composes the two contracts above
+ * rather than replacing them, so each keeps its own shape and its own ADR.
+ */
+export const personalBriefingSchema = z.object({
+  analysis: companyAnalysisSchema,
+  plan: dailyPlanSchema,
+});
+
 /* ------------------------------------------------------------------ */
 /* Team follow-up                                                      */
 /* ------------------------------------------------------------------ */
@@ -143,4 +153,5 @@ export type TeamFollowUpOutput = z.infer<typeof teamFollowUpSchema>;
 export type AskOutput = z.infer<typeof askSchema>;
 export type AskAction = z.infer<typeof askActionSchema>;
 export type CompanyAnalysisOutput = z.infer<typeof companyAnalysisSchema>;
+export type PersonalBriefingOutput = z.infer<typeof personalBriefingSchema>;
 export type VoiceInterpretationOutput = z.infer<typeof voiceInterpretationSchema>;

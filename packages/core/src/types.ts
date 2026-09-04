@@ -65,13 +65,45 @@ export interface Company {
   plans: { m3: string; m6: string; m12: string };
 }
 
+/**
+ * A role in the company: "CTO", "Ventas", "Soporte". Nothing is predefined;
+ * each company writes its own.
+ *
+ * A role is what decides scope. It names the Notion sources its holders may
+ * see, and everything the engine computes for a person — signals, briefing,
+ * plan, follow-up — is computed from the sources of the role they have on at
+ * the time. A person may hold several roles and switches between them; the
+ * app never mixes two roles' data in one view.
+ */
+export interface Role {
+  id: string;
+  companyId: string;
+  name: string;
+  /** What the role is responsible for, in prose. The engine reads it. */
+  description: string;
+  /** Notion sources this role sees. Empty means app-native records only. */
+  sourceIds: string[];
+  createdAt: string;
+}
+
 export interface Membership {
   userId: string;
   companyId: string;
-  /** Job title, e.g. "CTO". */
+  /**
+   * Derived: the names of this person's roles joined with " · ". Kept on the
+   * document because the company switcher and the prompts read it, but never
+   * edited by hand — the store rewrites it whenever roles or `roleIds` change.
+   */
   roleTitle: string;
-  /** Editable free text. This is what makes recommendations role-aware. */
+  /** This person's own responsibility, in free text, on top of what the role says. */
   roleDescription: string;
+  /** The roles this person holds. Assigned by an admin; at least one. */
+  roleIds: string[];
+  /**
+   * The role they have on right now. Only the person changes it, and only to
+   * one of their own. It decides what they see and what the engine computes.
+   */
+  activeRoleId: string | null;
   access: AccessLevel;
   /**
    * False for somebody on the team who does not use the app. Their member
@@ -143,6 +175,8 @@ export interface Project {
   progressPct: number;
   status: HealthStatus;
   source: RecordSource;
+  /** The Notion source this came from. Null for app-native projects. Written by the sync only. */
+  sourceId?: string | null;
   notionPageId?: string;
   /** Appended whenever `progressPct` changes. Empty means nothing to compare. */
   history?: Reading[];
@@ -168,6 +202,8 @@ export interface Task {
   assigneeUserIds: string[];
   dependsOn: string[];
   source: RecordSource;
+  /** The Notion source this came from. Null for app-native tasks. Written by the sync only. */
+  sourceId?: string | null;
   notionPageId?: string;
   syncedAt?: string;
 
@@ -202,6 +238,75 @@ export interface TaskComment {
   createdAt: string;
   /** `rich_text` flattened to plain text. */
   text: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Notion sources                                                      */
+/* ------------------------------------------------------------------ */
+
+export type NotionSourceKind = 'tasks' | 'projects';
+
+/**
+ * Which Notion property feeds which internal field, by the property's name as
+ * the database spells it. The empty string is a legal name: ADITUM's task
+ * number is a `unique_id` property with no name at all.
+ */
+export interface NotionPropertyMap {
+  /** type `title` */
+  title: string;
+  /** type `status` or `select` */
+  status: string;
+  /** type `people` */
+  assignee?: string;
+  /** type `date`; for projects the range gives start and target */
+  dueDate?: string;
+  /** type `select` */
+  priority?: string;
+  /** type `relation` to a source of kind `projects` */
+  project?: string;
+  /** type `relation` to the same database ("Tarea principal") → dependsOn */
+  parent?: string;
+  /** type `unique_id`, e.g. TAR-966 */
+  code?: string;
+  /** projects only: a rollup or number in percent */
+  progress?: string;
+}
+
+/**
+ * One Notion database the company reads. Registered by an admin from the
+ * Integrations screen, read by the sync on the server, and assigned to roles.
+ *
+ * Every database spells its properties and its statuses differently — ADITUM's
+ * backlog has "En desarrollo" where its task table has "En curso", and its test
+ * table keeps status in a plain select — so the mapping lives here, per source,
+ * not in a global constant.
+ */
+export interface NotionSource {
+  id: string;
+  companyId: string;
+  kind: NotionSourceKind;
+  /** Notion's title at registration; editable afterwards. */
+  title: string;
+  /** Dashed uuid of the database. */
+  databaseId: string;
+  /** Dashed uuid of the data source inside it; what the API is queried by. */
+  dataSourceId: string;
+  properties: NotionPropertyMap;
+  /** A `status` property carries groups; a `select` does not, so defaults differ. */
+  statusType: 'status' | 'select';
+  /** Notion option name → internal state. Complete for every option seen at registration. */
+  statusMap: Record<string, TaskStatus>;
+  /** Kind `projects` only. */
+  projectStatusMap?: Record<string, HealthStatus>;
+  priorityMap?: Record<string, Priority>;
+  /** Hash of `properties`; when it changes the next sync is a full one. */
+  mappingHash: string;
+  lastSyncAt: string | null;
+  lastFullSyncAt: string | null;
+  lastSyncError: string | null;
+  counts: { pages: number; open: number; unmatchedPeople: number };
+  createdBy: string;
+  createdAt: string;
 }
 
 export interface Risk {
@@ -308,6 +413,8 @@ export interface DailyPlan {
   id: string;
   companyId: string;
   userId: string;
+  /** The role this plan was computed for. One plan per person per role per day. */
+  roleId: string;
   date: string;
   headline: string;
   why: string;
@@ -325,9 +432,19 @@ export interface Perspective {
   reading: string;
 }
 
+/**
+ * The day's briefing for one person in one role. Once one per company; now
+ * one per person and role, computed from the sources that role sees, so two
+ * people never read a briefing built from data one of them cannot open.
+ */
 export interface CompanyAnalysis {
   id: string;
   companyId: string;
+  /** Whose briefing this is. The rules let only this person read it. */
+  userId: string;
+  roleId: string;
+  /** The Notion sources it was computed from, for the footer of the screen. */
+  sourceIds: string[];
   date: string;
   generatedAt: string;
   briefing: string;
@@ -409,8 +526,9 @@ export interface FollowUp {
 export interface TeamFollowUp {
   id: string;
   companyId: string;
-  /** Whose follow-up this is. One document per manager per day. */
+  /** Whose follow-up this is. One document per manager per role per day. */
   managerUid: string;
+  roleId: string;
   date: string;
   generatedAt: string;
   readings: TeamReading[];
@@ -490,6 +608,8 @@ export interface EngineRun {
   durationMs: number;
   costUsd: number;
   error: string | null;
+  /** The Notion sync that ran first, if it failed. The run goes on with yesterday's data. */
+  syncError?: string | null;
 }
 
 export interface WorkerHeartbeat {

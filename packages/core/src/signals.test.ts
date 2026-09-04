@@ -332,9 +332,10 @@ describe('ADITUM fixtures', () => {
 
 function plan(userId: string, date: string, feedback: DailyPlan['feedback'] = {}): DailyPlan {
   return {
-    id: `${date}_${userId}`,
+    id: `${date}_${userId}_r1`,
     companyId: 'c1',
     userId,
+    roleId: 'r1',
     date,
     headline: 'Headline',
     why: 'Why',

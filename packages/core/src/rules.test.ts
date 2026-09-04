@@ -57,12 +57,19 @@ async function seedCompany(companyId = 'c1', ownerUid = 'u_owner') {
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
     await db.doc(`companies/${companyId}`).set({ createdBy: ownerUid, name: 'ADITUM' });
+    await db.doc(`companies/${companyId}/roles/r_general`).set({
+      name: 'General',
+      description: '',
+      sourceIds: [],
+    });
     await db.doc(`companies/${companyId}/members/${ownerUid}`).set({
       displayName: 'Sergio',
       email: FOUNDER,
       initials: 'SC',
-      roleTitle: 'CTO',
+      roleTitle: 'General',
       roleDescription: '',
+      roleIds: ['r_general'],
+      activeRoleId: 'r_general',
       access: 'owner',
     });
   });
@@ -112,10 +119,11 @@ describe('bootstrap', () => {
 
     // This is the step that failed when the whole bootstrap was one batch.
     await assertSucceeds(db.doc('companies/c1/objectives/o1').set({ title: 'Meta' }));
+    await assertSucceeds(db.doc('companies/c1/roles/r1').set({ name: 'General', sourceIds: [] }));
     await assertSucceeds(
-      db.doc('companies/c1/projects/p1').set({ name: 'Proyecto', visibility: 'company' }),
+      db.doc('companies/c1/projects/p1').set({ name: 'Proyecto', visibility: 'company', source: 'app' }),
     );
-    await assertSucceeds(db.doc('companies/c1/tasks/t1').set({ title: 'Tarea' }));
+    await assertSucceeds(db.doc('companies/c1/tasks/t1').set({ title: 'Tarea', source: 'app' }));
     // A plan is not starting data: only the engine writes one, so a person
     // seeding their own is refused — that is what keeps Today honest.
     await assertFails(db.doc('companies/c1/plans/d_u1').set({ uid: 'u1', items: [] }));
@@ -160,11 +168,13 @@ describe('private projects', () => {
         name: 'Privado',
         visibility: 'private',
         memberUserIds: ['u_owner'],
+        source: 'app',
       });
       await db.doc('companies/c1/projects/p_open').set({
         name: 'Abierto',
         visibility: 'company',
         memberUserIds: ['u_owner'],
+        source: 'app',
       });
     });
   });
@@ -196,6 +206,7 @@ describe('private projects', () => {
     await assertSucceeds(
       as('u_owner', FOUNDER)
         .collection('companies/c1/projects')
+        .where('source', '==', 'app')
         .where('visibility', '==', 'company')
         .get(),
     );
@@ -205,7 +216,19 @@ describe('private projects', () => {
     await assertSucceeds(
       as('u_owner', FOUNDER)
         .collection('companies/c1/projects')
+        .where('source', '==', 'app')
         .where('memberUserIds', 'array-contains', 'u_owner')
+        .get(),
+    );
+  });
+
+  // The old query, without the source clause, can no longer be proven: a
+  // synced project with visibility 'company' is not readable by everyone.
+  it('refuses the visibility query without the source clause', async () => {
+    await assertFails(
+      as('u_owner', FOUNDER)
+        .collection('companies/c1/projects')
+        .where('visibility', '==', 'company')
         .get(),
     );
   });
@@ -294,6 +317,158 @@ describe('invitations', () => {
       as('u_peer', 'marco@aditumcr.com')
         .doc('companies/c1/members/u_peer')
         .set({ roleTitle: 'Desarrollo', access: 'member' }),
+    );
+  });
+});
+
+describe('roles and notion sources', () => {
+  const peer = () => as('u_peer', 'marco@aditumcr.com');
+
+  beforeEach(async () => {
+    await seedCompany();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await db.doc('companies/c1/roles/r_cto').set({ name: 'CTO', sourceIds: ['src_a'] });
+      await db.doc('companies/c1/roles/r_ventas').set({ name: 'Ventas', sourceIds: ['src_b'] });
+      await db.doc('companies/c1/notionSources/src_a').set({ title: 'Tareas Software', kind: 'tasks' });
+      await db.doc('companies/c1/notionSources/src_b').set({ title: 'Ventas', kind: 'tasks' });
+      await db.doc('companies/c1/members/u_peer').set({
+        displayName: 'Marco',
+        access: 'member',
+        roleIds: ['r_cto', 'r_ventas'],
+        activeRoleId: 'r_cto',
+      });
+      await db.doc('companies/c1/members/u_norole').set({ displayName: 'Nadie', access: 'member' });
+      await db.doc('companies/c1/tasks/t_a').set({ title: 'A', source: 'notion', sourceId: 'src_a' });
+      await db.doc('companies/c1/tasks/t_b').set({ title: 'B', source: 'notion', sourceId: 'src_b' });
+      await db.doc('companies/c1/tasks/t_app').set({ title: 'App', source: 'app' });
+      await db.doc('companies/c1/projects/p_a').set({
+        name: 'PA',
+        source: 'notion',
+        sourceId: 'src_a',
+        visibility: 'company',
+        memberUserIds: [],
+      });
+      await db.doc('companies/c1/projects/p_b').set({
+        name: 'PB',
+        source: 'notion',
+        sourceId: 'src_b',
+        visibility: 'company',
+        memberUserIds: [],
+      });
+    });
+  });
+
+  it('lets a person read a task from a source their active role reads', async () => {
+    await assertSucceeds(peer().doc('companies/c1/tasks/t_a').get());
+  });
+
+  it('hides a task from a source of a role they hold but do not have on', async () => {
+    await assertFails(peer().doc('companies/c1/tasks/t_b').get());
+  });
+
+  it('switching the active role swaps what is readable', async () => {
+    await assertSucceeds(peer().doc('companies/c1/members/u_peer').update({ activeRoleId: 'r_ventas' }));
+    await assertSucceeds(peer().doc('companies/c1/tasks/t_b').get());
+    await assertFails(peer().doc('companies/c1/tasks/t_a').get());
+  });
+
+  it('refuses putting on a role one does not hold, or editing the role list', async () => {
+    await assertFails(peer().doc('companies/c1/members/u_peer').update({ activeRoleId: 'r_general' }));
+    await assertFails(
+      peer().doc('companies/c1/members/u_peer').update({ roleIds: ['r_cto', 'r_ventas', 'r_general'] }),
+    );
+    await assertFails(
+      peer().doc('companies/c1/members/u_peer').update({ activeRoleId: 'r_ventas', roleDescription: 'x' }),
+    );
+  });
+
+  it('gives a person with no active role app records only', async () => {
+    const db = as('u_norole', 'nadie@aditumcr.com');
+    await assertSucceeds(db.doc('companies/c1/tasks/t_app').get());
+    await assertFails(db.doc('companies/c1/tasks/t_a').get());
+  });
+
+  it('accepts the per-source task query for a source on the active role', async () => {
+    await assertSucceeds(
+      peer()
+        .collection('companies/c1/tasks')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_a')
+        .get(),
+    );
+  });
+
+  it('refuses the per-source query for a source that is not on it', async () => {
+    await assertFails(
+      peer()
+        .collection('companies/c1/tasks')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_b')
+        .get(),
+    );
+  });
+
+  it('accepts the app-records task query and refuses an unfiltered listener', async () => {
+    await assertSucceeds(peer().collection('companies/c1/tasks').where('source', '==', 'app').get());
+    await assertFails(peer().collection('companies/c1/tasks').get());
+    // The source clause is what lets the rule be proven; without it, refused.
+    await assertFails(peer().collection('companies/c1/tasks').where('sourceId', '==', 'src_a').get());
+  });
+
+  it('hides a synced project whatever its visibility field says', async () => {
+    await assertSucceeds(peer().doc('companies/c1/projects/p_a').get());
+    await assertFails(peer().doc('companies/c1/projects/p_b').get());
+    await assertSucceeds(
+      peer()
+        .collection('companies/c1/projects')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_a')
+        .get(),
+    );
+    await assertFails(
+      peer()
+        .collection('companies/c1/projects')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_b')
+        .get(),
+    );
+  });
+
+  it('keeps Notion records out of the browser’s hands: no creating, no editing', async () => {
+    await assertFails(
+      peer().doc('companies/c1/tasks/t_new').set({ title: 'X', source: 'notion', sourceId: 'src_a' }),
+    );
+    await assertFails(peer().doc('companies/c1/tasks/t_a').update({ title: 'Renombrada' }));
+    await assertFails(peer().doc('companies/c1/projects/p_a').update({ name: 'Otro' }));
+    await assertSucceeds(peer().doc('companies/c1/tasks/t_new').set({ title: 'X', source: 'app' }));
+  });
+
+  it('lets a member read roles and sources but only an admin write them', async () => {
+    await assertSucceeds(peer().doc('companies/c1/roles/r_cto').get());
+    await assertSucceeds(peer().doc('companies/c1/notionSources/src_a').get());
+    await assertFails(peer().doc('companies/c1/roles/r_cto').update({ sourceIds: ['src_a', 'src_b'] }));
+    await assertFails(peer().doc('companies/c1/notionSources/src_c').set({ title: 'X' }));
+    await assertSucceeds(
+      as('u_owner', FOUNDER).doc('companies/c1/roles/r_nuevo').set({ name: 'Nuevo', sourceIds: [] }),
+    );
+    await assertSucceeds(
+      as('u_owner', FOUNDER).doc('companies/c1/members/u_peer').update({ roleIds: ['r_ventas'] }),
+    );
+  });
+
+  it('keeps a briefing with the person it was written for', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await ctx.firestore().doc('companies/c1/analyses/d_u_owner_r_cto').set({ uid: 'u_owner', briefing: 'x' });
+    });
+    await assertFails(peer().doc('companies/c1/analyses/d_u_owner_r_cto').get());
+    await assertSucceeds(as('u_owner', FOUNDER).doc('companies/c1/analyses/d_u_owner_r_cto').get());
+    await assertFails(as('u_owner', FOUNDER).collection('companies/c1/analyses').get());
+    await assertSucceeds(
+      as('u_owner', FOUNDER).collection('companies/c1/analyses').where('uid', '==', 'u_owner').get(),
+    );
+    await assertFails(
+      as('u_owner', FOUNDER).doc('companies/c1/analyses/d2').set({ uid: 'u_owner', briefing: 'y' }),
     );
   });
 });

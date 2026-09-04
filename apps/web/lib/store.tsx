@@ -28,6 +28,7 @@ import {
 import {
   atMidnight,
   computeSignals,
+  roleSourceIds,
   shiftIso,
   todayIso,
   healthFrom,
@@ -36,6 +37,8 @@ import {
   type DailyPlan,
   type Indicator,
   type Membership,
+  type NotionSource,
+  type Role,
   type AskAction,
   type CitedSignal,
   type FollowUpOutcome,
@@ -52,6 +55,7 @@ import {
   type VoiceUpdate,
   type WorkerHeartbeat,
 } from '@truenorth/core';
+import type { InspectResult, SyncReport } from '../server/notion/types';
 import { useAuth } from './auth';
 import { firebase } from './firebase';
 import { currentPushToken, disablePush, enablePush, type PushState } from './push';
@@ -111,6 +115,9 @@ interface MemberDoc {
   initials: string;
   roleTitle: string;
   roleDescription: string;
+  /** Absent on documents written before roles existed. */
+  roleIds?: string[];
+  activeRoleId?: string | null;
   access: Membership['access'];
   /** Absent means true: an account. False is a person on the team without one. */
   hasAccount?: boolean;
@@ -143,7 +150,17 @@ export interface PendingInvite {
   companyId: string;
   companyName: string;
   roleTitle: string;
+  /** The roles the inviter chose. Absent on invitations written before roles existed. */
+  roleIds?: string[];
   access: Membership['access'];
+}
+
+/** The names of a person's roles, joined, which is what `roleTitle` now is. */
+export function roleTitleFor(roleIds: string[], roles: Pick<Role, 'id' | 'name'>[]): string {
+  return roleIds
+    .map((id) => roles.find((r) => r.id === id)?.name)
+    .filter((name): name is string => Boolean(name))
+    .join(' · ');
 }
 
 interface StoreValue {
@@ -164,6 +181,14 @@ interface StoreValue {
   company: Company;
   users: User[];
   memberships: Membership[];
+  /** The company's roles. Everybody sees the list; admins shape it. */
+  roles: Role[];
+  /** The registered Notion databases. */
+  sources: NotionSource[];
+  /** The role I have on, which decides what I see. Null between roles. */
+  activeRole: Role | null;
+  /** The sources my active role reads. */
+  activeSourceIds: string[];
   objectives: Objective[];
   projects: Project[];
   tasks: Task[];
@@ -199,7 +224,21 @@ interface StoreValue {
 
   updateMembership: (userId: string, patch: Partial<Membership> & { displayName?: string }) => void;
   /** Adds somebody to the team who does not use the app. Admins only. */
-  addPerson: (person: { displayName: string; roleTitle: string; roleDescription: string; expectations: string }) => void;
+  addPerson: (person: { displayName: string; roleIds: string[]; roleDescription: string; expectations: string }) => void;
+  /** Puts on one of my roles. Everything I see follows it. */
+  setActiveRole: (roleId: string) => void;
+  upsertRole: (role: Role) => void;
+  /** Removes a role and takes it off everybody who held it. */
+  deleteRole: (id: string) => void;
+  upsertSource: (source: NotionSource) => void;
+  /** Removes a registered database and takes it off every role. Its records go on the next sync. */
+  deleteSource: (id: string) => void;
+  /** Reads a database's schema on the server and suggests a mapping. Admins only. */
+  inspectDatabase: (input: string, dataSourceId?: string) => Promise<InspectResult>;
+  /** Runs the Notion sync now, for one source or all. Admins only. */
+  syncNow: (options?: { sourceId?: string; full?: boolean }) => Promise<SyncReport[]>;
+  /** Asks the engine for today's follow-up in a role, e.g. after switching to it. */
+  generateFollowUp: (roleId: string) => Promise<void>;
   /** Removes a person without an account. Accounts are removed by revoking access, not here. */
   removePerson: (memberId: string) => void;
 
@@ -229,10 +268,10 @@ interface StoreValue {
   /** Joins the company that invited this address. */
   acceptInvite: () => Promise<void>;
   /** Shares this company with somebody who already has an account. */
-  inviteMember: (email: string, roleTitle: string, access: Membership['access']) => Promise<void>;
+  inviteMember: (email: string, roleIds: string[], access: Membership['access']) => Promise<void>;
   resetToSeed: () => Promise<void>;
-  /** Asks the engine on this server to recompute my plan for today. */
-  replan: () => Promise<void>;
+  /** Asks the engine on this server to recompute my plan for today, in a role (mine by default). */
+  replan: (roleId?: string) => Promise<void>;
 
   /** Local hour at which this person wants the plan announced. */
   notifyHour: number;
@@ -264,11 +303,12 @@ const EMPTY_COMPANY: Company = {
   plans: { m3: '', m6: '', m12: '' },
 };
 
-function emptyPlan(companyId: string, userId: string): DailyPlan {
+function emptyPlan(companyId: string, userId: string, roleId: string): DailyPlan {
   return {
-    id: `${TODAY}_${userId}`,
+    id: `${TODAY}_${userId}_${roleId}`,
     companyId,
     userId,
+    roleId,
     date: TODAY,
     headline: '',
     why: '',
@@ -285,11 +325,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [company, setCompany] = useState<Company>(EMPTY_COMPANY);
   const [members, setMembers] = useState<Record<string, MemberDoc>>({});
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [sources, setSources] = useState<NotionSource[]>([]);
   const [objectives, setObjectives] = useState<Objective[]>([]);
-  // Projects arrive from two queries; see the listeners below for why.
+  // App projects arrive from two queries; see the listeners below for why.
   const [sharedProjects, setSharedProjects] = useState<Project[]>([]);
   const [ownProjects, setOwnProjects] = useState<Project[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [appTasks, setAppTasks] = useState<Task[]>([]);
+  // Notion records arrive one listener per source the active role reads.
+  const [sourceTasks, setSourceTasks] = useState<Record<string, Task[]>>({});
+  const [sourceProjects, setSourceProjects] = useState<Record<string, Project[]>>({});
   const [risks, setRisks] = useState<Risk[]>([]);
   const [situations, setSituations] = useState<Situation[]>([]);
   const [followUp, setFollowUp] = useState<TeamFollowUp | null>(null);
@@ -431,28 +476,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         fail,
       ),
       onSnapshot(
+        collection(base, 'roles'),
+        (snap) => setRoles(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Role)),
+        fail,
+      ),
+      onSnapshot(
+        collection(base, 'notionSources'),
+        (snap) => setSources(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as NotionSource)),
+        fail,
+      ),
+      onSnapshot(
         collection(base, 'objectives'),
         (snap) => setObjectives(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Objective)),
         fail,
       ),
-      // Two listeners, not one. Firestore rules are not filters: a rule that
-      // inspects the document rejects any query it cannot prove safe, so an
-      // unfiltered listener on this collection is refused. Each query below
-      // matches one branch of the read rule, and the results are merged.
+      // Filtered listeners, not one. Firestore rules are not filters: a rule
+      // that inspects the document rejects any query it cannot prove safe, so
+      // an unfiltered listener on these collections is refused. Each query
+      // below matches one branch of the read rule, and the results are merged.
+      // Notion records come through the per-source listeners further down.
       onSnapshot(
-        query(collection(base, 'projects'), where('visibility', '==', 'company')),
+        query(
+          collection(base, 'projects'),
+          where('source', '==', 'app'),
+          where('visibility', '==', 'company'),
+        ),
         (snap) =>
           setSharedProjects(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Project)),
         fail,
       ),
       onSnapshot(
-        query(collection(base, 'projects'), where('memberUserIds', 'array-contains', uid)),
+        query(
+          collection(base, 'projects'),
+          where('source', '==', 'app'),
+          where('memberUserIds', 'array-contains', uid),
+        ),
         (snap) => setOwnProjects(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Project)),
         fail,
       ),
       onSnapshot(
-        collection(base, 'tasks'),
-        (snap) => setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task)),
+        query(collection(base, 'tasks'), where('source', '==', 'app')),
+        (snap) => setAppTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task)),
         fail,
       ),
       onSnapshot(
@@ -473,8 +537,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setPlanHistory(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as DailyPlan)),
         () => setPlanHistory([]),
       ),
+      // My own briefings, one per role per day. Filtered by uid because the
+      // read rule inspects it; the active role is picked out client-side.
       onSnapshot(
-        query(collection(base, 'analyses'), orderBy('date', 'desc'), limit(120)),
+        query(
+          collection(base, 'analyses'),
+          where('uid', '==', uid),
+          orderBy('date', 'desc'),
+          limit(120),
+        ),
         (snap) =>
           setAnalyses(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as CompanyAnalysis)),
         () => setAnalyses([]),
@@ -486,18 +557,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         (snap) =>
           setSituations(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Situation)),
         () => setSituations([]),
-      ),
-      onSnapshot(
-        doc(base, 'followups', `${TODAY}_${uid}`),
-        (snap) =>
-          setFollowUp(snap.exists() ? ({ id: snap.id, ...snap.data() } as TeamFollowUp) : null),
-        () => setFollowUp(null),
-      ),
-      onSnapshot(
-        doc(base, 'plans', `${TODAY}_${uid}`),
-        (snap) => setPlan(snap.exists() ? ({ id: snap.id, ...snap.data() } as DailyPlan) : null),
-        // A missing plan is normal before the engine has run; do not shout.
-        () => setPlan(null),
       ),
       onSnapshot(
         doc(db, 'workers', WORKER_ID),
@@ -525,6 +584,91 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     return () => subs.forEach((unsubscribe) => unsubscribe());
   }, [uid, companyId]);
+
+  // The role I have on, and the sources it reads. Derived here because the
+  // listeners below depend on it: switching roles re-subscribes.
+  const activeRoleId = uid ? (members[uid]?.activeRoleId ?? null) : null;
+  const activeRole = useMemo(
+    () => roles.find((r) => r.id === activeRoleId) ?? null,
+    [roles, activeRoleId],
+  );
+  const activeSourceIds = useMemo(
+    () => [...roleSourceIds(activeRole, sources)].sort(),
+    [activeRole, sources],
+  );
+  const activeSourceKey = activeSourceIds.join(',');
+
+  // One listener per source the active role reads, for tasks and projects.
+  // The rule reads the caller's active role, so a source that is not on it
+  // would be refused — and a source that leaves the role drops out here.
+  useEffect(() => {
+    if (!uid || !companyId) return;
+    const { db } = firebase();
+    const base = doc(db, 'companies', companyId);
+    const ids = activeSourceKey ? activeSourceKey.split(',') : [];
+    setSourceTasks({});
+    setSourceProjects({});
+
+    const subs = ids.flatMap((sourceId) => [
+      onSnapshot(
+        query(
+          collection(base, 'tasks'),
+          where('source', '==', 'notion'),
+          where('sourceId', '==', sourceId),
+        ),
+        (snap) =>
+          setSourceTasks((current) => ({
+            ...current,
+            [sourceId]: snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task),
+          })),
+        // Refused means the role no longer reads it; empty, do not shout.
+        () => setSourceTasks((current) => ({ ...current, [sourceId]: [] })),
+      ),
+      onSnapshot(
+        query(
+          collection(base, 'projects'),
+          where('source', '==', 'notion'),
+          where('sourceId', '==', sourceId),
+        ),
+        (snap) =>
+          setSourceProjects((current) => ({
+            ...current,
+            [sourceId]: snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Project),
+          })),
+        () => setSourceProjects((current) => ({ ...current, [sourceId]: [] })),
+      ),
+    ]);
+    return () => subs.forEach((unsubscribe) => unsubscribe());
+  }, [uid, companyId, activeSourceKey]);
+
+  // Today's plan and follow-up, for the role I have on. One document per
+  // person per role per day; switching roles switches documents.
+  useEffect(() => {
+    if (!uid || !companyId) return;
+    const { db } = firebase();
+    const base = doc(db, 'companies', companyId);
+    if (!activeRoleId) {
+      setPlan(null);
+      setFollowUp(null);
+      return;
+    }
+    const suffix = `${TODAY}_${uid}_${activeRoleId}`;
+    const subs = [
+      onSnapshot(
+        doc(base, 'followups', suffix),
+        (snap) =>
+          setFollowUp(snap.exists() ? ({ id: snap.id, ...snap.data() } as TeamFollowUp) : null),
+        () => setFollowUp(null),
+      ),
+      onSnapshot(
+        doc(base, 'plans', suffix),
+        (snap) => setPlan(snap.exists() ? ({ id: snap.id, ...snap.data() } as DailyPlan) : null),
+        // A missing plan is normal before the engine has run; do not shout.
+        () => setPlan(null),
+      ),
+    ];
+    return () => subs.forEach((unsubscribe) => unsubscribe());
+  }, [uid, companyId, activeRoleId]);
 
   const write = useCallback(
     (fn: (db: Firestore, cid: string) => Promise<unknown>) => {
@@ -568,24 +712,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       plans: { m3: '', m6: '', m12: '' },
     });
 
-    // 2. Their own membership, so `isMember(cid)` holds from here on.
+    // 2. Their own membership, so `isMember(cid)` holds from here on. It
+    //    names a role that is written right after: the rules do not check
+    //    the role exists, and creating the role first would need admin
+    //    access, which needs this document.
     const displayName = user.displayName ?? user.email?.split('@')[0] ?? 'Sin nombre';
+    const roleId = newId('r');
     await setDoc(doc(base, 'members', uid), {
       displayName,
       email: user.email ?? '',
       initials: initialsFrom(displayName),
-      roleTitle: '',
+      roleTitle: 'General',
       roleDescription: '',
+      roleIds: [roleId],
+      activeRoleId: roleId,
       access: 'owner',
       hasAccount: true,
       expectations: '',
     });
 
-    // 3. The mirror that makes this company findable on the next sign-in. A
+    // 3. One role with no Notion sources, so the app is useful before any
+    //    database is registered. Rename it, add sources, or add more roles.
+    await setDoc(doc(base, 'roles', roleId), {
+      companyId: cid,
+      name: 'General',
+      description: '',
+      sourceIds: [],
+      createdAt: new Date().toISOString(),
+    });
+
+    // 4. The mirror that makes this company findable on the next sign-in. A
     //    trigger takes this over once Cloud Functions exist.
     await setDoc(doc(db, 'users', uid, 'memberships', cid), {
       companyName: 'ADITUM',
-      roleTitle: '',
+      roleTitle: 'General',
       access: 'owner',
     });
 
@@ -598,12 +758,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setNeedsBootstrap(false);
   }, [uid, user]);
 
-  // Merge the two project queries, keeping one entry per id.
+  // Merge the app queries and the per-source ones, keeping one entry per id.
   const projects = useMemo(() => {
     const byId = new Map<string, Project>();
-    for (const project of [...sharedProjects, ...ownProjects]) byId.set(project.id, project);
+    for (const project of [...sharedProjects, ...ownProjects, ...Object.values(sourceProjects).flat()]) {
+      byId.set(project.id, project);
+    }
     return [...byId.values()];
-  }, [sharedProjects, ownProjects]);
+  }, [sharedProjects, ownProjects, sourceProjects]);
+
+  const tasks = useMemo(() => {
+    const byId = new Map<string, Task>();
+    for (const task of [...appTasks, ...Object.values(sourceTasks).flat()]) byId.set(task.id, task);
+    return [...byId.values()];
+  }, [appTasks, sourceTasks]);
 
   const value = useMemo<StoreValue>(() => {
     const today = new Date(`${TODAY}T00:00:00`);
@@ -624,8 +792,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const memberships: Membership[] = Object.entries(members).map(([id, m]) => ({
       userId: id,
       companyId,
-      roleTitle: m.roleTitle,
+      roleTitle: roleTitleFor(m.roleIds ?? [], roles) || m.roleTitle,
       roleDescription: m.roleDescription,
+      roleIds: m.roleIds ?? [],
+      activeRoleId: m.activeRoleId ?? null,
       access: m.access,
       hasAccount: m.hasAccount ?? true,
       expectations: typeof m.expectations === 'string' ? m.expectations : '',
@@ -654,13 +824,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         companyId: companyId ?? '',
         roleTitle: '',
         roleDescription: '',
+        roleIds: [],
+        activeRoleId: null,
         access: 'member',
         hasAccount: true,
         expectations: '',
       } satisfies Membership);
 
+    // Already scoped: the listeners only ever hold what the active role reads.
     const signals = computeSignals({ today, objectives, projects, tasks, users });
-    const currentPlan = plan ?? emptyPlan(companyId ?? '', uid ?? '');
+    const currentPlan = plan ?? emptyPlan(companyId ?? '', uid ?? '', activeRoleId ?? '');
+    const roleAnalyses = activeRoleId
+      ? analyses.filter((a) => a.roleId === activeRoleId)
+      : analyses;
+    const rolePlanHistory = activeRoleId
+      ? planHistory.filter((p) => p.roleId === activeRoleId)
+      : planHistory;
+
+    /** Everybody who holds a role, with their title rewritten. */
+    const retitle = (db: Firestore, cid: string, batch: ReturnType<typeof writeBatch>, nextRoles: Role[]) => {
+      for (const [id, m] of Object.entries(members)) {
+        const title = roleTitleFor(m.roleIds ?? [], nextRoles);
+        if (title !== m.roleTitle) batch.update(doc(db, 'companies', cid, 'members', id), { roleTitle: title });
+      }
+    };
 
     return {
       ready,
@@ -674,6 +861,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       company,
       users,
       memberships,
+      roles,
+      sources,
+      activeRole,
+      activeSourceIds,
       objectives,
       projects,
       tasks,
@@ -681,8 +872,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       situations,
       followUp,
       plan: currentPlan,
-      planHistory,
-      analyses,
+      planHistory: rolePlanHistory,
+      analyses: roleAnalyses,
       voiceUpdates,
       engine,
       currentUser,
@@ -796,9 +987,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }),
 
       updateMembership: (userId, patch) =>
-        write((db, cid) =>
-          updateDoc(doc(db, 'companies', cid, 'members', userId), {
-            ...(patch.roleTitle !== undefined ? { roleTitle: patch.roleTitle } : {}),
+        write((db, cid) => {
+          const current = members[userId];
+          const roleIds = patch.roleIds ?? current?.roleIds ?? [];
+          // The active role must stay one of theirs; if it was just taken
+          // away, the first remaining one goes on.
+          const active = current?.activeRoleId ?? null;
+          const nextActive =
+            patch.roleIds !== undefined && (!active || !roleIds.includes(active))
+              ? (roleIds[0] ?? null)
+              : undefined;
+          return updateDoc(doc(db, 'companies', cid, 'members', userId), {
+            ...(patch.roleIds !== undefined
+              ? { roleIds, roleTitle: roleTitleFor(roleIds, roles) }
+              : {}),
+            ...(nextActive !== undefined ? { activeRoleId: nextActive } : {}),
             ...(patch.roleDescription !== undefined
               ? { roleDescription: patch.roleDescription }
               : {}),
@@ -809,8 +1012,104 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ...(patch.displayName !== undefined
               ? { displayName: patch.displayName, initials: initialsFrom(patch.displayName) }
               : {}),
-          }),
-        ),
+          });
+        }),
+
+      setActiveRole: (roleId) => {
+        if (!uid || !currentMembership.roleIds.includes(roleId)) return;
+        write((db, cid) =>
+          updateDoc(doc(db, 'companies', cid, 'members', uid), { activeRoleId: roleId }),
+        );
+      },
+
+      upsertRole: (role) =>
+        write(async (db, cid) => {
+          const { id, ...rest } = role;
+          const batch = writeBatch(db);
+          batch.set(doc(db, 'companies', cid, 'roles', id), { ...rest, companyId: cid });
+          retitle(db, cid, batch, [...roles.filter((r) => r.id !== id), role]);
+          return batch.commit();
+        }),
+
+      deleteRole: (id) =>
+        write(async (db, cid) => {
+          const batch = writeBatch(db);
+          batch.delete(doc(db, 'companies', cid, 'roles', id));
+          const remaining = roles.filter((r) => r.id !== id);
+          for (const [memberId, m] of Object.entries(members)) {
+            const held = m.roleIds ?? [];
+            if (!held.includes(id)) continue;
+            const roleIds = held.filter((r) => r !== id);
+            batch.update(doc(db, 'companies', cid, 'members', memberId), {
+              roleIds,
+              roleTitle: roleTitleFor(roleIds, remaining),
+              ...(m.activeRoleId === id ? { activeRoleId: roleIds[0] ?? null } : {}),
+            });
+          }
+          return batch.commit();
+        }),
+
+      upsertSource: (source) =>
+        write((db, cid) => {
+          const { id, ...rest } = source;
+          return setDoc(doc(db, 'companies', cid, 'notionSources', id), { ...rest, companyId: cid });
+        }),
+
+      deleteSource: (id) =>
+        write(async (db, cid) => {
+          const batch = writeBatch(db);
+          batch.delete(doc(db, 'companies', cid, 'notionSources', id));
+          for (const role of roles) {
+            if (role.sourceIds.includes(id)) {
+              batch.update(doc(db, 'companies', cid, 'roles', role.id), {
+                sourceIds: role.sourceIds.filter((s) => s !== id),
+              });
+            }
+          }
+          return batch.commit();
+        }),
+
+      inspectDatabase: async (input, dataSourceId) => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const response = await fetch('/api/notion/inspect', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId, input, dataSourceId }),
+        });
+        const body = (await response.json().catch(() => ({}))) as InspectResult & { error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body;
+      },
+
+      syncNow: async (options = {}) => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const params = new URLSearchParams({ company: companyId });
+        if (options.sourceId) params.set('source', options.sourceId);
+        if (options.full) params.set('full', '1');
+        const response = await fetch(`/api/notion/sync?${params.toString()}`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const body = (await response.json().catch(() => ({}))) as { reports?: SyncReport[]; error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body.reports ?? [];
+      },
+
+      generateFollowUp: async (roleId) => {
+        if (!user || !companyId) return;
+        const token = await user.getIdToken();
+        const response = await fetch('/api/engine/followup', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId, roleId }),
+        });
+        if (!response.ok) {
+          const body = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `HTTP ${response.status}`);
+        }
+      },
 
       upsertRisk: (risk) =>
         write((db, cid) => {
@@ -828,8 +1127,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             displayName: person.displayName,
             email: '',
             initials: initialsFrom(person.displayName),
-            roleTitle: person.roleTitle,
+            roleTitle: roleTitleFor(person.roleIds, roles),
             roleDescription: person.roleDescription,
+            roleIds: person.roleIds,
+            activeRoleId: person.roleIds[0] ?? null,
             access: 'member',
             hasAccount: false,
             expectations: person.expectations,
@@ -938,18 +1239,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
 
         const displayName = user.displayName ?? user.email?.split('@')[0] ?? 'Sin nombre';
+        const roleId = newId('r');
         await setDoc(doc(db, 'companies', cid, 'members', uid), {
           displayName,
           email: user.email ?? '',
           initials: initialsFrom(displayName),
-          roleTitle: currentMembership.roleTitle || 'Owner',
+          roleTitle: 'General',
           roleDescription: '',
+          roleIds: [roleId],
+          activeRoleId: roleId,
           access: 'owner',
+          hasAccount: true,
+          expectations: '',
+        });
+        await setDoc(doc(db, 'companies', cid, 'roles', roleId), {
+          companyId: cid,
+          name: 'General',
+          description: '',
+          sourceIds: [],
+          createdAt: new Date().toISOString(),
         });
 
         await setDoc(doc(db, 'users', uid, 'memberships', cid), {
           companyName: name.trim(),
-          roleTitle: currentMembership.roleTitle || 'Owner',
+          roleTitle: 'General',
           access: 'owner',
         });
 
@@ -996,9 +1309,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setCompany(EMPTY_COMPANY);
         setMembers({});
         setObjectives([]);
+        setRoles([]);
+        setSources([]);
         setSharedProjects([]);
         setOwnProjects([]);
-        setTasks([]);
+        setAppTasks([]);
+        setSourceTasks({});
+        setSourceProjects({});
         setRisks([]);
         setSituations([]);
         setFollowUp(null);
@@ -1020,13 +1337,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Redeeming is three writes: the member document the rules key access
         // off, the mirror that makes the company findable next time, and the
         // invitation itself, which is consumed.
+        const roleIds = pendingInvite.roleIds ?? [];
         await setDoc(doc(db, 'companies', cid, 'members', uid), {
           displayName,
           email: user.email ?? '',
           initials: initialsFrom(displayName),
           roleTitle: pendingInvite.roleTitle,
           roleDescription: '',
+          roleIds,
+          activeRoleId: roleIds[0] ?? null,
           access: pendingInvite.access,
+          hasAccount: true,
+          expectations: '',
         });
         await setDoc(doc(db, 'users', uid, 'memberships', cid), {
           companyName: pendingInvite.companyName,
@@ -1047,7 +1369,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setNeedsBootstrap(false);
       },
 
-      inviteMember: async (inviteEmail, roleTitle, access) => {
+      inviteMember: async (inviteEmail, roleIds, access) => {
         if (!companyId || !uid) return;
         const { db } = firebase();
         const address = inviteEmail.trim().toLowerCase();
@@ -1055,7 +1377,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           email: address,
           companyId,
           companyName: company.name,
-          roleTitle,
+          roleTitle: roleTitleFor(roleIds, roles),
+          roleIds,
           access,
           invitedBy: uid,
           createdAt: serverTimestamp(),
@@ -1092,7 +1415,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return body;
       },
 
-      replan: async () => {
+      replan: async (roleId) => {
         if (!user || !companyId) return;
         // The route verifies this token with the Admin SDK and checks membership
         // itself; the client only proves who is asking.
@@ -1100,7 +1423,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const response = await fetch('/api/engine/replan', {
           method: 'POST',
           headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ companyId }),
+          body: JSON.stringify({ companyId, roleId: roleId ?? activeRoleId }),
         });
         if (!response.ok) {
           const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -1114,8 +1437,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const batch = writeBatch(db);
         const base = doc(db, 'companies', companyId);
         for (const objective of objectives) batch.delete(doc(base, 'objectives', objective.id));
-        for (const project of projects) batch.delete(doc(base, 'projects', project.id));
-        for (const task of tasks) batch.delete(doc(base, 'tasks', task.id));
+        // Only app records: the browser may not touch what the sync wrote, and
+        // this company is abandoned on the next bootstrap anyway.
+        for (const project of projects) {
+          if (project.source === 'app') batch.delete(doc(base, 'projects', project.id));
+        }
+        for (const task of tasks) {
+          if (task.source === 'app') batch.delete(doc(base, 'tasks', task.id));
+        }
+        for (const role of roles) batch.delete(doc(base, 'roles', role.id));
+        for (const source of sources) batch.delete(doc(base, 'notionSources', source.id));
         for (const risk of risks) batch.delete(doc(base, 'risks', risk.id));
         for (const situation of situations) batch.delete(doc(base, 'situations', situation.id));
         // The sample people go too; accounts stay, they are not sample data.
@@ -1140,6 +1471,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     error,
     company,
     members,
+    roles,
+    sources,
+    activeRole,
+    activeRoleId,
+    activeSourceIds,
     objectives,
     projects,
     tasks,
@@ -1210,6 +1546,18 @@ export function makeProject(companyId: string, ownerUserId: string): Project {
     progressPct: 0,
     status: 'on_track',
     source: 'app',
+    sourceId: null,
+  };
+}
+
+export function makeRole(companyId: string): Role {
+  return {
+    id: newId('r'),
+    companyId,
+    name: '',
+    description: '',
+    sourceIds: [],
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -1242,6 +1590,7 @@ export function makeTask(companyId: string, projectId: string | null): Task {
     assigneeUserIds: [],
     dependsOn: [],
     source: 'app',
+    sourceId: null,
   };
 }
 

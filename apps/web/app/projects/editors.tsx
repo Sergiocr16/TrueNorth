@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { Priority, Project, ProjectVisibility, Task, TaskStatus } from '@truenorth/core';
-import { NOTION_TASK_STATUS, taskStatusFromNotion } from '@truenorth/core';
+import { statusFor, statusOptionsFor } from '@truenorth/core';
 import {
   ChipSelectField,
   DateField,
@@ -236,7 +236,11 @@ export function TaskEditor({
   const [draft, setDraft] = useState<Task>(task);
   const [confirming, arm, disarm] = useConfirm();
 
-  const notionStatuses = Object.keys(NOTION_TASK_STATUS);
+  // A Notion task shows its own database's labels, and is not saved from
+  // here: it lives in Notion, and the rules refuse the write anyway.
+  const notionStatuses = statusOptionsFor(draft, store.sources);
+  const fromNotion = draft.source === 'notion';
+  const source = store.sources.find((s) => s.id === draft.sourceId);
   const internalOptions: { value: TaskStatus; label: string }[] = (
     ['todo', 'in_progress', 'blocked', 'done'] as const
   ).map((value) => ({ value, label: t.taskStatus[value] }));
@@ -255,7 +259,7 @@ export function TaskEditor({
       }
       onCancel={onCancel}
       onSave={() => onSave(draft)}
-      canSave={draft.title.trim().length > 0}
+      canSave={!fromNotion && draft.title.trim().length > 0}
     >
       <FieldGroup>
         <TextField
@@ -275,13 +279,7 @@ export function TaskEditor({
 
       <FieldGroup
         header={locale === 'es' ? 'Estado' : 'Status'}
-        footer={
-          draft.source === 'notion'
-            ? locale === 'es'
-              ? 'Esta tarea vive en Notion. Al guardar, el estado se escribe también en su página.'
-              : 'This task lives in Notion. Saving writes the status to its page too.'
-            : undefined
-        }
+        footer={fromNotion ? t.integrations.editedInNotion : undefined}
       >
         {draft.source === 'notion' ? (
           <SelectField
@@ -292,7 +290,7 @@ export function TaskEditor({
               setDraft({
                 ...draft,
                 notionStatus,
-                status: taskStatusFromNotion(notionStatus),
+                status: source ? statusFor(source, notionStatus) : draft.status,
               })
             }
           />

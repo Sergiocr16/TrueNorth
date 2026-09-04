@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import type { HealthStatus, Task, TaskStatus, User } from '@truenorth/core';
 import { idleDays, isOverdue, notionUrl } from '@truenorth/core';
 import { usePreferences, useT } from '../lib/preferences';
+import { useStore } from '../lib/store';
 import { formatShortDate } from '../lib/i18n/dictionary';
 import { Chevron, CheckIcon, NotionMark, SmallTriangle, WarningTriangle } from './icons';
 import { Overlay } from './overlay';
@@ -162,13 +163,20 @@ export function TaskStatusPill({ status, label }: { status: TaskStatus; label?: 
   );
 }
 
-export function SourceBadge({ source }: { source: 'app' | 'notion' }) {
+/** Where a record came from: the app, or a named Notion database. */
+export function SourceBadge({ source, title }: { source: 'app' | 'notion'; title?: string }) {
   const t = useT();
   return (
     <span className="inline-flex items-center rounded-md bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--sec)]">
-      {source === 'notion' ? t.common.notion : t.common.app}
+      {source === 'notion' ? (title ?? t.common.notion) : t.common.app}
     </span>
   );
+}
+
+/** The title of a record's Notion source, when it has one the store knows. */
+export function useSourceTitle(sourceId: string | null | undefined): string | undefined {
+  const { sources } = useStore();
+  return sourceId ? sources.find((s) => s.id === sourceId)?.title : undefined;
 }
 
 export function Avatar({ initials, size = 44 }: { initials: string; size?: number }) {
@@ -209,6 +217,7 @@ export function TaskLine({
 }) {
   const t = useT();
   const { locale } = usePreferences();
+  const sourceTitle = useSourceTitle(task.sourceId);
 
   const notion = notionUrl(task.notionPageId);
   // Everybody responsible, as Notion has it. The first gets a name; the rest
@@ -264,6 +273,7 @@ export function TaskLine({
             </span>
           </span>
         ) : null}
+        {sourceTitle ? <SourceBadge source="notion" title={sourceTitle} /> : null}
       </div>
 
       {showActivity && activity.length > 0 ? (

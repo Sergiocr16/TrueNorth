@@ -106,11 +106,11 @@ npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/cor
 | `/company` | North star, target date, 3/6/12-month plans, overall status |
 | `/objectives` | Objectives with indicators and the expected-vs-actual gap |
 | `/projects` | Projects with a health strip and filters; each with objectives, tasks by status, dependencies |
-| `/team` | Who is on the team, with or without an account: role, responsibility, what you expect of them |
+| `/team` | The company's roles (each reading its Notion databases) and who holds which; people with or without an account, their responsibility, what you expect of them |
 | `/follow-up` | Managers only: how each person is doing, private situations, and today's messages — greeting first, ready to copy |
 | `/assistant` | The chief of staff as a conversation: ask about the day, by text or voice, and confirm what it proposes — a situation, a message to copy, a follow-up marked sent, an expectation |
 | `/risks` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
-| `/integrations` | Notion connection, authorised sources, property and status mapping |
+| `/integrations` | Notion: register a database by pasting its link, check the suggested mapping and status table, sync now |
 | `/settings` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
 
 Every main screen carries a small compass in its corner: that screen's health
@@ -119,12 +119,25 @@ north nothing wrong.
 
 ## Notion
 
-For ADITUM, Notion is the source of truth for projects and tasks. The sync
-(not built yet — ADR-006 calls it "Fase 0") reads three databases:
+For ADITUM, Notion is the source of truth for projects and tasks. A database
+is registered as a *source* from *Integraciones* — paste its link, the server
+reads its schema and suggests which property is the title, the status, the
+people, the date, the code — and every source keeps its own mapping and its
+own status table, because ADITUM's databases do not share a vocabulary. What a
+person sees of Notion is decided by the **role** they have on (ADR-008): a role
+reads a set of sources, a person holds several roles and switches between
+them, and the engine computes each person's day from that role's view only.
 
-- **Proyectos** — name, owner, status, dates, completion rollup, tasks relation.
-- **Tareas Software** — task name, auto id (`TAR-###`), status (fifteen options), the people responsible, due date, priority, project, parent and subtasks, type, bug count. Also each page's `last_edited_time` and its comments, which is where most follow-up in ADITUM happens.
-- **ADITUM Backlog** — everything still to do. An item not started has no responsible, and that is normal; once it is in development it must have one.
+ADITUM's sources, as of September 2026:
+
+- **Tareas Software** — task name, auto id (`TAR-###`), status (fifteen options in three groups), the people responsible, due date, priority, project, parent and subtasks. Also each page's `last_edited_time` and its comments, which is where most follow-up in ADITUM happens.
+- **Backlog Software** and **Backlog Soporte** — everything still to do, with their own statuses ("Lista para desarrollar", "En desarrollo"…). An item not started has no responsible, and that is normal; once it is in development it must have one.
+- **Test de Pruebas** — the QA table; its status is a plain select, so its map is checked by hand.
+- **Proyectos** — name, owner, status, dates, completion rollup. Registered as a source of kind *projects* so tasks land in their project.
+
+The sync (`apps/web/server/notion/`) runs before the daily engine and on demand
+from the screen; it reads what changed since the last run, and everything once
+a week. Pinned to the 2025-09-03 API version, the one with data sources.
 
 A task can have several people responsible, as in Notion. Each Notion person
 is matched to a team member **by name** (`matchPerson()` in
@@ -135,7 +148,7 @@ status history, so the sync stamps `statusChangedAt` itself whenever a status
 differs from the stored one — the "has not moved" signals only tell the truth
 from the first sync onward.
 
-The fifteen Notion statuses collapse onto four internal states in `packages/core/src/notion-status.ts`. `Depende de otra TAR` becomes *blocked*; `Finalizada` and `Archivadas` become *done*. Changing that map requires an ADR.
+Every Notion status collapses onto one of four internal states through the source's own map, started from Notion's groups: *Depende de otra TAR* becomes *blocked*; *Finalizada* and *Archivadas* become *done*. `NOTION_TASK_STATUS` in `packages/core/src/notion-status.ts` is the known default for "Tareas Software" and is pinned by a test. Changing the four states requires an ADR.
 
 Writes go back to Notion when a dictated update is confirmed. Notion always wins: if the page changed since the last sync, the app shows the conflict instead of overwriting.
 
@@ -183,9 +196,9 @@ sudo truenorth-deploy           # git pull, pnpm install, next build, restart
 
 The full runbook for the Pi is `docs/pi-setup.md`.
 
-Not yet built: the Notion sync, push (FCM) and voice. The Pi runbook is
-written and the engine runs end to end from a laptop today; the Pi itself has
-not been mounted yet.
+Not yet built: voice, and writing back to Notion. The Notion sync exists and
+waits for `NOTION_TOKEN` on the Pi and the first databases registered from the
+app.
 
 ## The Raspberry Pi
 
