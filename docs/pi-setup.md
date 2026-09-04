@@ -71,10 +71,11 @@ echo 'Reply with the single word ok.' | claude -p --output-format json
 
 If that returns JSON with `"result": "ok"`, the engine will work.
 
-## 4b. Whisper, for voice
+## 4b. Whisper, for voice — skip until voice lands
 
-Transcription runs on the Pi too, so audio never leaves the house. Build
-whisper.cpp and fetch the multilingual `small` model:
+Voice dictation is not built yet. When it is, transcription runs on the Pi too,
+so audio never leaves the house. Build whisper.cpp and fetch the multilingual
+`small` model:
 
 ```bash
 sudo apt install -y cmake ffmpeg
@@ -133,6 +134,10 @@ chmod 600 /etc/truenorth/service-account.json
 # /etc/truenorth/env
 NODE_ENV=production
 PORT=3000
+
+# Firebase — the same values as apps/web/.env.local on the laptop. The
+# NEXT_PUBLIC_ ones are baked into the bundle at build time, so a change here
+# needs `pnpm build` again, not just a restart.
 GOOGLE_APPLICATION_CREDENTIALS=/etc/truenorth/service-account.json
 NEXT_PUBLIC_FIREBASE_API_KEY=…
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=truenorth-155de.firebaseapp.com
@@ -141,18 +146,56 @@ NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=truenorth-155de.firebasestorage.app
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=…
 NEXT_PUBLIC_FIREBASE_APP_ID=…
 NEXT_PUBLIC_FIREBASE_VAPID_KEY=…
-NOTION_TOKEN=…                  # when the Notion phase lands
+
+# Engine
+ENGINE_LOCAL_TOKEN=…            # long random string; the timer and the selftest send it
 ENGINE_AUTH=subscription        # or api_key
 ANTHROPIC_API_KEY=              # only if ENGINE_AUTH=api_key
+ENGINE_MODEL=claude-opus-5      # pinned: the analysis, plans and follow-up all use it
+CLAUDE_BIN=/home/truenorth/.local/bin/claude
+ENGINE_WORKDIR=/var/tmp/truenorth-engine   # empty dir the child runs in; created if missing
+WORKER_ID=pi-01                 # the heartbeat document the app watches
+
+# Notion — when the sync (ADR-006 "Fase 0") lands. Two databases.
+NOTION_TOKEN=…
+NOTION_TASKS_DB=…               # "Tareas Software"
+NOTION_BACKLOG_DB=…             # "ADITUM Backlog"
 ```
 
 ```bash
 chmod 600 /etc/truenorth/env
+openssl rand -hex 32            # a good ENGINE_LOCAL_TOKEN
 ```
 
-Add the Pi's Tailscale hostname to Firebase Authentication → Settings →
-Authorized domains, e.g. `truenorth.<tailnet>.ts.net`. Sign-in is refused from
-any domain not on that list.
+Sign-in is refused from any domain Firebase Authentication does not know, so
+the Pi's tailnet name has to be on its authorized-domains list. The repo
+carries a script that adds it with the service account, no console needed:
+
+```bash
+cd /opt/truenorth/apps/web
+GOOGLE_APPLICATION_CREDENTIALS=/etc/truenorth/service-account.json \
+  node scripts/authorize-domain.mjs truenorth.<tailnet>.ts.net
+```
+
+## 5b. Firestore rules and indexes — from the laptop, once
+
+The rules and indexes live in the repo (`firestore.rules`,
+`firestore.indexes.json`, `storage.rules`) but they only take effect when
+deployed, and **an undeployed rule fails closed**: a new collection reads as
+"insufficient permissions" until this runs. Do it from the laptop, where
+`firebase-tools` is signed in, every time those files change:
+
+```bash
+npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage
+```
+
+The rules have emulator tests; they need Java 21 or newer on the machine that
+runs them (`/usr/libexec/java_home -v 21` on a Mac picks it):
+
+```bash
+npx firebase-tools emulators:exec --only firestore \
+  "pnpm --filter @truenorth/core exec vitest run src/rules.test.ts"
+```
 
 ## 6. Build and run as a service
 
@@ -217,7 +260,10 @@ Description=TrueNorth daily engine run
 Type=oneshot
 User=truenorth
 EnvironmentFile=/etc/truenorth/env
-ExecStart=/usr/bin/curl -fsS -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" http://localhost:3000/api/engine/daily
+# A full run is minutes, not seconds: one analysis, one plan per person, one
+# follow-up per manager, each a model call. Give curl the same patience the
+# route has (maxDuration 1800).
+ExecStart=/usr/bin/curl -fsS --max-time 1800 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" http://localhost:3000/api/engine/daily
 ```
 
 `/etc/systemd/system/truenorth-daily.timer`:
@@ -268,7 +314,9 @@ curl -s -X POST -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" "http://localhost
 ```
 
 Afterwards *Ajustes → Motor* in the app shows the heartbeat: host, last run,
-plans written, messages suggested, and the error if one failed. A full run for a
+plans written, messages suggested, and the error if one failed. *Hoy* has the
+plan, *Seguimiento* the team reading and the messages to send, *Briefing* the
+analysis. A full run for a
 company of four takes three to four minutes: one analysis, one plan per person,
 and one team follow-up per manager, each a `claude -p` call of forty to sixty
 seconds, run one after another on purpose.
@@ -282,6 +330,34 @@ If the selftest fails with `could not start claude`, the service PATH does not
 include the binary: set `CLAUDE_BIN=/home/truenorth/.local/bin/claude` in
 `/etc/truenorth/env`. If it fails with an authentication error, run
 `claude` once interactively as the `truenorth` user and sign in again.
+
+## 8b. First morning: what to do once, by hand
+
+1. Open the app on the phone, sign in, install it to the home screen.
+2. *Equipo* → add the people on the team (they need no account) and write
+   *Lo que espero* for each. Responsibles on tasks come from Notion by name,
+   so the names here should match the ones in Notion.
+3. Run the engine once by hand (`?company=<id>` above) instead of waiting for
+   02:00, and read *Seguimiento*. The first day the "has not moved" signals
+   have nothing to say — `statusChangedAt` only exists from the first Notion
+   sync onward — so expect overdue, blocked and workload, not silence.
+4. Check *Ajustes → Motor* says the last run was OK and what it cost.
+
+## 8c. Before the Pi: testing from the phone against the laptop
+
+The same thing works with the laptop as the server, which is how this was
+built. `tailscale serve` on a spare port in front of `next dev`, the laptop's
+tailnet name authorized in Firebase Auth (same script as §5), and that name in
+`allowedDevOrigins` in `apps/web/next.config.ts` so Next accepts the dev
+requests:
+
+```bash
+tailscale serve --bg --https=8443 http://127.0.0.1:3000
+# https://<laptop>.<tailnet>.ts.net:8443 — off with: tailscale serve --https=8443 off
+```
+
+Everything the phone does goes to the real Firestore either way; the only
+difference is which machine runs the server and whether it is on at 02:00.
 
 ## 9. Deploying a new version
 
@@ -313,6 +389,9 @@ A release is then: merge `main` into `production`, push, and run
 | No plan this morning | `journalctl -u truenorth-daily --since today`, then `journalctl -u truenorth --since 01:55`. |
 | Engine says Claude failed | `claude -p` by hand as the `truenorth` user; a signed-out session or an exhausted usage window both surface there. |
 | Firestore permission errors in the log | The service account is missing or not readable by the service user. |
+| "Insufficient permissions" in the app on a new screen | The rules in the repo were not deployed (§5b). |
+| *Seguimiento* is empty for an admin | The engine has not run today, or the company has nobody on the team but you. Members with `access: member` never see it. |
+| The engine ran but every message repeats yesterday's | It should not: identical signals are dropped in code. Check `followups/{date}_{uid}` in Firestore for what was actually written. |
 
 The app's own heartbeat is at `workers/pi-01` in Firestore; Settings shows it,
 so "is the engine up" can be answered from the phone.

@@ -21,21 +21,26 @@ Consequences you must preserve:
 ```
 apps/web/            Next.js 16 App Router, PWA, served from the Raspberry Pi
   app/               routes (Spanish paths), one folder per screen
-  app/api/           route handlers: engine, Notion, voice, push (server only)
-  server/            engine, Notion client, Admin SDK — never imported by the browser
-  components/        design system: ui.tsx, form.tsx, shell.tsx, icons.tsx
-  lib/               preferences (theme + locale), store (editable data), i18n
-packages/core/       domain types, Zod contracts, signal engine, Notion mapping,
-                     ADITUM fixtures. Imported by web, functions and worker.
+  app/api/           route handlers: engine (daily, replan, selftest), company logo
+  server/            admin.ts (Admin SDK) and engine/ (capture, prompts, run,
+                     claude) — never imported by the browser
+  components/        design system: ui.tsx, form.tsx, shell.tsx, icons.tsx,
+                     day-compass.tsx, plan-calendar.tsx, follow-up.tsx
+  lib/               preferences (theme, accent, locale), store (Firestore
+                     listeners + every mutation), i18n dictionary
+  scripts/           one-off operator scripts (authorize-domain.mjs)
+packages/core/       domain types, Zod contracts, signal engine, visibility,
+                     follow-up guardrails, health shares, people matching,
+                     Notion mapping, ADITUM fixtures. Imported by web only.
 docs/brand/          the compass mark (light, dark, maskable app icon)
 docs/design/         the Claude Design brief
 docs/adr/            architecture decision records
 docs/prompts/        engine prompts with their change history
 ```
 
-Planned, not yet built: `apps/web/server` and `apps/web/app/api`, and the Pi
-runbook in `docs/pi-setup.md`. There is no `apps/functions` and no
-`apps/worker`; both were dropped by ADR-005.
+Not yet built: the Notion sync (`apps/web/server/notion/`, ADR-006 "Fase 0"),
+push and voice. There is no `apps/functions` and no `apps/worker`; both were
+dropped by ADR-005.
 
 ## Commands
 
@@ -47,7 +52,11 @@ pnpm install
 pnpm dev                  # web app on :3000
 pnpm build                # production build
 pnpm typecheck            # tsc --noEmit across the workspace
-pnpm test                 # signal engine tests (vitest)
+pnpm test                 # core tests (vitest): signals, follow-up, health, people, notion
+npx firebase-tools emulators:exec --only firestore \
+  "pnpm --filter @truenorth/core exec vitest run src/rules.test.ts"   # rules; Java 21+
+npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage
+                          # after touching the rules — undeployed rules fail closed
 ```
 
 **Stay on the newest versions.** This project tracks current releases rather
@@ -150,12 +159,32 @@ Non-negotiables:
 - Body text 17px, touch targets 44pt, tabular numerals for anything that lines up in a column, status encoded in shape as well as colour.
 - Mobile first. When phone and desktop conflict, the phone wins.
 
+## The engine, in one paragraph
+
+`POST /api/engine/daily` (bearer `ENGINE_LOCAL_TOKEN`) runs every company:
+`captureCompany()` reads it with the Admin SDK (a week of plans, active
+situations included) and computes signals; one `claude -p` call writes
+`analyses/{date}`; one per member with an account writes `plans/{date}_{uid}`;
+one per manager (`owner`/`admin`) writes `followups/{date}_{managerUid}` — a
+reading of everyone, messages only for whoever needs one, greeting first,
+guarded in code by `packages/core/src/followup.ts`. `/api/engine/replan`
+recomputes one person's plan from the Today screen; `/api/engine/selftest`
+(`?step=followup`) proves Claude answers without touching the database. The
+three load-bearing flags in `server/engine/claude.ts` are `--restricted`,
+`--tools ""` and a draft-07 JSON schema; the model is pinned by `ENGINE_MODEL`.
+
 ## Testing
 
-- `packages/core` uses vitest. The signal engine and the Notion mapping are covered; keep them that way.
+- `packages/core` uses vitest: signals, visibility, follow-up guardrails, health shares, people matching, Notion mapping. Every new signal or guard ships with a test.
 - Golden cases for the engine belong in `packages/core` alongside the signal tests: a company snapshot in, an expected plan shape out.
-- Firestore rules get emulator tests once `apps/functions` exists. The first two must be: nobody reads another company, and nobody reads a private project they are not a member of.
+- Firestore rules have emulator tests in `packages/core/src/rules.test.ts` (Java 21+). The two that matter most: nobody reads another company, and nobody reads a private project they are not a member of; then situations stay with admins and a follow-up stays with its manager.
 
 ## Current state
 
-The web app is built against `packages/core` fixtures held in a client-side store that persists per browser (`apps/web/lib/store.tsx`). It seeds from ADITUM's real data. When Firestore is wired, the mutations in that store become writes and the context shape stays the same, so no screen needs rewriting.
+Firestore is wired: `apps/web/lib/store.tsx` holds live listeners and every
+mutation is a write, and the engine has run end to end against ADITUM from a
+laptop. The first company is seeded from `packages/core/src/fixtures.ts`, with
+the sample team as people without accounts. The Pi is not mounted yet
+(`docs/pi-setup.md`), the Notion sync does not exist, and until it does the
+"has not moved" signals have nothing to read. Work lands on `v1.0` at the
+moment; `main` and `production` are behind it.

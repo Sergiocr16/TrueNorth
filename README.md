@@ -47,8 +47,11 @@ Everything runs on the Raspberry Pi as one Next.js process, reached over
 Tailscale, which also gives the app a valid HTTPS certificate so it installs
 as a PWA and can receive push. Claude Code is installed on the same machine
 and signed in with the subscription; the server calls it directly, `claude -p`
-as a child process, for the daily analysis, the per-person plans and voice
-interpretation. A systemd timer triggers the daily run at 02:00.
+as a child process, three times a morning: the company analysis, one plan per
+person with an account, and one team follow-up per manager — a reading of
+everybody against what is expected of them, and a message only for whoever
+needs one. Voice interpretation will use the same path. A systemd timer
+triggers the daily run at 02:00.
 
 Firebase is the database, identity, file store and push sender. The browser
 talks to Firestore directly, which is what makes edits live across devices;
@@ -61,7 +64,10 @@ Firebase. See `docs/adr/ADR-005-everything-on-the-raspberry-pi.md`.
 
 ## Getting started
 
-Requirements: Node 26.8.1 (`.nvmrc`), pnpm 11.
+Requirements: Node 26.8.1 (`.nvmrc`), pnpm 11, and `apps/web/.env.local` with
+the Firebase web config plus, for the engine, `GOOGLE_APPLICATION_CREDENTIALS`
+pointing at a service-account key kept outside the repository (see
+`docs/firebase-setup.md`).
 
 ```bash
 nvm use             # or install Node 26.8.1
@@ -69,14 +75,24 @@ pnpm install
 pnpm dev            # http://localhost:3000
 ```
 
-The app opens with ADITUM's real objectives, projects and tasks and is fully editable. Data persists in the browser until Firestore is wired; **Settings → Reset sample data** puts it back.
+The first company is seeded with ADITUM's objectives, projects, tasks and team
+— the team as people without accounts, so follow-up has somebody to talk about
+from day one — and everything is editable. Data lives in Firestore; **Settings
+→ Reset sample data** puts the sample back.
+
+To try it on a phone before the Pi exists, put `tailscale serve` in front of
+the dev server and authorize the laptop's tailnet name in Firebase Auth
+(`apps/web/scripts/authorize-domain.mjs`); `docs/pi-setup.md` §8c has the
+three steps.
 
 Other commands:
 
 ```bash
 pnpm build          # production build
 pnpm typecheck      # tsc --noEmit across the workspace
-pnpm test           # signal engine + Notion mapping tests
+pnpm test           # signals, follow-up guardrails, health, people matching, Notion mapping
+npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/core exec vitest run src/rules.test.ts"
+                    # the security rules, against the emulator (Java 21+)
 ```
 
 ## Screens
@@ -84,22 +100,38 @@ pnpm test           # signal engine + Notion mapping tests
 | Route | What it does |
 | --- | --- |
 | `/entrar`, `/elegir-empresa` | Sign in, then pick the company and see your role in it |
-| `/hoy` | The day's plan, per-item feedback, recalculate, dictate an update |
-| `/briefing` | Executive summary, top risks, decisions, five perspectives |
+| `/hoy` | The day as a compass — the needle swings north as the plan gets done — the plan, per-item feedback, recalculate, the calendar of past days |
+| `/briefing` | Three numbers, the executive summary folded, ranked risks, decisions, five perspectives, how the team is doing |
 | `/empresa` | North star, target date, 3/6/12-month plans, overall status |
 | `/objetivos` | Objectives with indicators and the expected-vs-actual gap |
-| `/proyectos` | Projects, their objectives, tasks grouped by status, dependencies |
-| `/equipo` | Roles with an editable responsibility description, load per person |
-| `/riesgos` | Overdue, blocked, orphan projects, empty objectives, decisions |
+| `/proyectos` | Projects with a health strip and filters; each with objectives, tasks by status, dependencies |
+| `/equipo` | Who is on the team, with or without an account: role, responsibility, what you expect of them |
+| `/seguimiento` | Managers only: how each person is doing, private situations, and today's messages — greeting first, ready to copy |
+| `/riesgos` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
 | `/integraciones` | Notion connection, authorised sources, property and status mapping |
-| `/ajustes` | Language, delivery time, notifications, theme, reduced transparency |
+| `/ajustes` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
+
+Every main screen carries a small compass in its corner: that screen's health
+as a share computed in `packages/core/src/health.ts` — south nothing right,
+north nothing wrong.
 
 ## Notion
 
-For ADITUM, Notion is the source of truth for projects and tasks. Two databases are synced:
+For ADITUM, Notion is the source of truth for projects and tasks. The sync
+(not built yet — ADR-006 calls it "Fase 0") reads three databases:
 
 - **Proyectos** — name, owner, status, dates, completion rollup, tasks relation.
-- **Tareas Software** — task name, auto id (`TAR-###`), status (fifteen options), owner, due date, priority, project, parent and subtasks, type, bug count.
+- **Tareas Software** — task name, auto id (`TAR-###`), status (fifteen options), the people responsible, due date, priority, project, parent and subtasks, type, bug count. Also each page's `last_edited_time` and its comments, which is where most follow-up in ADITUM happens.
+- **ADITUM Backlog** — everything still to do. An item not started has no responsible, and that is normal; once it is in development it must have one.
+
+A task can have several people responsible, as in Notion. Each Notion person
+is matched to a team member **by name** (`matchPerson()` in
+`packages/core/src/people.ts`: accent- and case-insensitive, refuses to guess
+between two people who both fit); one with no match becomes a new person on
+the team, so the team populates itself from Notion. Notion does not expose
+status history, so the sync stamps `statusChangedAt` itself whenever a status
+differs from the stored one — the "has not moved" signals only tell the truth
+from the first sync onward.
 
 The fifteen Notion statuses collapse onto four internal states in `packages/core/src/notion-status.ts`. `Depende de otra TAR` becomes *blocked*; `Finalizada` and `Archivadas` become *done*. Changing that map requires an ADR.
 
@@ -131,7 +163,9 @@ sudo truenorth-deploy           # git pull, pnpm install, next build, restart
 
 The full runbook for the Pi is `docs/pi-setup.md`.
 
-Not yet wired: Firestore rules and indexes, Cloud Functions, the Notion OAuth callback, FCM, and the Raspberry Pi worker. See `CLAUDE.md` for the phase plan.
+Not yet built: the Notion sync, push (FCM) and voice. The Pi runbook is
+written and the engine runs end to end from a laptop today; the Pi itself has
+not been mounted yet.
 
 ## The Raspberry Pi
 
