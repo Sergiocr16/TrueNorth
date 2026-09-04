@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import type { HealthStatus, TaskStatus } from '@truenorth/core';
 import { useT } from '../lib/preferences';
 import { Chevron, CheckIcon, SmallTriangle, WarningTriangle } from './icons';
+import { Overlay } from './overlay';
 
 /* ------------------------------------------------------------------ */
 /* Layout primitives                                                   */
@@ -437,7 +438,8 @@ export function Sheet({
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <Overlay>
+    <div className="fixed inset-0 flex flex-col justify-end">
       <button
         type="button"
         aria-label="Cerrar"
@@ -460,5 +462,6 @@ export function Sheet({
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }

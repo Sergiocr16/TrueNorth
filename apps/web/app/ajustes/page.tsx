@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useState } from 'react';
 import type { Locale, ThemePreference } from '@truenorth/core';
@@ -13,11 +14,14 @@ import {
   useConfirm,
 } from '../../components/form';
 import { Chevron } from '../../components/icons';
+import { useAuth } from '../../lib/auth';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
 
 /** Settings, which on a phone is also the "More" destination for the tab bar. */
 export default function SettingsPage() {
+  const router = useRouter();
+  const auth = useAuth();
   const prefs = usePreferences();
   const { t, locale } = prefs;
   const store = useStore();
@@ -46,6 +50,7 @@ export default function SettingsPage() {
     { href: ROUTES.company, label: t.nav.company },
     { href: ROUTES.objectives, label: t.nav.objectives },
     { href: ROUTES.team, label: t.nav.team },
+    { href: ROUTES.reports, label: t.nav.reports },
     { href: ROUTES.integrations, label: t.nav.integrations },
   ];
 
@@ -149,7 +154,7 @@ export default function SettingsPage() {
             onClick={() => {
               if (confirming) {
                 disarm();
-                store.resetToSeed();
+                void store.resetToSeed();
               } else {
                 arm();
               }
@@ -158,19 +163,22 @@ export default function SettingsPage() {
         </div>
         <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">
           {locale === 'es'
-            ? 'Devuelve la empresa, los objetivos y las tareas al estado inicial de ADITUM.'
-            : "Returns the company, objectives and tasks to ADITUM's initial state."}
+            ? 'Borra objetivos, proyectos, tareas y riesgos, y vuelve a cargar los datos iniciales.'
+            : 'Deletes objectives, projects, tasks and risks, then loads the starting data again.'}
         </p>
       </div>
 
       <div className="mx-4 mt-4 mb-2">
         <Card className="overflow-hidden">
-          <Link
-            href="/entrar"
+          <button
+            type="button"
+            onClick={() => {
+              void auth.signOut().then(() => router.replace('/entrar'));
+            }}
             className="tn-press flex min-h-[52px] w-full items-center justify-center px-4 text-[17px] font-semibold text-[var(--accent)]"
           >
             {t.settings.signOut}
-          </Link>
+          </button>
         </Card>
       </div>
     </Screen>

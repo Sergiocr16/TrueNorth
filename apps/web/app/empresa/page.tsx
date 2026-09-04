@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { daysUntil, formatShortDate } from '../../lib/i18n/dictionary';
+import { CompanyLogoPicker } from '../../components/company-switcher';
 import { LargeTitle, Screen } from '../../components/shell';
 import { Card, SectionLabel, StatusPill, TextButton } from '../../components/ui';
 import { DateField, EditSheet, FieldGroup, TextAreaField } from '../../components/form';
@@ -39,7 +40,11 @@ export default function CompanyPage() {
     <Screen riskCount={riskCount}>
       <LargeTitle title={t.nav.company} subtitle={company.name} />
 
-      <div className="mx-4 mt-3">
+      <div className="mt-3">
+        <CompanyLogoPicker />
+      </div>
+
+      <div className="mx-4 mt-4">
         <SectionLabel action={<TextButton onClick={open}>{t.team.editRole}</TextButton>}>
           {t.company.northStar}
         </SectionLabel>

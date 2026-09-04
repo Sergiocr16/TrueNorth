@@ -43,6 +43,8 @@ export interface Company {
   id: string;
   name: string;
   slug: string;
+  /** Download URL of the company logo, if one has been uploaded. */
+  logoUrl?: string | null;
   /** The mandatory north-star goal. Everything is prioritised against this. */
   northStar: string;
   northStarDeadline: string;
@@ -59,6 +61,12 @@ export interface Membership {
   access: AccessLevel;
 }
 
+/** One reading, so a chart can show a trend rather than a single number. */
+export interface Reading {
+  date: string;
+  value: number;
+}
+
 export interface Indicator {
   id: string;
   name: string;
@@ -68,6 +76,8 @@ export interface Indicator {
   target: number;
   /** Whether success means the number goes up or down. */
   direction: 'up' | 'down';
+  /** Appended whenever `current` changes. Empty until it does. */
+  history?: Reading[];
 }
 
 export interface Objective {
@@ -82,6 +92,8 @@ export interface Objective {
   progressPct: number;
   status: HealthStatus;
   indicators: Indicator[];
+  /** Appended whenever `progressPct` changes, so Reports can plot the gap. */
+  history?: Reading[];
 }
 
 export interface Project {

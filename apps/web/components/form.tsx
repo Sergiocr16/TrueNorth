@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useT } from '../lib/preferences';
 import { CheckIcon, CloseIcon } from './icons';
+import { Overlay } from './overlay';
 
 /**
  * Form controls in the grouped-inset style: the label sits on the left, the
@@ -391,7 +392,8 @@ export function EditSheet({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <Overlay>
+    <div className="fixed inset-0 flex flex-col justify-end">
       <button
         type="button"
         aria-label={t.common.close}
@@ -439,6 +441,7 @@ export function EditSheet({
         <div className="tn-scroll flex-1 pb-8">{children}</div>
       </div>
     </div>
+    </Overlay>
   );
 }
 

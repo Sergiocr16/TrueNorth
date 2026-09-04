@@ -19,8 +19,10 @@ Consequences you must preserve:
 ## Repository map
 
 ```
-apps/web/            Next.js 16 App Router, PWA, deployed to Firebase App Hosting
+apps/web/            Next.js 16 App Router, PWA, served from the Raspberry Pi
   app/               routes (Spanish paths), one folder per screen
+  app/api/           route handlers: engine, Notion, voice, push (server only)
+  server/            engine, Notion client, Admin SDK — never imported by the browser
   components/        design system: ui.tsx, form.tsx, shell.tsx, icons.tsx
   lib/               preferences (theme + locale), store (editable data), i18n
 packages/core/       domain types, Zod contracts, signal engine, Notion mapping,
@@ -31,7 +33,9 @@ docs/adr/            architecture decision records
 docs/prompts/        engine prompts with their change history
 ```
 
-Planned, not yet built: `apps/functions` (Cloud Functions: scheduler, triggers, Notion sync, watchdog, API fallback) and `apps/worker` (the Raspberry Pi worker).
+Planned, not yet built: `apps/web/server` and `apps/web/app/api`, and the Pi
+runbook in `docs/pi-setup.md`. There is no `apps/functions` and no
+`apps/worker`; both were dropped by ADR-005.
 
 ## Commands
 
@@ -49,24 +53,22 @@ pnpm test                 # signal engine tests (vitest)
 **Stay on the newest versions.** This project tracks current releases rather
 than the conservative floor: Node 26, pnpm 11, Next 16, React 19, TypeScript 7,
 Tailwind 4, Zod 4, Vitest 5. When you add or bump a dependency, take the latest
-and run `pnpm test && pnpm typecheck && pnpm build` before moving on. The one
-place to check rather than assume is the deploy runtime: Firebase App Hosting
-and Cloud Functions pin their own Node versions, so confirm what they support
-before setting `engines` for a deployed package.
+and run `pnpm test && pnpm typecheck && pnpm build` before moving on. The Pi
+runs the same Node the repo pins, so there is no second runtime to reconcile.
 
 ## Branches
 
 - **`main`** — where work lands. Default branch, always green: `pnpm test`,
   `pnpm typecheck` and `pnpm build` must pass before anything merges.
-- **`production`** — what App Hosting deploys. Protected against force pushes
-  and deletion. It only ever moves forward from `main`.
+- **`production`** — what the Pi runs. Protected against force pushes and
+  deletion. It only ever moves forward from `main`.
 
 Releasing is a fast-forward merge, never a direct commit:
 
 ```bash
 git checkout production
 git merge --ff-only main
-git push origin production      # App Hosting builds and rolls out
+git push origin production      # then, on the Pi: sudo truenorth-deploy
 git checkout main
 ```
 
@@ -84,6 +86,43 @@ Never commit or push either branch unless Sergio asks.
 - **Every new collection ships with a security rule and a rule test.** The engine runs with the Admin SDK and bypasses rules, so the private-project filter lives in the capture step and has its own tests.
 - **All real business data is editable in the app.** North star, objectives, indicators, projects, tasks, roles and risks are all created and edited by the user. Anything you add to the domain needs an editing path too.
 - Prefer editing an existing file over adding one. Keep components small and typed.
+
+## Access model
+
+Three sentences, enforced in `firestore.rules`:
+
+1. **Accounts are created by the administrator**, never by self-registration.
+   The app has no sign-up screen; Firebase Authentication is the roster. Until a
+   callable Cloud Function exists, that means the console.
+2. **Having an account grants nothing.** A person sees a company only once
+   somebody inside it invites their address and they redeem it. Redeeming
+   requires a confirmed email, because password sign-in lets anyone claim any
+   address.
+3. **Members are trusted peers.** They create their own projects and decide who
+   else to share a project or the company with. Nobody grants access above their
+   own level.
+
+`founders()` in the rules lists who may create a company from scratch. Keep it
+short. `FOUNDERS` in `lib/store.tsx` mirrors it only to choose which screen to
+show; the rules are what actually enforce it.
+
+## Who does what
+
+**Claude interprets, code writes.** Claude never calls Notion. See ADR-004.
+
+Everything runs on the Raspberry Pi as one Next.js process, reached over
+Tailscale. See ADR-005, which supersedes the queue-and-worker design.
+
+| Piece | Where | Responsibility |
+| --- | --- | --- |
+| **Browser / PWA** | the phone or laptop, on Tailscale | Reads and writes Firestore directly with the client SDK. Never holds a Notion token. |
+| **Next.js server** | the Pi, systemd, port 3000 | Serves the app. Route handlers under `app/api/` run the engine, sync Notion both ways, transcribe voice with Whisper on the same machine, send push. Uses the Admin SDK. |
+| **Engine** | `apps/web/server/engine`, in-process | Computes signals in code, then invokes `claude -p` as a child process for the analysis, the plans and voice interpretation. |
+| **Timer** | systemd timer on the Pi | Calls the engine over localhost at 02:00. |
+| **Firebase** | Google Cloud | Auth, Firestore, Storage, Cloud Messaging. No Functions, no App Hosting. |
+
+When the Pi is off the app is unreachable and that morning's plan is not
+generated; the data is safe in Firebase. That trade was made deliberately.
 
 ## Contracts that need an ADR to change
 

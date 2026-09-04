@@ -199,12 +199,44 @@ export const dictionary = {
       account: 'Cuenta',
     },
 
+    reports: {
+      title: 'Reportes',
+      gapByObjective: 'Brecha por objetivo',
+      indicatorVsTarget: 'Indicador vs meta',
+      workload: 'Carga del equipo',
+      workloadCaption: (n: number) =>
+        `Tareas abiertas · las vencidas en rojo. Barras a escala de ${n}.`,
+      weekly: 'Reporte semanal',
+      weeklyHint: 'Qué se movió desde la semana pasada',
+      summary: 'Resumen',
+      changes: 'Cambios de la semana',
+      noChanges:
+        'Todavía no hay dos lecturas que comparar. En cuanto edites un avance o un indicador, la semana siguiente aparece acá.',
+      gapTrend: 'Brecha en el tiempo',
+      seeBriefing: 'Ver briefing ejecutivo',
+      noHistory:
+        'Sin historial todavía: el gráfico se llena a medida que actualices el avance.',
+    },
+
     briefing: {
       title: 'Briefing ejecutivo',
       generatedAt: (time: string) => `generado hoy ${time}`,
       topRisks: 'Riesgos principales',
       decisions: 'Decisiones pendientes',
       perspectives: 'Perspectivas',
+      history: 'Días anteriores',
+      historyHint: 'Cómo te fue cada día y qué decía el briefing.',
+      historyEmpty:
+        'Acá se va a guardar cada día: el plan que recibiste y cuánto marcaste como hecho.',
+      seeHistory: 'Ver días anteriores',
+      recentDays: 'Últimos días',
+      calendarLegend:
+        'Un punto por elemento del plan; se llena cuando lo marcás hecho. El día completo se pinta en verde.',
+      hasBriefing: 'con briefing',
+      completedOf: (done: number, total: number) => `${done} de ${total} completados`,
+      noVerdict: 'sin calificar',
+      noAnalysis:
+        'Ese día no quedó briefing guardado. El motor empieza a generarlos cuando el worker esté corriendo.',
     },
 
     perspectives: {
@@ -418,12 +450,43 @@ export const dictionary = {
       account: 'Account',
     },
 
+    reports: {
+      title: 'Reports',
+      gapByObjective: 'Gap by objective',
+      indicatorVsTarget: 'Indicator vs target',
+      workload: 'Team workload',
+      workloadCaption: (n: number) =>
+        `Open tasks · overdue in red. Bars scaled to ${n}.`,
+      weekly: 'Weekly report',
+      weeklyHint: 'What moved since last week',
+      summary: 'Summary',
+      changes: "This week's changes",
+      noChanges:
+        'No two readings to compare yet. As soon as you edit a progress figure or an indicator, next week shows up here.',
+      gapTrend: 'Gap over time',
+      seeBriefing: 'See the executive briefing',
+      noHistory: 'No history yet: the chart fills in as you update progress.',
+    },
+
     briefing: {
       title: 'Executive briefing',
       generatedAt: (time: string) => `generated today ${time}`,
       topRisks: 'Top risks',
       decisions: 'Pending decisions',
       perspectives: 'Perspectives',
+      history: 'Previous days',
+      historyHint: 'How each day went and what the briefing said.',
+      historyEmpty:
+        'Every day is kept here: the plan you were given, and how much of it you marked done.',
+      seeHistory: 'See previous days',
+      recentDays: 'Recent days',
+      calendarLegend:
+        'One dot per plan item, filled when you mark it done. A fully completed day is painted green.',
+      hasBriefing: 'with briefing',
+      completedOf: (done: number, total: number) => `${done} of ${total} completed`,
+      noVerdict: 'not rated',
+      noAnalysis:
+        'No briefing was saved that day. The engine starts producing them once the worker is running.',
     },
 
     perspectives: {

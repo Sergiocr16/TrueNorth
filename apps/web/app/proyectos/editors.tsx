@@ -153,6 +153,36 @@ export function ProjectEditor({
         />
       </FieldGroup>
 
+      <FieldGroup
+        header={locale === 'es' ? 'Compartir' : 'Sharing'}
+        footer={
+          draft.visibility === 'company'
+            ? locale === 'es'
+              ? 'Visible para toda la empresa. Cambiá la visibilidad arriba para elegir a quién.'
+              : 'Visible to the whole company. Change the visibility above to pick people.'
+            : locale === 'es'
+              ? 'Solo estas personas lo ven. Vos decidís con quién lo compartís.'
+              : 'Only these people see it. Sharing is your call.'
+        }
+      >
+        <ChipSelectField
+          label={locale === 'es' ? 'Personas con acceso' : 'People with access'}
+          options={users.map((user) => ({ value: user.id, label: user.displayName }))}
+          selected={draft.memberUserIds}
+          onChange={(memberUserIds) =>
+            setDraft({
+              ...draft,
+              // The owner never loses access to their own project.
+              memberUserIds: memberUserIds.includes(draft.ownerUserId)
+                ? memberUserIds
+                : [...memberUserIds, draft.ownerUserId],
+            })
+          }
+          emptyHint={locale === 'es' ? 'No hay nadie más todavía.' : 'Nobody else yet.'}
+          isLast
+        />
+      </FieldGroup>
+
       {onDelete ? (
         <div className="mt-6">
           <div className="tn-card mx-4 overflow-hidden">

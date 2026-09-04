@@ -9,15 +9,19 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --exclude \"**/rules.test.ts\"",
+    "test:watch": "vitest --exclude \"**/rules.test.ts\"",
+    "test:rules": "export JAVA_HOME=\"$(/usr/libexec/java_home -v 21+)\" && export PATH=\"$JAVA_HOME/bin:$PATH\" && firebase emulators:exec --only firestore --project truenorth-rules-test \"vitest run src/rules.test.ts\""
   },
   "dependencies": {
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase-tools": "^15.29.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "@types/node": "^26.4.1"
   },
   "author": "Sergio Castro",
   "license": "UNLICENSED"

@@ -29,22 +29,35 @@ The screens are in Spanish (Costa Rica) with English available; the code is in E
 ## Architecture
 
 ```
-  Phone / desktop            Google Cloud                      Home
- ┌──────────────┐      ┌──────────────────────┐        ┌──────────────────┐
- │  Next.js PWA │─────▶│ Firestore            │◀──────▶│ Raspberry Pi 5   │
- │ App Hosting  │      │ Auth · Functions     │  jobs  │ worker (systemd) │
- └──────────────┘      │ Scheduler · Storage  │        │  └ claude -p     │
-                       │ FCM · Secret Manager │        └──────────────────┘
-                       │ Speech-to-Text       │                 │
-                       └──────────┬───────────┘                 │
-                                  │                    fallback │
-                                  ▼                             ▼
-                              Notion API              Anthropic API (key)
+   Phone / laptop                 Raspberry Pi 5 (home)              Google Cloud
+   on Tailscale                   ┌──────────────────────────┐      ┌───────────────┐
+  ┌────────────┐   https://…ts.net │ Next.js  (systemd :3000) │      │ Firestore     │
+  │  PWA       │──────────────────▶│  ├ app/          UI      │      │ Auth          │
+  │            │                   │  ├ app/api/      routes  │─────▶│ Storage       │
+  │  Firestore │◀─────────────────────────────────────────────────────│ Cloud Msg.    │
+  │  client SDK│                   │  └ server/engine │       │      └───────────────┘
+  └────────────┘                   │       └─ claude -p       │             ▲
+                                   │ systemd timer 02:00 ─────┤             │
+                                   └──────────┬───────────────┘   Speech-to-Text
+                                              ▼
+                                          Notion API
 ```
 
-Each morning Cloud Scheduler writes one job per company into Firestore. The worker on the Raspberry Pi leases the job, reads the company with the Admin SDK, computes the signals in code, and calls Claude Code headless (`claude -p --output-format json --json-schema`) to produce the executive analysis and one plan per person. If the Pi misses its heartbeat for fifteen minutes, a watchdog function processes the queue against the Anthropic API instead.
+Everything runs on the Raspberry Pi as one Next.js process, reached over
+Tailscale, which also gives the app a valid HTTPS certificate so it installs
+as a PWA and can receive push. Claude Code is installed on the same machine
+and signed in with the subscription; the server calls it directly, `claude -p`
+as a child process, for the daily analysis, the per-person plans and voice
+interpretation. A systemd timer triggers the daily run at 02:00.
 
-**Why Claude Code and not the API:** the subscription covers first-party use, and TrueNorth is internal to ADITUM. The worker supports both authentication modes behind one environment variable, so switching to an API key is a config change.
+Firebase is the database, identity, file store and push sender. The browser
+talks to Firestore directly, which is what makes edits live across devices;
+the server uses the Admin SDK for what the engine writes. There are no Cloud
+Functions and no App Hosting.
+
+**The trade this makes, on purpose:** when the Pi is off, the app is
+unreachable and that morning's plan is not generated. The data is safe in
+Firebase. See `docs/adr/ADR-005-everything-on-the-raspberry-pi.md`.
 
 ## Getting started
 
@@ -103,34 +116,33 @@ No recogniser is perfect, so the design does not pretend otherwise: nothing is w
 | Branch | Role |
 | --- | --- |
 | `main` | Where work lands. Default branch, kept green. |
-| `production` | What Firebase App Hosting deploys. Protected; moves forward from `main` only. |
+| `production` | What the Pi runs. Protected; moves forward from `main` only. |
 
-Point the App Hosting backend at **`production`**, with `apps/web` as the app
-root. `apphosting.yaml` at the repo root already carries the build and
-environment configuration; the values marked `secret` must exist in Secret
-Manager under those names, or be switched to plain `value` entries, which is
-fine for the Firebase web config since it is public by design. Local variables
-are listed in `apps/web/.env.example`.
-
-Releasing:
+Releasing is a fast-forward merge followed by a deploy on the Pi:
 
 ```bash
 git checkout production
 git merge --ff-only main
-git push origin production      # triggers the App Hosting rollout
+git push origin production
 git checkout main
+# then, on the Pi:
+sudo truenorth-deploy           # git pull, pnpm install, next build, restart
 ```
+
+The full runbook for the Pi is `docs/pi-setup.md`.
 
 Not yet wired: Firestore rules and indexes, Cloud Functions, the Notion OAuth callback, FCM, and the Raspberry Pi worker. See `CLAUDE.md` for the phase plan.
 
-## Running the Raspberry Pi worker
+## The Raspberry Pi
 
-Planned setup, for when `apps/worker` lands:
+The Pi is the server. What it needs, in short — the step-by-step is in
+`docs/pi-setup.md`:
 
-- Raspberry Pi 5 with 8 GB, NVMe or USB SSD (not an SD card), on a small UPS.
-- Ubuntu Server 24.04 arm64 or Raspberry Pi OS 64-bit, the current Node release, Claude Code installed for the service user.
-- The worker runs as a systemd unit with automatic restart, writing a heartbeat every minute.
-- SSH over Tailscale only, full-disk encryption, and a Firebase service account scoped to Firestore.
+- Raspberry Pi 5 with 8 GB, NVMe or USB SSD rather than an SD card, on a small UPS.
+- Ubuntu Server 24.04 arm64, the Node the repo pins, pnpm, and Claude Code signed in with the subscription.
+- The app as a systemd service on port 3000, and a systemd timer for the 02:00 run.
+- Tailscale with `tailscale serve` in front of port 3000, which is what gives the app HTTPS.
+- The Firebase service-account key at `/etc/truenorth/service-account.json`, mode 600, on an encrypted disk. Never in the repo, never in a chat.
 
 ## Stack
 
@@ -141,8 +153,9 @@ Planned setup, for when `apps/worker` lands:
 | Language | TypeScript 7 |
 | Contracts | Zod 4 |
 | Tests | Vitest 5 |
-| Backend | Firebase (Firestore, Auth, Functions, Scheduler, Storage, FCM, Secret Manager, Speech-to-Text) |
-| Engine | Claude Code headless on a Raspberry Pi, Anthropic API as fallback |
+| Backend | Firebase (Firestore, Auth, Storage, Cloud Messaging) + Google Speech-to-Text |
+| Server | Next.js on a Raspberry Pi 5, behind Tailscale |
+| Engine | Claude Code headless, called in-process; API key as an alternative auth mode |
 
 The project tracks current releases rather than the conservative floor. Bump to
 the latest when you touch a dependency, and verify with

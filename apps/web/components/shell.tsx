@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { fixtures } from '@truenorth/core';
+import { AuthGate } from './auth-gate';
+import { SidebarCompanyButton, CompanySwitcher } from './company-switcher';
 import { usePreferences } from '../lib/preferences';
-import { formatShortDate } from '../lib/i18n/dictionary';
+import { useStore } from '../lib/store';
 import {
   BriefingIcon,
   ChevronDown,
@@ -30,6 +31,7 @@ export const ROUTES = {
   projects: '/proyectos',
   team: '/equipo',
   risks: '/riesgos',
+  reports: '/reportes',
   integrations: '/integraciones',
   settings: '/ajustes',
 } as const;
@@ -105,6 +107,7 @@ const SIDEBAR_ITEMS = [
   { href: ROUTES.projects, key: 'projects', Icon: ProjectIcon },
   { href: ROUTES.team, key: 'team', Icon: TeamIcon },
   { href: ROUTES.risks, key: 'risks', Icon: RiskIcon },
+  { href: ROUTES.reports, key: 'reports', Icon: ReportIcon },
   { href: ROUTES.integrations, key: 'integrations', Icon: IntegrationIcon },
   { href: ROUTES.settings, key: 'settings', Icon: SettingsIcon },
 ] as const;
@@ -112,9 +115,7 @@ const SIDEBAR_ITEMS = [
 export function Sidebar({ riskCount }: { riskCount?: number }) {
   const pathname = usePathname();
   const { t } = usePreferences();
-  const company = fixtures.companies[0]!;
-  const user = fixtures.users[0]!;
-  const membership = fixtures.memberships[0]!;
+  const { currentUser: user, currentMembership: membership } = useStore();
 
   return (
     <aside className="relative hidden w-[248px] shrink-0 p-2.5 lg:block">
@@ -132,20 +133,7 @@ export function Sidebar({ riskCount }: { riskCount?: number }) {
           </span>
         </Link>
 
-        <button
-          type="button"
-          className="tn-press mx-2 mt-3.5 flex min-h-11 items-center gap-2 rounded-xl bg-[var(--chip-bg)] px-2.5 py-1.5"
-        >
-          <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[7px] bg-[var(--ink)] text-[11px] font-bold text-[var(--ground)]">
-            {company.name.charAt(0)}
-          </span>
-          <span className="flex-1 text-left text-[13px] font-semibold text-[var(--ink)]">
-            {company.name}
-          </span>
-          <span className="text-[var(--ter)]">
-            <ChevronDown size={9} />
-          </span>
-        </button>
+        <SidebarCompanyButton />
 
         <div className="mt-3.5 flex flex-col gap-0.5">
           {SIDEBAR_ITEMS.map(({ href, key, Icon }) => {
@@ -228,23 +216,7 @@ export function LargeTitle({
   );
 }
 
-export function CompanySwitcher() {
-  const company = fixtures.companies[0]!;
-  return (
-    <button
-      type="button"
-      className="tn-press flex min-h-11 items-center gap-1.5 rounded-full border border-[var(--hair)] bg-[var(--surface)] py-1.5 pl-1.5 pr-2.5"
-      aria-label={company.name}
-    >
-      <span className="flex h-[26px] w-[26px] items-center justify-center rounded-lg bg-[var(--ink)] text-[12px] font-bold text-[var(--ground)]">
-        {company.name.charAt(0)}
-      </span>
-      <span className="text-[var(--ter)]">
-        <ChevronDown />
-      </span>
-    </button>
-  );
-}
+export { CompanySwitcher };
 
 /** Compact nav bar used on detail screens, with a back affordance. */
 export function DetailHeader({ title, backHref }: { title: string; backHref: string }) {
@@ -278,6 +250,7 @@ export function Screen({
   wide?: boolean;
 }) {
   return (
+    <AuthGate>
     <div className="tn-ground relative flex min-h-dvh">
       <Sidebar riskCount={riskCount} />
       <main className="tn-scroll relative min-w-0 flex-1 pb-[104px] pt-[max(env(safe-area-inset-top),18px)] lg:pb-10 lg:pt-6">
@@ -287,9 +260,7 @@ export function Screen({
       </main>
       <TabBar riskCount={riskCount} />
     </div>
+    </AuthGate>
   );
 }
 
-export function todayLabel(locale: 'es' | 'en'): string {
-  return formatShortDate(fixtures.TODAY, locale);
-}

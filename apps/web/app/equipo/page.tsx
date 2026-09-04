@@ -4,8 +4,15 @@ import { useState } from 'react';
 import type { AccessLevel, Membership } from '@truenorth/core';
 import { isOverdue } from '@truenorth/core';
 import { LargeTitle, Screen } from '../../components/shell';
-import { Avatar, Card, SectionLabel, TextButton } from '../../components/ui';
-import { EditSheet, FieldGroup, SelectField, TextAreaField, TextField } from '../../components/form';
+import { Avatar, Banner, Card, SectionLabel, TextButton } from '../../components/ui';
+import {
+  AddRow,
+  EditSheet,
+  FieldGroup,
+  SelectField,
+  TextAreaField,
+  TextField,
+} from '../../components/form';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
 
@@ -14,6 +21,7 @@ export default function TeamPage() {
   const store = useStore();
   const riskCount = useRiskCount();
   const [editing, setEditing] = useState<Membership | null>(null);
+  const [inviting, setInviting] = useState(false);
 
   const { memberships, users, tasks, today, plan } = store;
 
@@ -83,6 +91,22 @@ export default function TeamPage() {
           })}
         </div>
       </div>
+
+      <div className="mx-4 mt-3">
+        <Card className="overflow-hidden">
+          <AddRow
+            label={locale === 'es' ? 'Compartir con alguien' : 'Share with someone'}
+            onClick={() => setInviting(true)}
+          />
+        </Card>
+        <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">
+          {locale === 'es'
+            ? 'La persona necesita tener cuenta. Las cuentas las crea el administrador; vos decidís con quién compartís esta empresa.'
+            : 'The person needs an account. The administrator creates accounts; you decide who you share this company with.'}
+        </p>
+      </div>
+
+      {inviting ? <InviteSheet onClose={() => setInviting(false)} /> : null}
 
       {editing ? (
         <RoleEditor
@@ -164,6 +188,114 @@ function RoleEditor({
           value={draft.access}
           options={accessOptions}
           onChange={(access) => setDraft({ ...draft, access })}
+          isLast
+        />
+      </FieldGroup>
+    </EditSheet>
+  );
+}
+
+/** Sharing the company with somebody who already has an account. */
+function InviteSheet({ onClose }: { onClose: () => void }) {
+  const { t, locale } = usePreferences();
+  const store = useStore();
+  const [email, setEmail] = useState('');
+  const [roleTitle, setRoleTitle] = useState('');
+  const [access, setAccess] = useState<AccessLevel>('member');
+  const [sent, setSent] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  const es = locale === 'es';
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && roleTitle.trim().length > 0;
+  const isAdmin = store.currentMembership.access !== 'member';
+
+  const accessOptions: { value: AccessLevel; label: string }[] = [
+    { value: 'member', label: es ? 'Miembro' : 'Member' },
+    ...(isAdmin
+      ? [
+          { value: 'admin' as const, label: es ? 'Administrador' : 'Admin' },
+          { value: 'owner' as const, label: es ? 'Propietario' : 'Owner' },
+        ]
+      : []),
+  ];
+
+  if (sent) {
+    return (
+      <EditSheet
+        open
+        title={es ? 'Invitación lista' : 'Invitation ready'}
+        onCancel={onClose}
+        cancelLabel={t.common.close}
+      >
+        <div className="px-6 py-8 text-center">
+          <p className="text-[17px] leading-snug text-[var(--ink)]">
+            {es
+              ? `${email} entra a ${store.company.name} la próxima vez que ingrese.`
+              : `${email} joins ${store.company.name} the next time they sign in.`}
+          </p>
+          <p className="mt-3 text-[15px] leading-snug text-[var(--sec)]">
+            {es
+              ? 'Si todavía no tiene cuenta, el administrador tiene que crearla primero en Firebase.'
+              : 'If they have no account yet, the administrator has to create it in Firebase first.'}
+          </p>
+        </div>
+      </EditSheet>
+    );
+  }
+
+  return (
+    <EditSheet
+      open
+      title={es ? 'Compartir empresa' : 'Share company'}
+      onCancel={onClose}
+      onSave={() => {
+        if (!valid) return;
+        void store
+          .inviteMember(email, roleTitle, access)
+          .then(() => setSent(true))
+          .catch((cause: unknown) =>
+            setFailed(
+              cause instanceof Error
+                ? cause.message
+                : es
+                  ? 'No se pudo crear la invitación.'
+                  : 'Could not create the invitation.',
+            ),
+          );
+      }}
+      saveLabel={es ? 'Invitar' : 'Invite'}
+      canSave={valid}
+    >
+      {failed ? (
+        <div className="mx-4 mt-4">
+          <Banner tone="error">{failed}</Banner>
+        </div>
+      ) : null}
+
+      <FieldGroup
+        footer={
+          es
+            ? 'Escribí el correo exacto de la cuenta. La invitación solo la puede canjear quien tenga ese correo confirmado.'
+            : 'Use the exact address of the account. Only the confirmed owner of that address can redeem it.'
+        }
+      >
+        <TextField
+          label={es ? 'Correo' : 'Email'}
+          value={email}
+          onChange={setEmail}
+          placeholder="persona@aditumcr.com"
+        />
+        <TextField
+          label={t.team.roleTitle}
+          value={roleTitle}
+          onChange={setRoleTitle}
+          placeholder={es ? 'Desarrollo' : 'Engineering'}
+        />
+        <SelectField
+          label={es ? 'Permisos' : 'Access'}
+          value={access}
+          options={accessOptions}
+          onChange={setAccess}
           isLast
         />
       </FieldGroup>

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { AuthProvider } from '../lib/auth';
 import { PreferencesProvider } from '../lib/preferences';
 import { StoreProvider } from '../lib/store';
 import './globals.css';
@@ -54,7 +55,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
         <PreferencesProvider>
-          <StoreProvider>{children}</StoreProvider>
+          <AuthProvider>
+            <StoreProvider>{children}</StoreProvider>
+          </AuthProvider>
         </PreferencesProvider>
       </body>
     </html>

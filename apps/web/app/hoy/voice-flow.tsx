@@ -6,6 +6,7 @@ import { NOTION_TASK_STATUS } from '@truenorth/core';
 import { fixtures } from '@truenorth/core';
 import { Banner, Card, PrimaryButton, TextButton } from '../../components/ui';
 import { CheckIcon, CloseIcon, WarningTriangle } from '../../components/icons';
+import { Overlay } from '../../components/overlay';
 import { usePreferences } from '../../lib/preferences';
 import { newId, useStore } from '../../lib/store';
 
@@ -72,7 +73,8 @@ export function VoiceFlow({ open, onClose }: { open: boolean; onClose: () => voi
   const acceptedCount = update ? update.changes.length - discarded.size : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <Overlay>
+    <div className="fixed inset-0 flex flex-col justify-end">
       <button
         type="button"
         aria-label={t.common.close}
@@ -274,6 +276,7 @@ export function VoiceFlow({ open, onClose }: { open: boolean; onClose: () => voi
         </div>
       ) : null}
     </div>
+    </Overlay>
   );
 }
 

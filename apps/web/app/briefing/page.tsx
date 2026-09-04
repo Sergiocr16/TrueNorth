@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import type { PerspectiveKey } from '@truenorth/core';
 import { fixtures } from '@truenorth/core';
-import { LargeTitle, Screen } from '../../components/shell';
-import { Card, SectionLabel, Segmented } from '../../components/ui';
-import { WarningTriangle } from '../../components/icons';
+import Link from 'next/link';
+import { LargeTitle, ROUTES, Screen } from '../../components/shell';
+import { Card, SectionLabel, Segmented, TextButton } from '../../components/ui';
+import { Chevron, WarningTriangle } from '../../components/icons';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
 
@@ -20,6 +21,9 @@ export default function BriefingPage() {
   const store = useStore();
   const [lens, setLens] = useState<PerspectiveKey>('cto');
 
+  // The engine has not been built yet, so today's analysis is still the
+  // worked example. It is replaced by companies/{cid}/analyses/{date} the day
+  // the Raspberry Pi worker starts writing.
   const analysis = fixtures.todaysAnalysis;
   const generatedTime = new Date(analysis.generatedAt).toLocaleTimeString(
     locale === 'es' ? 'es-CR' : 'en-US',
@@ -40,7 +44,25 @@ export default function BriefingPage() {
         subtitle={`${store.company.name} · ${t.briefing.generatedAt(generatedTime)}`}
       />
 
-      <div className="mx-4 mt-3 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-5">
+      <div className="mx-4 mt-3">
+        <Link href={`${ROUTES.briefing}/historial`}>
+          <Card className="tn-press flex items-center gap-3 p-4">
+            <span className="min-w-0 flex-1">
+              <span className="block text-[17px] font-semibold text-[var(--ink)]">
+                {t.briefing.history}
+              </span>
+              <span className="block text-[15px] text-[var(--sec)]">
+                {t.briefing.historyHint}
+              </span>
+            </span>
+            <span className="text-[var(--ter)]">
+              <Chevron />
+            </span>
+          </Card>
+        </Link>
+      </div>
+
+      <div className="mx-4 mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-5">
         <div>
           <Card className="p-4">
             <p className="text-[17px] leading-relaxed text-[var(--ink)] text-pretty">
