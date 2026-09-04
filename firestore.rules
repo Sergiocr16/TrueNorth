@@ -2,20 +2,48 @@ rules_version = '2';
 
 // TrueNorth security rules.
 //
-// The whole multi-company isolation rests here: nothing under a company is
-// readable without a membership document inside that same company. The daily
-// engine runs with the Admin SDK and bypasses these rules entirely, so the
-// private-project filter is duplicated in the capture step, with its own tests.
+// Access model, in three sentences:
 //
-// Every rule below has a matching emulator test. Two of them are the reason
-// this file exists at all: nobody reads another company, and nobody reads a
-// private project they are not a member of.
+//   1. Accounts are created by the administrator, never by self-registration.
+//      The app has no sign-up screen; Firebase Authentication is the roster.
+//   2. Having an account grants nothing. A person sees a company only once
+//      somebody already inside it invites their address and they redeem it.
+//   3. Once inside, members are trusted peers: they create their own projects
+//      and decide for themselves who else to share a project or the company
+//      with. Sharing is their call, not an administrator's.
+//
+// Nothing under a company is readable without a membership document inside it,
+// so an account with no invitation sees an empty app and nothing else.
+//
+// The daily engine runs with the Admin SDK and bypasses these rules entirely,
+// so the private-project filter is duplicated in the capture step, with its own
+// tests.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // The people allowed to create a company from scratch. Everyone else is
+    // invited into one. Keep this list short and deliberate.
+    function founders() {
+      return ['sergio@aditumcr.com'];
+    }
+
     function signedIn() {
       return request.auth != null;
+    }
+
+    // Lowercased: Firebase preserves whatever case was typed at sign-up, and a
+    // founder list that only matches one casing is a trap.
+    function email() {
+      return request.auth.token.email.lower();
+    }
+
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isFounder() {
+      return signedIn() && email() in founders();
     }
 
     function membershipPath(companyId) {
@@ -38,9 +66,55 @@ service cloud.firestore {
       return isMember(companyId) && access(companyId) == 'owner';
     }
 
+    function isCreator(companyId) {
+      return signedIn()
+             && get(/databases/$(database)/documents/companies/$(companyId)).data.createdBy
+                == request.auth.uid;
+    }
+
+    function invitePath() {
+      return /databases/$(database)/documents/invites/$(email());
+    }
+
+    // A pending invitation for this exact address, into this exact company.
+    // Verification matters: with email and password anyone can *claim* an
+    // address at sign-up, so an unverified account must not redeem an invite.
+    function invitedTo(companyId) {
+      return verified()
+             && exists(invitePath())
+             && get(invitePath()).data.companyId == companyId;
+    }
+
     // Only the listed fields changed, and nothing else.
     function changedOnly(fields) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Invitations — top level, keyed by email address                   */
+    /* ---------------------------------------------------------------- */
+
+    // Top level rather than nested under the company, so an invited person can
+    // read their own invitation and discover which company it belongs to
+    // without needing to read the company itself first.
+    match /invites/{invitedEmail} {
+      allow get: if signedIn() && email() == invitedEmail;
+      allow list: if false;
+
+      // Any member may invite somebody into a company they belong to: sharing
+      // is the members' decision. What they cannot do is create the account on
+      // the other end — only the administrator does that.
+      allow create: if isMember(request.resource.data.companyId)
+                    && request.resource.data.email == invitedEmail
+                    && request.resource.data.invitedBy == request.auth.uid
+                    // Nobody grants more access than they hold themselves.
+                    && (request.resource.data.access == 'member'
+                        || isAdmin(request.resource.data.companyId));
+      allow update: if isAdmin(resource.data.companyId);
+      // Whoever sent it, an admin, or the person who just redeemed it.
+      allow delete: if isAdmin(resource.data.companyId)
+                    || resource.data.invitedBy == request.auth.uid
+                    || (signedIn() && email() == invitedEmail);
     }
 
     /* ---------------------------------------------------------------- */
@@ -56,7 +130,9 @@ service cloud.firestore {
       // them at sign-in without a collection-group query. Written by a trigger.
       match /memberships/{companyId} {
         allow read: if signedIn() && request.auth.uid == uid;
-        allow write: if false;
+        // Written by the client on join; a trigger takes this over once Cloud
+        // Functions exist. Guarded by actually being a member of that company.
+        allow write: if signedIn() && request.auth.uid == uid && isMember(companyId);
       }
     }
 
@@ -69,9 +145,12 @@ service cloud.firestore {
       // The north star and the 3/6/12-month plans are company-wide direction,
       // so only an admin edits them.
       allow update: if isAdmin(companyId);
-      allow create: if signedIn();
+      allow create: if isFounder()
+                    && request.resource.data.createdBy == request.auth.uid;
       allow delete: if isOwner(companyId);
 
+      // Carries the person's display name and initials as well as their role,
+      // because a member may not read anyone else's users/{uid} document.
       match /members/{memberUid} {
         allow read: if isMember(companyId);
         // A person may edit their own role description; an admin may edit
@@ -79,11 +158,17 @@ service cloud.firestore {
         allow update: if isAdmin(companyId)
                       || (request.auth.uid == memberUid
                           && changedOnly(['roleTitle', 'roleDescription']));
-        allow create, delete: if isAdmin(companyId);
-      }
-
-      match /invites/{inviteId} {
-        allow read, write: if isAdmin(companyId);
+        // Three ways a member document comes into being:
+        //   - an admin adds somebody — including a person with no account at
+        //     all, under a synthetic id (`p_…`) that matches no uid and so
+        //     grants nothing; they are on the team to be followed up with,
+        //   - the founder who just created the company adds themselves, which
+        //     no admin could do because being an admin needs this document,
+        //   - an invited person redeems their invitation.
+        allow create: if isAdmin(companyId)
+                      || (request.auth.uid == memberUid && isCreator(companyId))
+                      || (request.auth.uid == memberUid && invitedTo(companyId));
+        allow delete: if isAdmin(companyId);
       }
 
       match /objectives/{objectiveId} {
@@ -91,16 +176,23 @@ service cloud.firestore {
         allow write: if isMember(companyId);
       }
 
+      // Rules are not filters. A rule that inspects resource.data rejects any
+      // query it cannot prove safe in advance, so the two branches below are
+      // written to match the two queries the app actually issues:
+      //
+      //   where('visibility', '==', 'company')
+      //   where('memberUserIds', 'array-contains', uid)
+      //
+      // Anything else, including an unfiltered listener on the collection, is
+      // refused outright — which is correct, and is what the tests pin down.
       match /projects/{projectId} {
-        // A private project is visible only to the people on it. This is the
-        // rule the emulator test must prove.
         allow read: if isMember(companyId)
-                    && (resource.data.visibility != 'private'
-                        || request.auth.uid in resource.data.memberUids);
+                    && (resource.data.visibility == 'company'
+                        || request.auth.uid in resource.data.memberUserIds);
         allow create: if isMember(companyId);
         allow update, delete: if isMember(companyId)
-                              && (resource.data.visibility != 'private'
-                                  || request.auth.uid in resource.data.memberUids);
+                              && (resource.data.visibility == 'company'
+                                  || request.auth.uid in resource.data.memberUserIds);
       }
 
       match /tasks/{taskId} {
@@ -109,6 +201,14 @@ service cloud.firestore {
 
       match /risks/{riskId} {
         allow read, write: if isMember(companyId);
+      }
+
+      // What is going on with a person that the numbers do not show. These are
+      // private notes about identifiable people, written so the follow-up can
+      // be kind rather than mechanical, and the person they describe is not
+      // meant to read them — so admins only, not every member.
+      match /situations/{situationId} {
+        allow read, write: if isAdmin(companyId);
       }
 
       // The Notion connection holds only the Secret Manager name, never a
@@ -135,7 +235,26 @@ service cloud.firestore {
         allow read: if isMember(companyId) && resource.data.uid == request.auth.uid;
         allow update: if isMember(companyId)
                       && resource.data.uid == request.auth.uid
-                      && changedOnly(['feedback']);
+                      && changedOnly(['feedback', 'stale']);
+        // TEMPORARY, until the engine exists: a person may seed their own plan
+        // so the app is usable end to end. This is an integrity relaxation, not
+        // a confidentiality one — the document is already only theirs. Tighten
+        // to `if false` the day the Raspberry Pi worker starts writing plans.
+        allow create: if isMember(companyId)
+                      && request.resource.data.uid == request.auth.uid;
+        allow delete: if false;
+      }
+
+      // The team follow-up: one document per manager per day, written by the
+      // engine. A manager reads only their own — the readings quote signals
+      // about other people, and the messages were written for them to send.
+      // All they may write back is what they did with each one.
+      match /followups/{followUpId} {
+        allow read: if isMember(companyId)
+                    && resource.data.managerUid == request.auth.uid;
+        allow update: if isMember(companyId)
+                      && resource.data.managerUid == request.auth.uid
+                      && changedOnly(['outcome', 'sentText']);
         allow create, delete: if false;
       }
 
@@ -156,9 +275,10 @@ service cloud.firestore {
     /* Engine plumbing — server only                                     */
     /* ---------------------------------------------------------------- */
 
-    // The job queue the Raspberry Pi worker leases from, and the worker
-    // heartbeats. Both are written with the Admin SDK. Members may read the
-    // heartbeat so the app can show when the engine last ran.
+    // Engine run log and the server heartbeat, both written by the Pi with the
+    // Admin SDK. Members may read the heartbeat so the app can say whether the
+    // engine is up and when it last ran. (`jobs` is kept closed rather than
+    // removed; ADR-005 dropped the queue it was for.)
     match /jobs/{jobId} {
       allow read, write: if false;
     }

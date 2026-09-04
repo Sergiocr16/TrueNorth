@@ -8,7 +8,21 @@
 
 export type Locale = 'es' | 'en';
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+/**
+ * Appearance. `system` follows the device; the rest are stamped on the root as
+ * `data-theme`. Light and warm are the light family; dark, midnight and amber the dark
+ * one — the CSS treats each pair as one scheme with a different tint.
+ */
+export const THEMES = ['system', 'light', 'warm', 'ambar', 'dark', 'midnight'] as const;
+export type ThemePreference = (typeof THEMES)[number];
+
+/**
+ * The accent, independent of the theme. Green is not on the list on purpose:
+ * it is the colour of "done" and "on track", and an accent that means success
+ * everywhere means nothing.
+ */
+export const ACCENTS = ['azul', 'violeta', 'naranja', 'rosa', 'grafito'] as const;
+export type AccentPreference = (typeof ACCENTS)[number];
 
 /** Access level a person has inside one company. */
 export type AccessLevel = 'owner' | 'admin' | 'member';
@@ -43,6 +57,8 @@ export interface Company {
   id: string;
   name: string;
   slug: string;
+  /** Download URL of the company logo, if one has been uploaded. */
+  logoUrl?: string | null;
   /** The mandatory north-star goal. Everything is prioritised against this. */
   northStar: string;
   northStarDeadline: string;
@@ -57,6 +73,30 @@ export interface Membership {
   /** Editable free text. This is what makes recommendations role-aware. */
   roleDescription: string;
   access: AccessLevel;
+  /**
+   * False for somebody on the team who does not use the app. Their member
+   * document has a synthetic id that matches no account, so it grants nothing;
+   * it exists so they can be followed up on. Sharing access is a separate act.
+   */
+  hasAccount: boolean;
+  /**
+   * What is expected of this person, in the manager's own words.
+   *
+   * Prose on purpose. The facts — what moved in Notion, what was left
+   * unanswered — are signals computed in code; whether those facts add up to
+   * "delivering what I expect" is the judgement, and that is the model's job.
+   */
+  expectations: string;
+  /** Notion's own user id, so a comment author maps back to this person. */
+  notionUserId?: string;
+  /** The register the follow-up should copy when writing to this person. */
+  commsTone?: 'directo' | 'cercano' | 'formal';
+}
+
+/** One reading, so a chart can show a trend rather than a single number. */
+export interface Reading {
+  date: string;
+  value: number;
 }
 
 export interface Indicator {
@@ -68,6 +108,8 @@ export interface Indicator {
   target: number;
   /** Whether success means the number goes up or down. */
   direction: 'up' | 'down';
+  /** Appended whenever `current` changes. Empty until it does. */
+  history?: Reading[];
 }
 
 export interface Objective {
@@ -82,6 +124,8 @@ export interface Objective {
   progressPct: number;
   status: HealthStatus;
   indicators: Indicator[];
+  /** Appended whenever `progressPct` changes, so Reports can plot the gap. */
+  history?: Reading[];
 }
 
 export interface Project {
@@ -100,6 +144,8 @@ export interface Project {
   status: HealthStatus;
   source: RecordSource;
   notionPageId?: string;
+  /** Appended whenever `progressPct` changes. Empty means nothing to compare. */
+  history?: Reading[];
 }
 
 export interface Task {
@@ -114,11 +160,48 @@ export interface Task {
   notionStatus?: string;
   priority: Priority;
   dueDate: string | null;
-  assigneeUserId: string | null;
+  /**
+   * Everyone responsible, as in Notion, where "Responsable" holds several
+   * people and all of them own the task. Empty means nobody has it yet, which
+   * for something not started is normal.
+   */
+  assigneeUserIds: string[];
   dependsOn: string[];
   source: RecordSource;
   notionPageId?: string;
   syncedAt?: string;
+
+  /* Activity. This is what "it has not moved" is computed from. */
+
+  /** Touched by any mutation in the app. Notion tasks carry Notion's own. */
+  updatedAt?: string;
+  /** Notion's `last_edited_time`, verbatim. */
+  notionLastEditedAt?: string;
+  /**
+   * When the status last changed, stamped by the sync.
+   *
+   * Notion's API does not expose status history, so this is derived: the sync
+   * compares the incoming status with the stored one and stamps the clock when
+   * they differ. It therefore only tells the truth from the first sync onward.
+   */
+  statusChangedAt?: string;
+  /** The last few comments, kept so a follow-up can quote one. */
+  comments?: TaskComment[];
+  commentCount?: number;
+  lastCommentAt?: string;
+  /** Author of the last comment, when it maps to somebody we know. */
+  lastCommentBy?: string | null;
+}
+
+/** A Notion comment, flattened. Most follow-up in ADITUM happens in these. */
+export interface TaskComment {
+  id: string;
+  /** Resolved through `Membership.notionUserId`; null when we cannot map it. */
+  authorUserId: string | null;
+  authorName: string;
+  createdAt: string;
+  /** `rich_text` flattened to plain text. */
+  text: string;
 }
 
 export interface Risk {
@@ -130,6 +213,29 @@ export interface Risk {
   severity: 'low' | 'medium' | 'high';
   ownerUserId: string | null;
   source: 'manual' | 'engine';
+}
+
+/**
+ * Something going on with a person that the numbers do not show.
+ *
+ * These are private notes about identifiable people, kept so the follow-up
+ * adapts instead of nagging somebody who is having a hard week. Only owners and
+ * admins may read them; see firestore.rules. `discreet` is the safeguard that
+ * makes them usable at all: it tells the engine to soften the ask without ever
+ * writing the reason into a message that gets copied to the person.
+ */
+export interface Situation {
+  id: string;
+  companyId: string;
+  userId: string;
+  kind: 'personal' | 'carga' | 'desempeno' | 'salud' | 'motivacion' | 'otro';
+  note: string;
+  /** Adjust the tone, never name the reason. */
+  discreet: boolean;
+  startsAt: string;
+  /** Null means open-ended; a past date means the situation is over. */
+  endsAt: string | null;
+  createdBy: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -146,7 +252,16 @@ export type SignalKind =
   | 'orphan_project'
   | 'empty_objective'
   | 'workload'
-  | 'stale_progress';
+  | 'stale_progress'
+  /* Follow-up: whether the work, and the conversation around it, is moving. */
+  | 'stale_task'
+  | 'comment_unanswered'
+  | 'silent_owner'
+  | 'no_followup'
+  | 'plan_ignored'
+  | 'plan_slipping'
+  | 'no_owned_work'
+  | 'overdue_load';
 
 /**
  * A deterministic fact computed in code, never by the model. Every plan item
@@ -162,7 +277,10 @@ export interface Signal {
   objectiveId?: string;
   projectId?: string;
   taskId?: string;
+  /** The first person this concerns; `userIds` has all of them. */
   userId?: string;
+  /** Everybody this concerns, when a task has more than one responsible. */
+  userIds?: string[];
   /** Raw numbers behind the signal, for display and for the prompt. */
   data?: Record<string, number | string>;
 }
@@ -216,6 +334,91 @@ export interface CompanyAnalysis {
   topRisks: string[];
   pendingDecisions: string[];
   perspectives: Perspective[];
+  model: string;
+  costUsd: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Team follow-up                                                      */
+/* ------------------------------------------------------------------ */
+
+/** How a person is doing against what is expected of them. */
+export type Standing = 'adelantado' | 'en_curso' | 'atrasado' | 'trabado';
+
+export type FollowUpTone =
+  | 'reconocimiento'
+  | 'seguimiento'
+  | 'ajuste'
+  | 'apoyo'
+  | 'decision';
+
+/**
+ * A signal stored alongside the follow-up, summary and all.
+ *
+ * Plans get away with citing ids alone because the browser recomputes the same
+ * signals from data it can read. A follow-up cannot: it cites signals about
+ * other people, drawn from plan history the rules keep private. So the summary
+ * travels with the id, and the interface never has to resolve it.
+ */
+export interface CitedSignal {
+  id: string;
+  severity: Signal['severity'];
+  summary: { es: string; en: string };
+}
+
+/** Every member gets one of these every day, whether or not a message follows. */
+export interface TeamReading {
+  userId: string;
+  standing: Standing;
+  reading: string;
+  recommendation: string;
+  signals: CitedSignal[];
+}
+
+/**
+ * Where the follow-up goes. Most of it belongs on the Notion task, where the
+ * conversation already lives; a direct message is for what spans several tasks.
+ */
+export type FollowUpTarget =
+  | { kind: 'directo' }
+  | { kind: 'comentario'; taskId: string };
+
+export type FollowUpOutcome = 'sent' | 'dismissed';
+
+export interface FollowUp {
+  /**
+   * Stable within the day's document, derived from who it is for and where it
+   * goes. One person can get two on the same morning — a comment on the task
+   * that is stuck and a wider word about the week — and each is decided on its
+   * own, so each needs its own name.
+   */
+  id: string;
+  userId: string;
+  target: FollowUpTarget;
+  tone: FollowUpTone;
+  /** Ready to copy, addressed to the person. */
+  message: string;
+  /** Why it is being sent. For the manager's eyes; never copied. */
+  why: string;
+  ask: string;
+  signals: CitedSignal[];
+  /** The message stopped being enough; this needs a conversation. */
+  escalate: boolean;
+}
+
+export interface TeamFollowUp {
+  id: string;
+  companyId: string;
+  /** Whose follow-up this is. One document per manager per day. */
+  managerUid: string;
+  date: string;
+  generatedAt: string;
+  readings: TeamReading[];
+  messages: FollowUp[];
+  /** What the manager did with each message, keyed by the message id. */
+  outcome: Record<string, FollowUpOutcome>;
+  /** What was actually sent, when it was edited first. Teaches tomorrow's run. */
+  sentText: Record<string, string>;
   model: string;
   costUsd: number;
 }
@@ -275,10 +478,25 @@ export interface Job {
   lastError?: string;
 }
 
+/** What the last daily run did, written by the engine next to the heartbeat. */
+export interface EngineRun {
+  companyId: string;
+  date: string;
+  analysisOk: boolean;
+  plansOk: number;
+  plansFailed: number;
+  /** Follow-up messages suggested across every manager. */
+  messages?: number;
+  durationMs: number;
+  costUsd: number;
+  error: string | null;
+}
+
 export interface WorkerHeartbeat {
   id: string;
-  lastHeartbeatAt: string;
+  /** ISO timestamp. The engine writes a server timestamp; the store converts it. */
+  lastHeartbeatAt: string | null;
   version: string;
   hostname: string;
-  jobsInFlight: number;
+  lastRun?: EngineRun;
 }

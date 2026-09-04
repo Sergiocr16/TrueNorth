@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { AuthProvider } from '../lib/auth';
 import { PreferencesProvider } from '../lib/preferences';
 import { StoreProvider } from '../lib/store';
 import './globals.css';
@@ -37,8 +38,11 @@ const themeBootstrap = `
     var raw = localStorage.getItem('truenorth.preferences');
     if (!raw) return;
     var p = JSON.parse(raw);
-    if (p.theme === 'light' || p.theme === 'dark') {
+    if (['light', 'warm', 'dark', 'midnight', 'ambar'].indexOf(p.theme) !== -1) {
       document.documentElement.setAttribute('data-theme', p.theme);
+    }
+    if (['violeta', 'naranja', 'rosa', 'grafito'].indexOf(p.accent) !== -1) {
+      document.documentElement.setAttribute('data-accent', p.accent);
     }
     if (p.reduceTransparency) {
       document.documentElement.setAttribute('data-reduce-transparency', 'true');
@@ -54,7 +58,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
         <PreferencesProvider>
-          <StoreProvider>{children}</StoreProvider>
+          <AuthProvider>
+            <StoreProvider>{children}</StoreProvider>
+          </AuthProvider>
         </PreferencesProvider>
       </body>
     </html>

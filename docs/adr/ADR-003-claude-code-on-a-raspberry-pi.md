@@ -1,6 +1,10 @@
 # ADR-003 — Claude Code headless on a Raspberry Pi, with an API fallback
 
-Date: 2026-09-03 · Status: accepted
+Date: 2026-09-03 · Status: superseded by ADR-005 on 2026-09-04
+
+> The queue, the separate worker and the API fallback service described here
+> were dropped when the whole server moved onto the Pi. The verification of
+> platform support and subscription terms below still holds.
 
 ## Context
 

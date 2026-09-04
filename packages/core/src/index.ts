@@ -1,5 +1,11 @@
 export * from './types';
 export * from './notion-status';
+export * from './notion';
+export * from './people';
 export * from './signals';
 export * from './schemas';
+export * from './followup';
+export * from './health';
+export * from './dates';
+export * from './visibility';
 export * as fixtures from './fixtures';

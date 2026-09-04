@@ -1,9 +1,12 @@
 'use client';
 
 import type { CSSProperties, ReactNode } from 'react';
-import type { HealthStatus, TaskStatus } from '@truenorth/core';
-import { useT } from '../lib/preferences';
-import { Chevron, CheckIcon, SmallTriangle, WarningTriangle } from './icons';
+import type { HealthStatus, Task, TaskStatus, User } from '@truenorth/core';
+import { idleDays, isOverdue, notionUrl } from '@truenorth/core';
+import { usePreferences, useT } from '../lib/preferences';
+import { formatShortDate } from '../lib/i18n/dictionary';
+import { Chevron, CheckIcon, NotionMark, SmallTriangle, WarningTriangle } from './icons';
+import { Overlay } from './overlay';
 
 /* ------------------------------------------------------------------ */
 /* Layout primitives                                                   */
@@ -177,6 +180,161 @@ export function Avatar({ initials, size = 44 }: { initials: string; size?: numbe
     >
       {initials}
     </div>
+  );
+}
+
+/**
+ * One task, wherever it shows up.
+ *
+ * Three things it always says, because they are the three questions somebody
+ * asks about a task they did not write: what is it called, who is on it, and
+ * has it moved. The name comes first — a code like TAR-966 identifies a task to
+ * whoever already knows it and to nobody else.
+ *
+ * The Notion link sits outside the button rather than inside it: a link nested
+ * in a button is invalid, and the two do different things anyway.
+ */
+export function TaskLine({
+  task,
+  users,
+  today,
+  onOpen,
+  showActivity = true,
+}: {
+  task: Task;
+  users: User[];
+  today?: Date;
+  onOpen?: () => void;
+  showActivity?: boolean;
+}) {
+  const t = useT();
+  const { locale } = usePreferences();
+
+  const notion = notionUrl(task.notionPageId);
+  // Everybody responsible, as Notion has it. The first gets a name; the rest
+  // stack as avatars, with the full list on hover.
+  const responsible = (task.assigneeUserIds ?? [])
+    .map((id) => users.find((u) => u.id === id))
+    .filter((u): u is User => Boolean(u));
+  const assignee = responsible[0];
+  const others = responsible.slice(1);
+
+  const overdue = today ? isOverdue(task, today) : false;
+  const idle = today ? idleDays(task, today) : null;
+
+  const activity: string[] = [];
+  if (idle !== null) activity.push(t.task.idle(idle));
+  if (task.lastCommentAt) {
+    const author = users.find((u) => u.id === task.lastCommentBy)?.displayName ?? '—';
+    activity.push(t.task.lastComment(author, formatShortDate(task.lastCommentAt.slice(0, 10), locale)));
+  }
+
+  const body = (
+    <>
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        {task.code ? (
+          <span className="tn-tabular text-[13px] font-bold text-[var(--accent)]">{task.code}</span>
+        ) : null}
+        <span className="min-w-0 flex-1 text-[17px] font-semibold leading-snug text-[var(--ink)]">
+          {task.title}
+        </span>
+      </div>
+
+      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-[var(--ter)]">
+        <TaskStatusPill status={task.status} label={task.notionStatus} />
+        <span
+          className="tn-tabular"
+          style={overdue ? { color: 'var(--red)', fontWeight: 600 } : undefined}
+        >
+          {task.dueDate ? formatShortDate(task.dueDate, locale) : t.projects.noDue}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Avatar initials={assignee?.initials ?? '—'} size={20} />
+          {assignee?.displayName ?? t.projects.unassigned}
+        </span>
+        {others.length > 0 ? (
+          <span
+            className="flex items-center gap-1"
+            title={`${t.task.involved}: ${others.map((u) => u.displayName).join(', ')}`}
+          >
+            <span className="flex -space-x-1.5">
+              {others.map((u) => (
+                <Avatar key={u.id} initials={u.initials} size={20} />
+              ))}
+            </span>
+          </span>
+        ) : null}
+      </div>
+
+      {showActivity && activity.length > 0 ? (
+        <div className="mt-1 text-[13px] leading-snug text-[var(--faint)]">
+          {activity.join(' · ')}
+        </div>
+      ) : null}
+    </>
+  );
+
+  return (
+    <div className="tn-hairline flex w-full items-start gap-2 px-4 py-3">
+      {onOpen ? (
+        <button type="button" onClick={onOpen} className="tn-press min-w-0 flex-1 text-left">
+          {body}
+        </button>
+      ) : (
+        <div className="min-w-0 flex-1">{body}</div>
+      )}
+
+      {notion ? (
+        <a
+          href={notion}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={t.task.openInNotion}
+          title={t.task.openInNotion}
+          className="tn-press mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+        >
+          <NotionMark size={18} />
+        </a>
+      ) : null}
+
+      {onOpen ? (
+        <span className="mt-1.5 shrink-0 text-[var(--ter)]">
+          <Chevron />
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * One number and what it counts. Three of these above a list say more than
+ * the list's first screen, which is why they come first.
+ */
+export function GlanceTile({
+  value,
+  label,
+  tone,
+}: {
+  value: number;
+  label: string;
+  tone: 'amber' | 'accent' | 'red' | 'green' | 'neutral';
+}) {
+  const colour = {
+    amber: 'var(--amber)',
+    accent: 'var(--accent)',
+    red: 'var(--red)',
+    green: 'var(--green)',
+    neutral: 'var(--ink)',
+  }[tone];
+  return (
+    <Card className="flex flex-col items-start px-3.5 py-3">
+      <span className="tn-tabular text-[28px] font-bold leading-none" style={{ color: colour }}>
+        {value}
+      </span>
+      <span className="mt-1 text-[12px] font-semibold uppercase tracking-[0.6px] text-[var(--ter)]">
+        {label}
+      </span>
+    </Card>
   );
 }
 
@@ -437,7 +595,8 @@ export function Sheet({
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <Overlay>
+    <div className="fixed inset-0 flex flex-col justify-end">
       <button
         type="button"
         aria-label="Cerrar"
@@ -460,5 +619,6 @@ export function Sheet({
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }

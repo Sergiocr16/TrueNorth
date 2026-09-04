@@ -16,3 +16,4 @@ service-account*.json
 tsconfig.tsbuildinfo
 next-env.d.ts
 .firebaserc
+*-debug.log

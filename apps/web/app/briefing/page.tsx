@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import type { PerspectiveKey } from '@truenorth/core';
-import { fixtures } from '@truenorth/core';
-import { LargeTitle, Screen } from '../../components/shell';
-import { Card, SectionLabel, Segmented } from '../../components/ui';
-import { WarningTriangle } from '../../components/icons';
+import { fixtures, shareHealthy, todayIso } from '@truenorth/core';
+import Link from 'next/link';
+import { LargeTitle, ROUTES, Screen } from '../../components/shell';
+import { Card, GlanceTile, SectionLabel, Segmented, TextButton } from '../../components/ui';
+import { HealthCompass } from '../../components/day-compass';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
 
@@ -19,8 +20,15 @@ export default function BriefingPage() {
   const riskCount = useRiskCount();
   const store = useStore();
   const [lens, setLens] = useState<PerspectiveKey>('cto');
+  const [briefingOpen, setBriefingOpen] = useState(false);
 
-  const analysis = fixtures.todaysAnalysis;
+  // The engine writes companies/{cid}/analyses/{date}. Until it has run for the
+  // first time in this company there is nothing to read, and the worked example
+  // stands in so the screen still shows what a briefing looks like.
+  const analysis =
+    store.analyses.find((candidate) => candidate.date === todayIso()) ??
+    store.analyses[0] ??
+    fixtures.todaysAnalysis;
   const generatedTime = new Date(analysis.generatedAt).toLocaleTimeString(
     locale === 'es' ? 'es-CR' : 'en-US',
     { hour: '2-digit', minute: '2-digit', hour12: false },
@@ -33,34 +41,71 @@ export default function BriefingPage() {
 
   const selected = analysis.perspectives.find((p) => p.key === lens);
 
+  // The first sentence is the headline; the rest is there, folded.
+  const [lead, rest] = splitLead(analysis.briefing);
+  const stuck = (store.followUp?.readings ?? []).filter(
+    (r) => r.standing === 'trabado' || r.standing === 'atrasado',
+  ).length;
+
   return (
     <Screen riskCount={riskCount} wide>
       <LargeTitle
         title={t.briefing.title}
         subtitle={`${store.company.name} · ${t.briefing.generatedAt(generatedTime)}`}
+        trailing={<HealthCompass ratio={shareHealthy(store.objectives)} label={t.common.health} />}
       />
 
-      <div className="mx-4 mt-3 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-5">
+      {/* Three numbers before any sentence: what needs a look, what needs a
+          call, who is stuck. The prose comes after, and folded. */}
+      <div className="mx-4 mt-3 grid grid-cols-3 gap-2.5">
+        <GlanceTile value={analysis.topRisks.length} label={t.briefing.glanceRisks} tone="amber" />
+        <GlanceTile
+          value={analysis.pendingDecisions.length}
+          label={t.briefing.glanceDecisions}
+          tone="accent"
+        />
+        {/* People are read on the follow-up screen; the briefing only counts
+            them, and the count is the door. */}
+        <Link href={ROUTES.followUps} className="tn-press block">
+          <GlanceTile value={stuck} label={t.briefing.glanceStuck} tone={stuck > 0 ? 'red' : 'green'} />
+        </Link>
+      </div>
+
+      <div className="mx-4 mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-5">
         <div>
           <Card className="p-4">
-            <p className="text-[17px] leading-relaxed text-[var(--ink)] text-pretty">
-              {analysis.briefing}
+            <p className="text-[17px] font-semibold leading-snug text-[var(--ink)] text-pretty">
+              {lead}
             </p>
+            {rest ? (
+              <>
+                <p
+                  className={`mt-2 text-[15px] leading-relaxed text-[var(--sec)] ${
+                    briefingOpen ? '' : 'line-clamp-3'
+                  }`}
+                >
+                  {rest}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setBriefingOpen((open) => !open)}
+                  aria-expanded={briefingOpen}
+                  className="tn-press mt-2 text-[15px] font-semibold text-[var(--accent)]"
+                >
+                  {briefingOpen ? t.briefing.readLess : t.briefing.readMore}
+                </button>
+              </>
+            ) : null}
           </Card>
 
           <div className="mt-4">
             <SectionLabel>{t.briefing.perspectives}</SectionLabel>
 
-            {/* Phone: one lens at a time. */}
+            {/* Phone: one lens at a time, a few lines at a time. */}
             <div className="lg:hidden">
               <Segmented options={options} value={lens} onChange={setLens} />
               <Card className="mt-2.5 p-4">
-                <div className="text-[12px] font-bold uppercase tracking-[0.8px] text-[var(--accent)]">
-                  {t.perspectives[lens]}
-                </div>
-                <p className="mt-1.5 text-[17px] leading-relaxed text-[var(--ink)]">
-                  {selected?.reading}
-                </p>
+                <Reading text={selected?.reading ?? ''} />
               </Card>
             </div>
 
@@ -71,9 +116,9 @@ export default function BriefingPage() {
                   <div className="text-[12px] font-bold uppercase tracking-[0.8px] text-[var(--accent)]">
                     {t.perspectives[perspective.key]}
                   </div>
-                  <p className="mt-1.5 text-[15px] leading-relaxed text-[var(--ink)]">
-                    {perspective.reading}
-                  </p>
+                  <div className="mt-1.5">
+                    <Reading text={perspective.reading} />
+                  </div>
                 </Card>
               ))}
             </div>
@@ -83,15 +128,19 @@ export default function BriefingPage() {
         <div className="mt-4 lg:mt-0">
           <SectionLabel>{t.briefing.topRisks}</SectionLabel>
           <Card className="overflow-hidden">
+            {/* Ranked, so the number carries information. */}
             {analysis.topRisks.map((risk, index) => (
               <div
                 key={risk}
-                className={`flex items-start gap-2.5 px-4 py-3 ${
+                className={`flex items-start gap-3 px-4 py-3 ${
                   index === analysis.topRisks.length - 1 ? '' : 'tn-hairline'
                 }`}
               >
-                <span className="mt-1 shrink-0 text-[var(--amber)]">
-                  <WarningTriangle size={14} />
+                <span
+                  className="tn-tabular mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
+                  style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}
+                >
+                  {index + 1}
                 </span>
                 <span className="text-[15px] leading-snug text-[var(--ink)]">{risk}</span>
               </div>
@@ -107,11 +156,16 @@ export default function BriefingPage() {
                 analysis.pendingDecisions.map((decision, index) => (
                   <div
                     key={decision}
-                    className={`px-4 py-3 text-[15px] leading-snug text-[var(--ink)] ${
+                    className={`flex items-start gap-3 px-4 py-3 ${
                       index === analysis.pendingDecisions.length - 1 ? '' : 'tn-hairline'
                     }`}
                   >
-                    {decision}
+                    <span
+                      className="mt-[7px] h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: 'var(--accent)' }}
+                      aria-hidden
+                    />
+                    <span className="text-[15px] leading-snug text-[var(--ink)]">{decision}</span>
                   </div>
                 ))
               )}
@@ -120,5 +174,36 @@ export default function BriefingPage() {
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** First sentence out, the rest kept; a briefing with one sentence has no rest. */
+function splitLead(text: string): [string, string] {
+  const match = text.match(/^(.+?[.!?])(\s+[\s\S]*)?$/);
+  if (!match) return [text, ''];
+  return [match[1]!.trim(), (match[2] ?? '').trim()];
+}
+
+/** A perspective, four lines at a time. */
+function Reading({ text }: { text: string }) {
+  const { t } = usePreferences();
+  const [open, setOpen] = useState(false);
+  const long = text.length > 220;
+  return (
+    <>
+      <p className={`text-[15px] leading-relaxed text-[var(--ink)] ${open || !long ? '' : 'line-clamp-4'}`}>
+        {text}
+      </p>
+      {long ? (
+        <button
+          type="button"
+          onClick={() => setOpen((was) => !was)}
+          aria-expanded={open}
+          className="tn-press mt-1.5 text-[15px] font-semibold text-[var(--accent)]"
+        >
+          {open ? t.briefing.readLess : t.briefing.readMore}
+        </button>
+      ) : null}
+    </>
   );
 }

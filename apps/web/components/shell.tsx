@@ -3,17 +3,19 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { fixtures } from '@truenorth/core';
+import { AuthGate } from './auth-gate';
+import { SidebarCompanyButton, CompanySwitcher } from './company-switcher';
 import { usePreferences } from '../lib/preferences';
-import { formatShortDate } from '../lib/i18n/dictionary';
+import { useStore } from '../lib/store';
 import {
   BriefingIcon,
   ChevronDown,
   ChevronLeft,
   CompanyIcon,
   CompassGlyph,
+  AskIcon,
+  FollowUpIcon,
   IntegrationIcon,
-  MoreIcon,
   ObjectiveIcon,
   ProjectIcon,
   ReportIcon,
@@ -23,15 +25,18 @@ import {
 } from './icons';
 
 export const ROUTES = {
-  today: '/hoy',
+  today: '/today',
   briefing: '/briefing',
-  company: '/empresa',
-  objectives: '/objetivos',
-  projects: '/proyectos',
-  team: '/equipo',
-  risks: '/riesgos',
-  integrations: '/integraciones',
-  settings: '/ajustes',
+  company: '/company',
+  objectives: '/objectives',
+  projects: '/projects',
+  team: '/team',
+  followUps: '/follow-up',
+  ask: '/assistant',
+  risks: '/risks',
+  reports: '/reports',
+  integrations: '/integrations',
+  settings: '/settings',
 } as const;
 
 /* ------------------------------------------------------------------ */
@@ -42,21 +47,29 @@ const TAB_ITEMS = [
   { href: ROUTES.today, key: 'today', Icon: CompassGlyph },
   { href: ROUTES.briefing, key: 'briefing', Icon: BriefingIcon },
   { href: ROUTES.projects, key: 'projects', Icon: ProjectIcon },
+  { href: ROUTES.followUps, key: 'followUps', Icon: FollowUpIcon },
   { href: ROUTES.risks, key: 'risks', Icon: RiskIcon },
-  { href: ROUTES.settings, key: 'more', Icon: MoreIcon },
+  { href: ROUTES.reports, key: 'reports', Icon: ReportIcon },
 ] as const;
 
 export function TabBar({ riskCount }: { riskCount?: number }) {
   const pathname = usePathname();
   const { t } = usePreferences();
 
+  // A floating capsule rather than a bar across the bottom: the page shows
+  // through the glass on both sides, and the active destination sits in its
+  // own lighter pill. Icons only, so every label goes to aria-label; the
+  // glyphs are the same ones the sidebar pairs with words.
   return (
     <nav
-      className="tn-glass fixed inset-x-0 bottom-0 z-30 px-2.5 pb-[max(env(safe-area-inset-bottom),26px)] pt-2.5 lg:hidden"
-      style={{ borderTop: '0.5px solid var(--hair)' }}
+      className="fixed inset-x-0 z-30 flex justify-center px-4 lg:hidden"
+      style={{ bottom: 'max(env(safe-area-inset-bottom), 14px)' }}
       aria-label={t.nav.today}
     >
-      <div className="relative flex">
+      <div
+        className="tn-glass tn-glass-strong tn-glass-clear flex items-center gap-1 rounded-full p-1.5"
+        style={{ border: '0.5px solid var(--fab-border)', boxShadow: '0 8px 30px rgba(0,0,0,.22)' }}
+      >
         {TAB_ITEMS.map(({ href, key, Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           const label = t.nav[key as keyof typeof t.nav] as string;
@@ -64,27 +77,24 @@ export function TabBar({ riskCount }: { riskCount?: number }) {
             <Link
               key={key}
               href={href}
+              aria-label={label}
+              title={label}
               aria-current={active ? 'page' : undefined}
-              className="flex min-h-11 flex-1 flex-col items-center gap-[3px] pt-0.5"
-              style={{ color: active ? 'var(--accent)' : 'var(--ter)' }}
+              className="tn-press relative flex h-[52px] w-[52px] items-center justify-center rounded-full transition-colors"
+              style={{
+                background: active ? 'var(--accent-bg)' : 'transparent',
+                color: active ? 'var(--accent)' : 'var(--sec)',
+              }}
             >
-              <span className="relative">
-                <Icon size={24} />
-                {key === 'risks' && riskCount ? (
-                  <span
-                    className="tn-tabular absolute -right-2.5 -top-1 rounded-full px-1.5 text-[10px] font-bold"
-                    style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
-                  >
-                    {riskCount}
-                  </span>
-                ) : null}
-              </span>
-              <span
-                className="text-[10px]"
-                style={{ fontWeight: active ? 600 : 500, color: active ? 'var(--accent)' : 'var(--faint)' }}
-              >
-                {label}
-              </span>
+              <Icon size={26} strokeWidth={active ? 2 : 1.7} />
+              {key === 'risks' && riskCount ? (
+                <span
+                  className="tn-tabular absolute right-2.5 top-2 rounded-full px-1.5 text-[10px] font-bold"
+                  style={{ background: 'var(--red)', color: '#fff' }}
+                >
+                  {riskCount}
+                </span>
+              ) : null}
             </Link>
           );
         })}
@@ -104,7 +114,10 @@ const SIDEBAR_ITEMS = [
   { href: ROUTES.objectives, key: 'objectives', Icon: ObjectiveIcon },
   { href: ROUTES.projects, key: 'projects', Icon: ProjectIcon },
   { href: ROUTES.team, key: 'team', Icon: TeamIcon },
+  { href: ROUTES.followUps, key: 'followUps', Icon: FollowUpIcon },
+  { href: ROUTES.ask, key: 'ask', Icon: AskIcon },
   { href: ROUTES.risks, key: 'risks', Icon: RiskIcon },
+  { href: ROUTES.reports, key: 'reports', Icon: ReportIcon },
   { href: ROUTES.integrations, key: 'integrations', Icon: IntegrationIcon },
   { href: ROUTES.settings, key: 'settings', Icon: SettingsIcon },
 ] as const;
@@ -112,9 +125,7 @@ const SIDEBAR_ITEMS = [
 export function Sidebar({ riskCount }: { riskCount?: number }) {
   const pathname = usePathname();
   const { t } = usePreferences();
-  const company = fixtures.companies[0]!;
-  const user = fixtures.users[0]!;
-  const membership = fixtures.memberships[0]!;
+  const { currentUser: user, currentMembership: membership } = useStore();
 
   return (
     <aside className="relative hidden w-[248px] shrink-0 p-2.5 lg:block">
@@ -132,20 +143,7 @@ export function Sidebar({ riskCount }: { riskCount?: number }) {
           </span>
         </Link>
 
-        <button
-          type="button"
-          className="tn-press mx-2 mt-3.5 flex min-h-11 items-center gap-2 rounded-xl bg-[var(--chip-bg)] px-2.5 py-1.5"
-        >
-          <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[7px] bg-[var(--ink)] text-[11px] font-bold text-[var(--ground)]">
-            {company.name.charAt(0)}
-          </span>
-          <span className="flex-1 text-left text-[13px] font-semibold text-[var(--ink)]">
-            {company.name}
-          </span>
-          <span className="text-[var(--ter)]">
-            <ChevronDown size={9} />
-          </span>
-        </button>
+        <SidebarCompanyButton />
 
         <div className="mt-3.5 flex flex-col gap-0.5">
           {SIDEBAR_ITEMS.map(({ href, key, Icon }) => {
@@ -228,23 +226,7 @@ export function LargeTitle({
   );
 }
 
-export function CompanySwitcher() {
-  const company = fixtures.companies[0]!;
-  return (
-    <button
-      type="button"
-      className="tn-press flex min-h-11 items-center gap-1.5 rounded-full border border-[var(--hair)] bg-[var(--surface)] py-1.5 pl-1.5 pr-2.5"
-      aria-label={company.name}
-    >
-      <span className="flex h-[26px] w-[26px] items-center justify-center rounded-lg bg-[var(--ink)] text-[12px] font-bold text-[var(--ground)]">
-        {company.name.charAt(0)}
-      </span>
-      <span className="text-[var(--ter)]">
-        <ChevronDown />
-      </span>
-    </button>
-  );
-}
+export { CompanySwitcher };
 
 /** Compact nav bar used on detail screens, with a back affordance. */
 export function DetailHeader({ title, backHref }: { title: string; backHref: string }) {
@@ -278,18 +260,17 @@ export function Screen({
   wide?: boolean;
 }) {
   return (
+    <AuthGate>
     <div className="tn-ground relative flex min-h-dvh">
       <Sidebar riskCount={riskCount} />
-      <main className="tn-scroll relative min-w-0 flex-1 pb-[104px] pt-[max(env(safe-area-inset-top),18px)] lg:pb-10 lg:pt-6">
+      <main className="tn-scroll relative min-w-0 flex-1 overflow-x-clip pb-[104px] pt-[max(env(safe-area-inset-top),18px)] lg:pb-10 lg:pt-6">
         <div className={wide ? 'mx-auto w-full max-w-[1180px]' : 'mx-auto w-full max-w-[720px]'}>
           {children}
         </div>
       </main>
       <TabBar riskCount={riskCount} />
     </div>
+    </AuthGate>
   );
 }
 
-export function todayLabel(locale: 'es' | 'en'): string {
-  return formatShortDate(fixtures.TODAY, locale);
-}

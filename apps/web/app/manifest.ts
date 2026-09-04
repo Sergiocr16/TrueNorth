@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'TrueNorth',
     short_name: 'TrueNorth',
     description: 'Tu plan de hoy, con el porqué de cada cosa.',
-    start_url: '/hoy',
+    start_url: '/today',
     scope: '/',
     display: 'standalone',
     orientation: 'portrait',

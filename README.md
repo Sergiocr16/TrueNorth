@@ -12,7 +12,7 @@ TrueNorth connects a company's north-star goal to its objectives, projects, task
 
 A personal project by **Sergio Castro**. Its first workspace is ADITUM, a condominium-management software company in Costa Rica whose goal is to lead that market by December 2027, which is where the sample data comes from.
 
-The screens are in Spanish (Costa Rica) with English available; the code is in English.
+The screens are in Spanish (Costa Rica) with English available; the code, and every URL, is in English.
 
 ### What a plan looks like
 
@@ -29,26 +29,45 @@ The screens are in Spanish (Costa Rica) with English available; the code is in E
 ## Architecture
 
 ```
-  Phone / desktop            Google Cloud                      Home
- ┌──────────────┐      ┌──────────────────────┐        ┌──────────────────┐
- │  Next.js PWA │─────▶│ Firestore            │◀──────▶│ Raspberry Pi 5   │
- │ App Hosting  │      │ Auth · Functions     │  jobs  │ worker (systemd) │
- └──────────────┘      │ Scheduler · Storage  │        │  └ claude -p     │
-                       │ FCM · Secret Manager │        └──────────────────┘
-                       │ Speech-to-Text       │                 │
-                       └──────────┬───────────┘                 │
-                                  │                    fallback │
-                                  ▼                             ▼
-                              Notion API              Anthropic API (key)
+   Phone / laptop                 Raspberry Pi 5 (home)              Google Cloud
+   on Tailscale                   ┌──────────────────────────┐      ┌───────────────┐
+  ┌────────────┐   https://…ts.net │ Next.js  (systemd :3000) │      │ Firestore     │
+  │  PWA       │──────────────────▶│  ├ app/          UI      │      │ Auth          │
+  │            │                   │  ├ app/api/      routes  │─────▶│ Storage       │
+  │  Firestore │◀─────────────────────────────────────────────────────│ Cloud Msg.    │
+  │  client SDK│                   │  └ server/engine │       │      └───────────────┘
+  └────────────┘                   │       └─ claude -p       │             ▲
+                                   │ systemd timer 02:00 ─────┤             │
+                                   └──────────┬───────────────┘   Speech-to-Text
+                                              ▼
+                                          Notion API
 ```
 
-Each morning Cloud Scheduler writes one job per company into Firestore. The worker on the Raspberry Pi leases the job, reads the company with the Admin SDK, computes the signals in code, and calls Claude Code headless (`claude -p --output-format json --json-schema`) to produce the executive analysis and one plan per person. If the Pi misses its heartbeat for fifteen minutes, a watchdog function processes the queue against the Anthropic API instead.
+Everything runs on the Raspberry Pi as one Next.js process, reached over
+Tailscale, which also gives the app a valid HTTPS certificate so it installs
+as a PWA and can receive push. Claude Code is installed on the same machine
+and signed in with the subscription; the server calls it directly, `claude -p`
+as a child process, three times a morning: the company analysis, one plan per
+person with an account, and one team follow-up per manager — a reading of
+everybody against what is expected of them, and a message only for whoever
+needs one. Voice interpretation will use the same path. A systemd timer
+triggers the daily run at 02:00.
 
-**Why Claude Code and not the API:** the subscription covers first-party use, and TrueNorth is internal to ADITUM. The worker supports both authentication modes behind one environment variable, so switching to an API key is a config change.
+Firebase is the database, identity, file store and push sender. The browser
+talks to Firestore directly, which is what makes edits live across devices;
+the server uses the Admin SDK for what the engine writes. There are no Cloud
+Functions and no App Hosting.
+
+**The trade this makes, on purpose:** when the Pi is off, the app is
+unreachable and that morning's plan is not generated. The data is safe in
+Firebase. See `docs/adr/ADR-005-everything-on-the-raspberry-pi.md`.
 
 ## Getting started
 
-Requirements: Node 26.8.1 (`.nvmrc`), pnpm 11.
+Requirements: Node 26.8.1 (`.nvmrc`), pnpm 11, and `apps/web/.env.local` with
+the Firebase web config plus, for the engine, `GOOGLE_APPLICATION_CREDENTIALS`
+pointing at a service-account key kept outside the repository (see
+`docs/firebase-setup.md`).
 
 ```bash
 nvm use             # or install Node 26.8.1
@@ -56,81 +75,127 @@ pnpm install
 pnpm dev            # http://localhost:3000
 ```
 
-The app opens with ADITUM's real objectives, projects and tasks and is fully editable. Data persists in the browser until Firestore is wired; **Settings → Reset sample data** puts it back.
+The first company is seeded with ADITUM's objectives, projects, tasks and team
+— the team as people without accounts, so follow-up has somebody to talk about
+from day one — and everything is editable. Data lives in Firestore; **Settings
+→ Reset sample data** puts the sample back.
+
+To try it on a phone before the Pi exists, put `tailscale serve` in front of
+the dev server and authorize the laptop's tailnet name in Firebase Auth
+(`apps/web/scripts/authorize-domain.mjs`); `docs/pi-setup.md` §8c has the
+three steps.
 
 Other commands:
 
 ```bash
 pnpm build          # production build
 pnpm typecheck      # tsc --noEmit across the workspace
-pnpm test           # signal engine + Notion mapping tests
+pnpm test           # signals, follow-up guardrails, health, people matching, Notion mapping
+npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/core exec vitest run src/rules.test.ts"
+                    # the security rules, against the emulator (Java 21+)
 ```
 
 ## Screens
 
 | Route | What it does |
 | --- | --- |
-| `/entrar`, `/elegir-empresa` | Sign in, then pick the company and see your role in it |
-| `/hoy` | The day's plan, per-item feedback, recalculate, dictate an update |
-| `/briefing` | Executive summary, top risks, decisions, five perspectives |
-| `/empresa` | North star, target date, 3/6/12-month plans, overall status |
-| `/objetivos` | Objectives with indicators and the expected-vs-actual gap |
-| `/proyectos` | Projects, their objectives, tasks grouped by status, dependencies |
-| `/equipo` | Roles with an editable responsibility description, load per person |
-| `/riesgos` | Overdue, blocked, orphan projects, empty objectives, decisions |
-| `/integraciones` | Notion connection, authorised sources, property and status mapping |
-| `/ajustes` | Language, delivery time, notifications, theme, reduced transparency |
+| `/sign-in`, `/choose-company` | Sign in, then pick the company and see your role in it |
+| `/today` | The day as a compass — the needle swings north as the plan gets done — the plan, per-item feedback, recalculate, the calendar of past days |
+| `/briefing` | Three numbers, the executive summary folded, ranked risks, decisions, five perspectives, how the team is doing |
+| `/company` | North star, target date, 3/6/12-month plans, overall status |
+| `/objectives` | Objectives with indicators and the expected-vs-actual gap |
+| `/projects` | Projects with a health strip and filters; each with objectives, tasks by status, dependencies |
+| `/team` | Who is on the team, with or without an account: role, responsibility, what you expect of them |
+| `/follow-up` | Managers only: how each person is doing, private situations, and today's messages — greeting first, ready to copy |
+| `/assistant` | The chief of staff as a conversation: ask about the day, by text or voice, and confirm what it proposes — a situation, a message to copy, a follow-up marked sent, an expectation |
+| `/risks` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
+| `/integrations` | Notion connection, authorised sources, property and status mapping |
+| `/settings` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
+
+Every main screen carries a small compass in its corner: that screen's health
+as a share computed in `packages/core/src/health.ts` — south nothing right,
+north nothing wrong.
 
 ## Notion
 
-For ADITUM, Notion is the source of truth for projects and tasks. Two databases are synced:
+For ADITUM, Notion is the source of truth for projects and tasks. The sync
+(not built yet — ADR-006 calls it "Fase 0") reads three databases:
 
 - **Proyectos** — name, owner, status, dates, completion rollup, tasks relation.
-- **Tareas Software** — task name, auto id (`TAR-###`), status (fifteen options), owner, due date, priority, project, parent and subtasks, type, bug count.
+- **Tareas Software** — task name, auto id (`TAR-###`), status (fifteen options), the people responsible, due date, priority, project, parent and subtasks, type, bug count. Also each page's `last_edited_time` and its comments, which is where most follow-up in ADITUM happens.
+- **ADITUM Backlog** — everything still to do. An item not started has no responsible, and that is normal; once it is in development it must have one.
+
+A task can have several people responsible, as in Notion. Each Notion person
+is matched to a team member **by name** (`matchPerson()` in
+`packages/core/src/people.ts`: accent- and case-insensitive, refuses to guess
+between two people who both fit); one with no match becomes a new person on
+the team, so the team populates itself from Notion. Notion does not expose
+status history, so the sync stamps `statusChangedAt` itself whenever a status
+differs from the stored one — the "has not moved" signals only tell the truth
+from the first sync onward.
 
 The fifteen Notion statuses collapse onto four internal states in `packages/core/src/notion-status.ts`. `Depende de otra TAR` becomes *blocked*; `Finalizada` and `Archivadas` become *done*. Changing that map requires an ADR.
 
 Writes go back to Notion when a dictated update is confirmed. Notion always wins: if the page changed since the last sync, the app shows the conflict instead of overwriting.
 
-## Voice updates
+## The assistant
 
-Record in the app → Cloud Storage → Speech-to-Text with a phrase set built from the company's own project names, `TAR` codes, people and statuses → the worker interprets it into concrete changes, each carrying the exact phrase that produced it → you confirm or correct each card → the changes land in Notion and Firestore.
+`/assistant` is the chief of staff as a conversation. One question, one
+`claude -p` call (Sonnet by default — `ASK_MODEL` changes it — about ten
+seconds and three cents) over the same context the morning run had, cut down
+to what the person may see. Answers cite signals like a plan does. Voice is
+an input method, not a feature: the browser's own speech recognition fills
+the box where it exists, the keyboard's microphone everywhere else.
 
-No recogniser is perfect, so the design does not pretend otherwise: nothing is written before you confirm, and every correction is stored to improve the phrase set.
+It can also *propose* an action — record a situation, draft a message, mark
+today's follow-up as sent, add to what you expect of somebody — which the
+server validates and the screen shows as a card. Nothing is written until you
+confirm, and a message is never sent from the app: it is copied. That is
+ADR-004 in practice: Claude interprets, code writes.
+
+## Reminders
+
+Reminders are push: one at the hour you choose with the day's headline, another
+when follow-ups are waiting, sent by `POST /api/push/hourly` from an hourly
+timer on the Pi. On iPhone they reach only the app installed to the home screen. A
+token identifies one device; turning the toggle on subscribes that device and
+records it on the user's document, and a token Firebase reports dead is
+dropped on the next send.
 
 ## Branches and deploying
 
 | Branch | Role |
 | --- | --- |
 | `main` | Where work lands. Default branch, kept green. |
-| `production` | What Firebase App Hosting deploys. Protected; moves forward from `main` only. |
+| `production` | What the Pi runs. Protected; moves forward from `main` only. |
 
-Point the App Hosting backend at **`production`**, with `apps/web` as the app
-root. `apphosting.yaml` at the repo root already carries the build and
-environment configuration; the values marked `secret` must exist in Secret
-Manager under those names, or be switched to plain `value` entries, which is
-fine for the Firebase web config since it is public by design. Local variables
-are listed in `apps/web/.env.example`.
-
-Releasing:
+Releasing is a fast-forward merge followed by a deploy on the Pi:
 
 ```bash
 git checkout production
 git merge --ff-only main
-git push origin production      # triggers the App Hosting rollout
+git push origin production
 git checkout main
+# then, on the Pi:
+sudo truenorth-deploy           # git pull, pnpm install, next build, restart
 ```
 
-Not yet wired: Firestore rules and indexes, Cloud Functions, the Notion OAuth callback, FCM, and the Raspberry Pi worker. See `CLAUDE.md` for the phase plan.
+The full runbook for the Pi is `docs/pi-setup.md`.
 
-## Running the Raspberry Pi worker
+Not yet built: the Notion sync, push (FCM) and voice. The Pi runbook is
+written and the engine runs end to end from a laptop today; the Pi itself has
+not been mounted yet.
 
-Planned setup, for when `apps/worker` lands:
+## The Raspberry Pi
 
-- Raspberry Pi 5 with 8 GB, NVMe or USB SSD (not an SD card), on a small UPS.
-- Ubuntu Server 24.04 arm64 or Raspberry Pi OS 64-bit, the current Node release, Claude Code installed for the service user.
-- The worker runs as a systemd unit with automatic restart, writing a heartbeat every minute.
-- SSH over Tailscale only, full-disk encryption, and a Firebase service account scoped to Firestore.
+The Pi is the server. What it needs, in short — the step-by-step is in
+`docs/pi-setup.md`:
+
+- Raspberry Pi 5 with 8 GB, NVMe or USB SSD rather than an SD card, on a small UPS.
+- Ubuntu Server 24.04 arm64, the Node the repo pins, pnpm, and Claude Code signed in with the subscription.
+- The app as a systemd service on port 3000, and a systemd timer for the 02:00 run.
+- Tailscale with `tailscale serve` in front of port 3000, which is what gives the app HTTPS.
+- The Firebase service-account key at `/etc/truenorth/service-account.json`, mode 600, on an encrypted disk. Never in the repo, never in a chat.
 
 ## Stack
 
@@ -141,8 +206,9 @@ Planned setup, for when `apps/worker` lands:
 | Language | TypeScript 7 |
 | Contracts | Zod 4 |
 | Tests | Vitest 5 |
-| Backend | Firebase (Firestore, Auth, Functions, Scheduler, Storage, FCM, Secret Manager, Speech-to-Text) |
-| Engine | Claude Code headless on a Raspberry Pi, Anthropic API as fallback |
+| Backend | Firebase (Firestore, Auth, Storage, Cloud Messaging) + Google Speech-to-Text |
+| Server | Next.js on a Raspberry Pi 5, behind Tailscale |
+| Engine | Claude Code headless, called in-process; API key as an alternative auth mode |
 
 The project tracks current releases rather than the conservative floor. Bump to
 the latest when you touch a dependency, and verify with
@@ -151,3 +217,39 @@ the latest when you touch a dependency, and verify with
 ## Author and licence
 
 Sergio Castro. Private project, all rights reserved.
+
+## Running the engine by hand
+
+The engine is three route handlers in the same process as the app, all under
+`app/api/engine/`. Two are for the operator and take the shared token from
+`ENGINE_LOCAL_TOKEN`; the third is for a signed-in person and takes their
+Firebase ID token.
+
+| Route | Who calls it | What it does |
+|---|---|---|
+| `GET /api/engine/selftest` | you, after installing | Builds a plan from the sample company by calling `claude -p`. No database. `?step=followup` runs the team follow-up instead. |
+| `POST /api/engine/daily` | the systemd timer at 02:00 | Every company: signals, one analysis, one plan per member, one team follow-up per manager, heartbeat. `?company=<id>` limits it to one, `?date=YYYY-MM-DD` overrides today. |
+| `POST /api/engine/replan` | the *Recalcular mi plan* button | Recomputes the caller's plan for today, reusing the day's analysis. |
+
+One more route handler exists for the same reason — a write the browser is not
+allowed to make: `POST /api/company/logo` takes a company id and an image,
+verifies the ID token, checks membership with the Admin SDK and writes the
+object to Storage. See `docs/firebase-setup.md` for why the logo does not go
+straight from the browser.
+
+Locally, put `ENGINE_LOCAL_TOKEN`, `CLAUDE_BIN` and, for the two routes that
+write, `GOOGLE_APPLICATION_CREDENTIALS` in `apps/web/.env.local`, then:
+
+```bash
+curl -s -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" http://localhost:3210/api/engine/selftest | jq .plan
+
+# The team follow-up: a reading for everybody, a message only for those who need one.
+curl -s -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" \
+  'http://localhost:3210/api/engine/selftest?step=followup' | jq .followUp
+```
+
+Claude Code is invoked with `--json-schema` built from the Zod contracts in
+`packages/core`, targeted at JSON Schema draft-07 because that is what the CLI
+validates against, and the answer is validated again with Zod before it is
+written. The child runs in an empty directory so it never reads this
+repository's `CLAUDE.md` as context.

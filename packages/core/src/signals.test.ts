@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   AT_RISK_GAP_POINTS,
+  OVERDUE_LOAD_TASKS,
+  PLAN_IGNORED_DAYS,
+  PLAN_SLIPPING_ITEMS,
+  SILENT_OWNER_TASKS,
+  STALE_TASK_DAYS,
   computeSignals,
   expectedProgressPct,
   healthFrom,
+  idleDays,
   isOverdue,
+  lastMovementAt,
   progressGap,
 } from './signals';
 import { NOTION_TASK_STATUS, taskStatusFromNotion } from './notion-status';
 import * as fixtures from './fixtures';
-import type { Objective, Project, Task, User } from './types';
+import type { DailyPlan, Objective, Project, Task, User } from './types';
 
 const TODAY = new Date('2026-09-03T00:00:00');
 
@@ -23,7 +30,7 @@ function task(overrides: Partial<Task> = {}): Task {
     status: 'todo',
     priority: 'medium',
     dueDate: null,
-    assigneeUserId: 'u1',
+    assigneeUserIds: ['u1'],
     dependsOn: [],
     source: 'app',
     ...overrides,
@@ -225,23 +232,36 @@ describe('computeSignals', () => {
     expect(signals.find((s) => s.kind === 'overdue_task')?.taskId).toBe('t2');
   });
 
-  it('flags unassigned and undated tasks', () => {
+  it('flags unassigned work in flight, and undated tasks', () => {
     const signals = computeSignals({
       today: TODAY,
       objectives: [objective()],
       projects: [project()],
-      tasks: [task({ assigneeUserId: null, dueDate: null })],
+      tasks: [task({ status: 'in_progress', assigneeUserIds: [], dueDate: null })],
       users,
     });
     expect(signals.some((s) => s.kind === 'unassigned_task')).toBe(true);
     expect(signals.some((s) => s.kind === 'undated_task')).toBe(true);
   });
 
+  // The backlog is full of things nobody has started, and those have no owner
+  // by design. Flagging each one would bury the unassigned task that matters.
+  it('does not flag an unstarted task for having no owner', () => {
+    const signals = computeSignals({
+      today: TODAY,
+      objectives: [objective()],
+      projects: [project()],
+      tasks: [task({ status: 'todo', assigneeUserIds: [] })],
+      users,
+    });
+    expect(signals.some((s) => s.kind === 'unassigned_task')).toBe(false);
+  });
+
   it('flags a person carrying well above the team average', () => {
     const many = Array.from({ length: 6 }, (_, i) =>
-      task({ id: `a${i}`, code: `TAR-A${i}`, assigneeUserId: 'u1' }),
+      task({ id: `a${i}`, code: `TAR-A${i}`, assigneeUserIds: ['u1'] }),
     );
-    const few = [task({ id: 'b1', code: 'TAR-B1', assigneeUserId: 'u2' })];
+    const few = [task({ id: 'b1', code: 'TAR-B1', assigneeUserIds: ['u2'] })];
     const signals = computeSignals({
       today: TODAY,
       objectives: [objective()],
@@ -303,5 +323,280 @@ describe('ADITUM fixtures', () => {
   it('keeps the plan within the three-to-five item contract', () => {
     expect(fixtures.todaysPlan.items.length).toBeGreaterThanOrEqual(3);
     expect(fixtures.todaysPlan.items.length).toBeLessThanOrEqual(5);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Follow-up signals                                                   */
+/* ------------------------------------------------------------------ */
+
+function plan(userId: string, date: string, feedback: DailyPlan['feedback'] = {}): DailyPlan {
+  return {
+    id: `${date}_${userId}`,
+    companyId: 'c1',
+    userId,
+    date,
+    headline: 'Headline',
+    why: 'Why',
+    items: [],
+    consequenceIfNotDone: 'Something',
+    deliveredAt: `${date}T06:00:00-06:00`,
+    stale: false,
+    feedback,
+  };
+}
+
+/** Signals are found by id, which is also the contract the model cites. */
+function find(signals: ReturnType<typeof computeSignals>, id: string) {
+  return signals.find((s) => s.id === id);
+}
+
+function run(overrides: {
+  tasks?: Task[];
+  projects?: Project[];
+  objectives?: Objective[];
+  planHistory?: DailyPlan[];
+}) {
+  return computeSignals({
+    today: TODAY,
+    objectives: overrides.objectives ?? [],
+    projects: overrides.projects ?? [],
+    tasks: overrides.tasks ?? [],
+    users,
+    planHistory: overrides.planHistory,
+  });
+}
+
+describe('task movement', () => {
+  it('takes the latest of every stamp it has', () => {
+    const t = task({
+      statusChangedAt: '2026-08-20T09:00:00-06:00',
+      lastCommentAt: '2026-08-28T15:00:00-06:00',
+      updatedAt: '2026-08-22T11:00:00-06:00',
+    });
+    expect(lastMovementAt(t)).toBe('2026-08-28T15:00:00-06:00');
+    expect(idleDays(t, TODAY)).toBe(6);
+  });
+
+  // Not knowing when something moved is not the same as knowing it has not.
+  // A task synced for the first time yesterday must not read as abandoned.
+  it('says nothing when there is no stamp at all', () => {
+    expect(lastMovementAt(task())).toBeNull();
+    expect(idleDays(task(), TODAY)).toBeNull();
+  });
+});
+
+describe('stalled work', () => {
+  it('flags a task in flight that has not moved', () => {
+    const signals = run({
+      tasks: [task({ status: 'in_progress', statusChangedAt: '2026-08-20T09:00:00-06:00' })],
+    });
+    const signal = find(signals, 'stale_task:t1');
+    expect(signal?.kind).toBe('stale_task');
+    expect(signal?.userId).toBe('u1');
+    expect(signal?.data?.days).toBe(14);
+  });
+
+  // One stale task among hundreds is normal. Only the pile is worth a badge.
+  it('keeps a single stalled task at info severity', () => {
+    const signals = run({
+      tasks: [task({ status: 'in_progress', statusChangedAt: '2026-08-20T09:00:00-06:00' })],
+    });
+    expect(find(signals, 'stale_task:t1')?.severity).toBe('info');
+  });
+
+  it('leaves alone work that moved inside the window', () => {
+    // Four days back, one inside the five-day threshold.
+    const signals = run({
+      tasks: [task({ status: 'in_progress', statusChangedAt: '2026-08-30T09:00:00-06:00' })],
+    });
+    expect(find(signals, 'stale_task:t1')).toBeUndefined();
+  });
+
+  it('ignores work nobody has started and work that is finished', () => {
+    const old = '2026-07-01T09:00:00-06:00';
+    const signals = run({
+      tasks: [
+        task({ id: 'todo', status: 'todo', statusChangedAt: old }),
+        task({ id: 'done', status: 'done', statusChangedAt: old }),
+      ],
+    });
+    expect(find(signals, 'stale_task:todo')).toBeUndefined();
+    expect(find(signals, 'stale_task:done')).toBeUndefined();
+  });
+
+  it('makes the person the story once several of their tasks stall', () => {
+    const old = '2026-08-01T09:00:00-06:00';
+    const tasks = Array.from({ length: SILENT_OWNER_TASKS }, (_, i) =>
+      task({ id: `t${i}`, status: 'in_progress', statusChangedAt: old }),
+    );
+    const signals = run({ tasks });
+    const signal = find(signals, 'silent_owner:u1');
+    expect(signal?.severity).toBe('warning');
+    expect(signal?.data?.count).toBe(SILENT_OWNER_TASKS);
+  });
+
+  it('does not blame a person for a single stalled task', () => {
+    const signals = run({
+      tasks: [task({ status: 'in_progress', statusChangedAt: '2026-08-01T09:00:00-06:00' })],
+    });
+    expect(find(signals, 'silent_owner:u1')).toBeUndefined();
+  });
+});
+
+describe('unanswered comments', () => {
+  it('puts the debt on the person responsible when somebody else asked', () => {
+    const signals = run({
+      tasks: [
+        task({
+          status: 'in_progress',
+          assigneeUserIds: ['u1'],
+          lastCommentAt: '2026-08-28T15:00:00-06:00',
+          lastCommentBy: 'u2',
+        }),
+      ],
+    });
+    const signal = find(signals, 'comment_unanswered:t1');
+    expect(signal?.userId).toBe('u1');
+    expect(signal?.summary.es).toContain('nadie respondió');
+  });
+
+  // The other direction is the one Sergio cares about: somebody asked for help
+  // and the person leading the project never came back.
+  it('puts it on whoever leads the project when the assignee asked', () => {
+    const signals = run({
+      projects: [project({ id: 'p1', ownerUserId: 'u2' })],
+      tasks: [
+        task({
+          projectId: 'p1',
+          status: 'in_progress',
+          assigneeUserIds: ['u1'],
+          lastCommentAt: '2026-08-28T15:00:00-06:00',
+          lastCommentBy: 'u1',
+        }),
+      ],
+    });
+    expect(find(signals, 'comment_unanswered:t1')?.userId).toBe('u2');
+  });
+
+  it('says nothing when the only person who could answer is the one who asked', () => {
+    const signals = run({
+      projects: [project({ id: 'p1', ownerUserId: 'u1' })],
+      tasks: [
+        task({
+          projectId: 'p1',
+          status: 'in_progress',
+          assigneeUserIds: ['u1'],
+          lastCommentAt: '2026-08-28T15:00:00-06:00',
+          lastCommentBy: 'u1',
+        }),
+      ],
+    });
+    expect(find(signals, 'comment_unanswered:t1')).toBeUndefined();
+  });
+
+  it('gives a fresh comment time to be answered', () => {
+    const signals = run({
+      tasks: [
+        task({
+          status: 'in_progress',
+          lastCommentAt: '2026-09-03T08:00:00-06:00',
+          lastCommentBy: 'u2',
+        }),
+      ],
+    });
+    expect(find(signals, 'comment_unanswered:t1')).toBeUndefined();
+  });
+});
+
+describe('nobody chasing the work', () => {
+  it('flags the project lead when other people\'s tasks sit still', () => {
+    const old = '2026-08-01T09:00:00-06:00';
+    const tasks = Array.from({ length: SILENT_OWNER_TASKS }, (_, i) =>
+      task({ id: `t${i}`, projectId: 'p1', status: 'in_progress', assigneeUserIds: ['u1'], statusChangedAt: old }),
+    );
+    const signals = run({ projects: [project({ id: 'p1', ownerUserId: 'u2' })], tasks });
+    const signal = find(signals, 'no_followup:u2:p1');
+    expect(signal?.userId).toBe('u2');
+    expect(signal?.data?.count).toBe(SILENT_OWNER_TASKS);
+  });
+
+  // A lead sitting on their own work is `silent_owner`, not a follow-up failure.
+  it('does not count the lead\'s own tasks against them twice', () => {
+    const old = '2026-08-01T09:00:00-06:00';
+    const tasks = Array.from({ length: SILENT_OWNER_TASKS }, (_, i) =>
+      task({ id: `t${i}`, projectId: 'p1', status: 'in_progress', assigneeUserIds: ['u2'], statusChangedAt: old }),
+    );
+    const signals = run({ projects: [project({ id: 'p1', ownerUserId: 'u2' })], tasks });
+    expect(find(signals, 'no_followup:u2:p1')).toBeUndefined();
+    expect(find(signals, 'silent_owner:u2')).toBeDefined();
+  });
+});
+
+describe('engagement with the plan', () => {
+  it('notices a run of plans nobody ever marked', () => {
+    const history = Array.from({ length: PLAN_IGNORED_DAYS }, (_, i) =>
+      plan('u1', `2026-08-${String(28 + i).padStart(2, '0')}`),
+    );
+    expect(find(run({ planHistory: history }), 'plan_ignored:u1')?.data?.days).toBe(
+      PLAN_IGNORED_DAYS,
+    );
+  });
+
+  it('says nothing once somebody marks even one item', () => {
+    const history = Array.from({ length: PLAN_IGNORED_DAYS }, (_, i) =>
+      plan('u1', `2026-08-${String(28 + i).padStart(2, '0')}`),
+    );
+    history[0]!.feedback = { 0: 'done' };
+    expect(find(run({ planHistory: history }), 'plan_ignored:u1')).toBeUndefined();
+  });
+
+  it('counts skipped actions across the window', () => {
+    const feedback = Object.fromEntries(
+      Array.from({ length: PLAN_SLIPPING_ITEMS }, (_, i) => [i, 'skipped' as const]),
+    );
+    const signals = run({ planHistory: [plan('u1', '2026-09-02', feedback)] });
+    expect(find(signals, 'plan_slipping:u1')?.data?.count).toBe(PLAN_SLIPPING_ITEMS);
+  });
+
+  // These need other people's plans, which only the engine can read.
+  it('produces nothing at all without plan history', () => {
+    const signals = run({});
+    expect(signals.filter((s) => s.kind === 'plan_ignored')).toHaveLength(0);
+    expect(signals.filter((s) => s.kind === 'plan_slipping')).toHaveLength(0);
+  });
+});
+
+describe('people, not tasks', () => {
+  it('flags somebody with nothing assigned at all', () => {
+    const signals = run({ tasks: [task({ assigneeUserIds: ['u1'] })] });
+    expect(find(signals, 'no_owned_work:u2')).toBeDefined();
+    expect(find(signals, 'no_owned_work:u1')).toBeUndefined();
+  });
+
+  it('flags a pile of overdue work as one signal about the person', () => {
+    const tasks = Array.from({ length: OVERDUE_LOAD_TASKS }, (_, i) =>
+      task({ id: `t${i}`, dueDate: '2026-08-01', assigneeUserIds: ['u1'] }),
+    );
+    const signal = find(run({ tasks }), 'overdue_load:u1');
+    expect(signal?.severity).toBe('warning');
+    expect(signal?.data?.count).toBe(OVERDUE_LOAD_TASKS);
+  });
+});
+
+describe('projects that stopped moving', () => {
+  it('reads the progress trail rather than the dates', () => {
+    const signals = run({
+      projects: [
+        project({ id: 'p1', progressPct: 40, history: [{ date: '2026-08-01', value: 40 }] }),
+      ],
+    });
+    expect(find(signals, 'stale_progress:p1')?.data?.days).toBe(33);
+  });
+
+  // Without a trail there is nothing to compare, and silence is the honest answer.
+  it('says nothing about a project with no history yet', () => {
+    const signals = run({ projects: [project({ id: 'p1', progressPct: 40 })] });
+    expect(find(signals, 'stale_progress:p1')).toBeUndefined();
   });
 });

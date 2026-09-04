@@ -11,7 +11,8 @@
     "start": "pnpm --filter @truenorth/web start",
     "lint": "pnpm --filter @truenorth/web lint",
     "typecheck": "pnpm -r exec tsc --noEmit",
-    "test": "pnpm --filter @truenorth/core test"
+    "test": "pnpm --filter @truenorth/core test",
+    "test:rules": "pnpm --filter @truenorth/core test:rules"
   },
   "author": "Sergio Castro",
   "license": "UNLICENSED"

@@ -2,6 +2,17 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Neither package needs its postinstall script for a bundled web client: they
+# generate CLI helpers we do not use. Declining them keeps install lean and
+# avoids running arbitrary scripts. If a Firebase feature ever misbehaves in a
+# way that traces back to this, revisit it rather than flipping it blindly.
+allowBuilds:
+  '@firebase/util': false
+  protobufjs: false
+  # firebase-tools ships re2 for its rules parser; it is a dev-only dependency
+  # used by the emulator, and skipping the native build is fine.
+  re2: false
+
 # pnpm holds back very fresh releases by default, which is a supply-chain
 # guard: a compromised publish is usually caught within days. This project
 # tracks current releases, so the packages below are allowed through ahead of

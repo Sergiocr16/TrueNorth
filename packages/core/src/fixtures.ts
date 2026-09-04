@@ -91,6 +91,9 @@ export const memberships: Membership[] = [
     roleDescription:
       'Estabilidad de la plataforma, arquitectura, seguridad, rendimiento y cumplimiento de fechas técnicas.',
     access: 'owner',
+    hasAccount: true,
+    expectations:
+      'El portal de proveedores sale el 30 de septiembre y el cierre de mes deja de tirar errores 500. Que responda los comentarios de su equipo el mismo día.',
   },
   {
     userId: 'u_adriana',
@@ -98,6 +101,9 @@ export const memberships: Membership[] = [
     roleTitle: 'Soporte',
     roleDescription: 'Atención de tickets, calidad percibida y escalamiento de incidentes.',
     access: 'member',
+    hasAccount: true,
+    expectations:
+      'Que los tickets mensuales bajen de 240 a 168, y que cada semana me diga cuáles son los motivos que más se repiten.',
   },
   {
     userId: 'u_marco',
@@ -105,6 +111,9 @@ export const memberships: Membership[] = [
     roleTitle: 'Desarrollo',
     roleDescription: 'Entrega de funcionalidades del módulo financiero y del portal de proveedores.',
     access: 'member',
+    hasAccount: true,
+    expectations:
+      'Que el cierre financiero corra en menos de dos minutos, y que cada tarea suya en curso tenga un comentario o un cambio de estado al menos cada dos días.',
   },
   {
     userId: 'u_lucia',
@@ -112,6 +121,9 @@ export const memberships: Membership[] = [
     roleTitle: 'COO',
     roleDescription: 'Procesos operativos, eficiencia del equipo y relación con los condominios.',
     access: 'admin',
+    hasAccount: true,
+    expectations:
+      'Que todo proyecto activo tenga responsable y fecha al día, revisado cada semana.',
   },
 ];
 
@@ -128,6 +140,13 @@ export const objectives: Objective[] = [
     ownerUserId: 'u_adriana',
     progressPct: 38,
     status: 'at_risk',
+    history: [
+      { date: '2026-06-01', value: 8 },
+      { date: '2026-07-01', value: 17 },
+      { date: '2026-08-01', value: 27 },
+      { date: '2026-08-25', value: 34 },
+      { date: '2026-09-03', value: 38 },
+    ],
     indicators: [
       {
         id: 'i_tickets',
@@ -137,6 +156,14 @@ export const objectives: Objective[] = [
         current: 213,
         target: 168,
         direction: 'down',
+        history: [
+          { date: '2026-04-01', value: 240 },
+          { date: '2026-05-01', value: 236 },
+          { date: '2026-06-01', value: 229 },
+          { date: '2026-07-01', value: 224 },
+          { date: '2026-08-01', value: 218 },
+          { date: '2026-09-03', value: 213 },
+        ],
       },
       {
         id: 'i_first_response',
@@ -160,6 +187,13 @@ export const objectives: Objective[] = [
     ownerUserId: 'u_esteban',
     progressPct: 52,
     status: 'at_risk',
+    history: [
+      { date: '2026-05-15', value: 0 },
+      { date: '2026-06-15', value: 14 },
+      { date: '2026-07-15', value: 30 },
+      { date: '2026-08-15', value: 44 },
+      { date: '2026-09-03', value: 52 },
+    ],
     indicators: [
       {
         id: 'i_500',
@@ -184,6 +218,14 @@ export const objectives: Objective[] = [
     ownerUserId: 'u_esteban',
     progressPct: 46,
     status: 'at_risk',
+    history: [
+      { date: '2026-06-01', value: 0 },
+      { date: '2026-07-01', value: 14 },
+      { date: '2026-07-27', value: 26 },
+      { date: '2026-08-10', value: 33 },
+      { date: '2026-08-24', value: 40 },
+      { date: '2026-09-03', value: 46 },
+    ],
     indicators: [
       {
         id: 'i_proveedores',
@@ -275,11 +317,26 @@ export const tasks: Task[] = [
     notionStatus: 'En curso',
     priority: 'max',
     dueDate: '2026-09-03',
-    assigneeUserId: 'u_esteban',
+    assigneeUserIds: ['u_esteban'],
     dependsOn: [],
     source: 'notion',
     notionPageId: '3acddbac34cb81e6b4c0ea280b95217b',
     syncedAt: '2026-09-03T05:02:00-06:00',
+    updatedAt: '2026-08-29T16:40:00-06:00',
+    notionLastEditedAt: '2026-08-29T16:40:00-06:00',
+    statusChangedAt: '2026-08-21T10:14:00-06:00',
+    commentCount: 3,
+    lastCommentAt: '2026-08-29T16:40:00-06:00',
+    lastCommentBy: 'u_adriana',
+    comments: [
+      {
+        id: 'cm_966_1',
+        authorUserId: 'u_adriana',
+        authorName: 'Adriana Vargas',
+        createdAt: '2026-08-29T16:40:00-06:00',
+        text: 'Dos condominios ya preguntaron por el acceso de proveedores. ¿Sigue para el 30?',
+      },
+    ],
   },
   {
     id: 't_842',
@@ -291,11 +348,15 @@ export const tasks: Task[] = [
     notionStatus: 'Sin empezar',
     priority: 'high',
     dueDate: '2026-08-28',
-    assigneeUserId: 'u_esteban',
+    assigneeUserIds: ['u_esteban'],
     dependsOn: [],
     source: 'notion',
     notionPageId: '37dddbac34cb81908340fbc18787638c',
     syncedAt: '2026-09-03T05:02:00-06:00',
+    updatedAt: '2026-08-14T11:02:00-06:00',
+    notionLastEditedAt: '2026-08-14T11:02:00-06:00',
+    statusChangedAt: '2026-08-14T11:02:00-06:00',
+    commentCount: 0,
   },
   {
     id: 't_931',
@@ -307,10 +368,25 @@ export const tasks: Task[] = [
     notionStatus: 'Bug - Incidente',
     priority: 'max',
     dueDate: '2026-08-25',
-    assigneeUserId: 'u_marco',
+    assigneeUserIds: ['u_marco'],
     dependsOn: [],
     source: 'notion',
     syncedAt: '2026-09-03T05:02:00-06:00',
+    updatedAt: '2026-08-27T09:30:00-06:00',
+    notionLastEditedAt: '2026-08-27T09:30:00-06:00',
+    statusChangedAt: '2026-08-18T08:05:00-06:00',
+    commentCount: 2,
+    lastCommentAt: '2026-08-27T09:30:00-06:00',
+    lastCommentBy: 'u_esteban',
+    comments: [
+      {
+        id: 'cm_931_1',
+        authorUserId: 'u_esteban',
+        authorName: 'Esteban Rojas',
+        createdAt: '2026-08-27T09:30:00-06:00',
+        text: '¿Encontraste el patrón del 500? Si es el timeout de conciliación lo vemos juntos.',
+      },
+    ],
   },
   {
     id: 't_947',
@@ -322,7 +398,7 @@ export const tasks: Task[] = [
     notionStatus: 'Sin empezar',
     priority: 'high',
     dueDate: null,
-    assigneeUserId: null,
+    assigneeUserIds: [],
     dependsOn: ['t_931'],
     source: 'notion',
     syncedAt: '2026-09-03T05:02:00-06:00',
@@ -337,10 +413,14 @@ export const tasks: Task[] = [
     notionStatus: 'Depende de otra TAR',
     priority: 'medium',
     dueDate: '2026-09-12',
-    assigneeUserId: 'u_marco',
+    assigneeUserIds: ['u_marco'],
     dependsOn: ['t_966'],
     source: 'notion',
     syncedAt: '2026-09-03T05:02:00-06:00',
+    updatedAt: '2026-08-15T09:00:00-06:00',
+    notionLastEditedAt: '2026-08-15T09:00:00-06:00',
+    statusChangedAt: '2026-08-15T09:00:00-06:00',
+    commentCount: 0,
   },
   {
     id: 't_958',
@@ -352,7 +432,7 @@ export const tasks: Task[] = [
     notionStatus: 'Sin empezar',
     priority: 'high',
     dueDate: '2026-09-03',
-    assigneeUserId: 'u_esteban',
+    assigneeUserIds: ['u_esteban'],
     dependsOn: [],
     source: 'notion',
     syncedAt: '2026-09-03T05:02:00-06:00',
@@ -367,10 +447,14 @@ export const tasks: Task[] = [
     notionStatus: 'Pruebas - Desarrollo',
     priority: 'low',
     dueDate: '2026-09-20',
-    assigneeUserId: 'u_marco',
+    assigneeUserIds: ['u_marco'],
     dependsOn: [],
     source: 'notion',
     syncedAt: '2026-09-03T05:02:00-06:00',
+    updatedAt: '2026-08-27T14:30:00-06:00',
+    notionLastEditedAt: '2026-08-27T14:30:00-06:00',
+    statusChangedAt: '2026-08-27T14:30:00-06:00',
+    commentCount: 0,
   },
   {
     id: 't_939',
@@ -382,10 +466,25 @@ export const tasks: Task[] = [
     notionStatus: 'Revisión Tecnica',
     priority: 'medium',
     dueDate: '2026-09-08',
-    assigneeUserId: 'u_adriana',
+    assigneeUserIds: ['u_adriana'],
     dependsOn: [],
     source: 'notion',
     syncedAt: '2026-09-03T05:02:00-06:00',
+    updatedAt: '2026-09-02T09:15:00-06:00',
+    notionLastEditedAt: '2026-09-02T09:15:00-06:00',
+    statusChangedAt: '2026-09-02T09:15:00-06:00',
+    commentCount: 1,
+    lastCommentAt: '2026-09-02T09:15:00-06:00',
+    lastCommentBy: 'u_adriana',
+    comments: [
+      {
+        id: 'cm_939_1',
+        authorUserId: 'u_adriana',
+        authorName: 'Adriana Vargas',
+        createdAt: '2026-09-02T09:15:00-06:00',
+        text: 'Ya quedó el borrador, lo paso a revisión técnica hoy.',
+      },
+    ],
   },
 ];
 
@@ -551,3 +650,114 @@ export const sampleVoiceUpdate: VoiceUpdate = {
   discarded: [],
   notionWriteStatus: 'pending',
 };
+
+/**
+ * A short run of past days, so the briefing calendar has something to show from
+ * the first launch. Sample data, like everything else in this file: real
+ * history starts accumulating the day the engine runs.
+ */
+export const pastPlans: {
+  date: string;
+  headline: string;
+  why: string;
+  items: { title: string; why: string; estimatedMinutes: number; signalIds: string[] }[];
+  consequenceIfNotDone: string;
+  feedback: Record<number, 'done' | 'skipped' | 'irrelevant'>;
+}[] = [
+  {
+    date: '2026-09-02',
+    headline: 'Cerrá el link seguro del portal antes del jueves.',
+    why: 'es la única tarea en ruta crítica.',
+    items: [
+      {
+        title: 'Portal de proveedores con link seguro',
+        why: 'Bloquea el lanzamiento de setiembre.',
+        estimatedMinutes: 90,
+        signalIds: ['due_today:t_966'],
+      },
+      {
+        title: 'Revisar los errores 500 más frecuentes',
+        why: 'Tres tareas vencidas en el mismo módulo.',
+        estimatedMinutes: 45,
+        signalIds: ['overdue:t_931'],
+      },
+      {
+        title: 'Asignar responsable al stress test',
+        why: 'Sin responsable no avanza.',
+        estimatedMinutes: 10,
+        signalIds: ['unassigned:t_947'],
+      },
+    ],
+    consequenceIfNotDone: 'el portal pierde la fecha de setiembre',
+    feedback: { 0: 'done', 1: 'done', 2: 'skipped' },
+  },
+  {
+    date: '2026-09-01',
+    headline: 'Empezá la semana desbloqueando el monitoreo.',
+    why: 'sin Sentry no se puede sostener la mejora del módulo financiero.',
+    items: [
+      {
+        title: 'Sentry: crear cuenta y proyectos',
+        why: 'Requisito para ver los errores antes que el cliente.',
+        estimatedMinutes: 30,
+        signalIds: ['overdue:t_842'],
+      },
+      {
+        title: 'Revisar el avance del portal con Marco',
+        why: 'La brecha creció otra vez la semana pasada.',
+        estimatedMinutes: 25,
+        signalIds: ['gap:o_portal'],
+      },
+    ],
+    consequenceIfNotDone: 'la semana arranca sin visibilidad de errores',
+    feedback: { 0: 'skipped', 1: 'done' },
+  },
+  {
+    date: '2026-08-29',
+    headline: 'Dejá el stress test con fecha antes del fin de semana.',
+    why: 'es lo único que separa al módulo financiero de cerrar.',
+    items: [
+      {
+        title: 'Definir alcance del stress test',
+        why: 'La tarea existe pero no tiene fecha ni responsable.',
+        estimatedMinutes: 40,
+        signalIds: ['undated:t_947'],
+      },
+      {
+        title: 'Cerrar dos tickets del módulo financiero',
+        why: 'Bajan el volumen del objetivo de soporte.',
+        estimatedMinutes: 50,
+        signalIds: ['overdue:t_931'],
+      },
+      {
+        title: 'Actualizar el avance del portal',
+        why: 'Nueve días sin reportar.',
+        estimatedMinutes: 10,
+        signalIds: ['gap:o_portal'],
+      },
+    ],
+    consequenceIfNotDone: 'el cierre del módulo se corre otra semana',
+    feedback: { 0: 'done', 1: 'done', 2: 'done' },
+  },
+  {
+    date: '2026-08-28',
+    headline: 'Atendé los errores 500 antes de que lleguen a soporte.',
+    why: 'la mitad de los tickets del mes salen de ahí.',
+    items: [
+      {
+        title: 'Reproducir el error 500 del cierre',
+        why: 'Es el más recurrente de la semana.',
+        estimatedMinutes: 60,
+        signalIds: ['overdue:t_931'],
+      },
+      {
+        title: 'Responder los tickets escalados',
+        why: 'Primera respuesta por encima de las 5 horas.',
+        estimatedMinutes: 30,
+        signalIds: ['gap:o_tickets'],
+      },
+    ],
+    consequenceIfNotDone: 'el volumen de tickets no baja este mes',
+    feedback: { 0: 'done' },
+  },
+];
