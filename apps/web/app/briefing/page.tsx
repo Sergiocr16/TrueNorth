@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import type { PerspectiveKey } from '@truenorth/core';
-import { fixtures, shareHealthy, todayIso } from '@truenorth/core';
+import { shareHealthy, todayIso } from '@truenorth/core';
 import Link from 'next/link';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
-import { Card, GlanceTile, SectionLabel, Segmented, TextButton } from '../../components/ui';
+import { Card, EmptyState, GlanceTile, SectionLabel, Segmented, TextButton } from '../../components/ui';
+import { BriefingIcon } from '../../components/icons';
 import { HealthCompass } from '../../components/day-compass';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
@@ -22,27 +23,27 @@ export default function BriefingPage() {
   const [lens, setLens] = useState<PerspectiveKey>('cto');
   const [briefingOpen, setBriefingOpen] = useState(false);
 
-  // The engine writes companies/{cid}/analyses/{date}. Until it has run for the
-  // first time in this company there is nothing to read, and the worked example
-  // stands in so the screen still shows what a briefing looks like.
+  // The engine writes companies/{cid}/analyses/{date}. Nothing stands in for
+  // it: a briefing that was never generated is an empty screen that says so.
   const analysis =
-    store.analyses.find((candidate) => candidate.date === todayIso()) ??
-    store.analyses[0] ??
-    fixtures.todaysAnalysis;
-  const generatedTime = new Date(analysis.generatedAt).toLocaleTimeString(
-    locale === 'es' ? 'es-CR' : 'en-US',
-    { hour: '2-digit', minute: '2-digit', hour12: false },
-  );
+    store.analyses.find((candidate) => candidate.date === todayIso()) ?? store.analyses[0] ?? null;
+  const generatedTime = analysis
+    ? new Date(analysis.generatedAt).toLocaleTimeString(locale === 'es' ? 'es-CR' : 'en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+    : null;
 
   const options = (['ceo', 'coo', 'cto', 'cfo', 'pm'] as const).map((key) => ({
     value: key,
     label: t.perspectives[key],
   }));
 
-  const selected = analysis.perspectives.find((p) => p.key === lens);
+  const selected = analysis?.perspectives.find((p) => p.key === lens);
 
   // The first sentence is the headline; the rest is there, folded.
-  const [lead, rest] = splitLead(analysis.briefing);
+  const [lead, rest] = splitLead(analysis?.briefing ?? '');
   const stuck = (store.followUp?.readings ?? []).filter(
     (r) => r.standing === 'trabado' || r.standing === 'atrasado',
   ).length;
@@ -51,10 +52,20 @@ export default function BriefingPage() {
     <Screen riskCount={riskCount} wide>
       <LargeTitle
         title={t.briefing.title}
-        subtitle={`${store.company.name} · ${t.briefing.generatedAt(generatedTime)}`}
+        subtitle={
+          generatedTime
+            ? `${store.company.name} · ${t.briefing.generatedAt(generatedTime)}`
+            : store.company.name
+        }
         trailing={<HealthCompass ratio={shareHealthy(store.objectives)} label={t.common.health} />}
       />
 
+      {!analysis ? (
+        <Card className="mx-4 mt-4">
+          <EmptyState icon={<BriefingIcon size={34} />} title={t.briefing.title} body={t.briefing.notYet} />
+        </Card>
+      ) : (
+        <>
       {/* Three numbers before any sentence: what needs a look, what needs a
           call, who is stuck. The prose comes after, and folded. */}
       <div className="mx-4 mt-3 grid grid-cols-3 gap-2.5">
@@ -173,6 +184,8 @@ export default function BriefingPage() {
           </div>
         </div>
       </div>
+        </>
+      )}
     </Screen>
   );
 }

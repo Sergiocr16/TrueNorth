@@ -116,7 +116,9 @@ describe('bootstrap', () => {
       db.doc('companies/c1/projects/p1').set({ name: 'Proyecto', visibility: 'company' }),
     );
     await assertSucceeds(db.doc('companies/c1/tasks/t1').set({ title: 'Tarea' }));
-    await assertSucceeds(db.doc('companies/c1/plans/d_u1').set({ uid: 'u1', items: [] }));
+    // A plan is not starting data: only the engine writes one, so a person
+    // seeding their own is refused — that is what keeps Today honest.
+    await assertFails(db.doc('companies/c1/plans/d_u1').set({ uid: 'u1', items: [] }));
   });
 });
 

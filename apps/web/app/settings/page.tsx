@@ -171,8 +171,8 @@ export default function SettingsPage() {
                   ? 'Tocá otra vez para restablecer'
                   : 'Tap again to reset'
                 : locale === 'es'
-                  ? 'Restablecer datos de ejemplo'
-                  : 'Reset sample data'
+                  ? 'Vaciar los datos de la empresa'
+                  : 'Empty the company'
             }
             onClick={() => {
               if (confirming) {

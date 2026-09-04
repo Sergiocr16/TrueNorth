@@ -185,8 +185,8 @@ three load-bearing flags in `server/engine/claude.ts` are `--restricted`,
 
 Firestore is wired: `apps/web/lib/store.tsx` holds live listeners and every
 mutation is a write, and the engine has run end to end against ADITUM from a
-laptop. The first company is seeded from `packages/core/src/fixtures.ts`, with
-the sample team as people without accounts. The Pi is not mounted yet
+laptop. The first company is created empty; `packages/core/src/fixtures.ts` feeds
+only the tests and the engine selftest. The Pi is not mounted yet
 (`docs/pi-setup.md`), the Notion sync does not exist, and until it does the
 "has not moved" signals have nothing to read. Work lands on `v1.0` at the
 moment; `main` and `production` are behind it.

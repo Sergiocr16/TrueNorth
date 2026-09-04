@@ -236,13 +236,10 @@ service cloud.firestore {
         allow update: if isMember(companyId)
                       && resource.data.uid == request.auth.uid
                       && changedOnly(['feedback', 'stale']);
-        // TEMPORARY, until the engine exists: a person may seed their own plan
-        // so the app is usable end to end. This is an integrity relaxation, not
-        // a confidentiality one — the document is already only theirs. Tighten
-        // to `if false` the day the Raspberry Pi worker starts writing plans.
-        allow create: if isMember(companyId)
-                      && request.resource.data.uid == request.auth.uid;
-        allow delete: if false;
+        // Only the engine writes a plan. A plan a person could create for
+        // themselves would look exactly like a real one, and the point of the
+        // screen is that it never lies about whether the engine ran.
+        allow create, delete: if false;
       }
 
       // The team follow-up: one document per manager per day, written by the

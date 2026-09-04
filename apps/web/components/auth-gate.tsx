@@ -174,7 +174,11 @@ function explain(cause: unknown, email?: string | null): string {
       ? String((cause as { code: unknown }).code)
       : '';
   if (code === 'permission-denied') {
-    return `Firestore rechazó la escritura para ${email ?? 'esta cuenta'}. Revisá que ese correo esté en founders() dentro de firestore.rules y que las reglas estén desplegadas.`;
+    // Three things produce this, and the rules do not say which: the address
+    // is not a founder, the rules were never deployed, or the deployed rules
+    // are newer than the code the server runs and refuse a write it still
+    // makes. The last one is what happens after a release that tightens a rule.
+    return `Firestore rechazó la escritura para ${email ?? 'esta cuenta'}. O ese correo no está en founders() en firestore.rules, o las reglas no están desplegadas, o el servidor corre una versión más vieja que las reglas (desplegá el código).`;
   }
   return cause instanceof Error ? cause.message : 'No se pudo completar la operación.';
 }

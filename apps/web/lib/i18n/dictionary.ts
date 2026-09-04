@@ -60,7 +60,7 @@ export const dictionary = {
       dictate: 'Dictar actualización',
       emptyTitle: 'Todavía no hay plan',
       emptyBody:
-        'Cargá la meta de la empresa y al menos un objetivo con proyectos. El motor corre cada mañana a las 5:00.',
+        'El motor todavía no generó tu plan. Corre cada madrugada a las 2:00; también podés pedirlo con «Recalcular mi plan» si la empresa ya tiene objetivos y tareas.',
       emptyAction: 'Configurar la empresa',
       offline: 'Sin conexión: mostrando el plan de hoy guardado',
     },
@@ -359,6 +359,7 @@ export const dictionary = {
 
     briefing: {
       title: 'Briefing ejecutivo',
+      notYet: 'El motor todavía no generó el briefing de hoy. Corre cada madrugada a las 2:00.',
       generatedAt: (time: string) => `generado hoy ${time}`,
       topRisks: 'Riesgos principales',
       readMore: 'Leer todo',
@@ -500,7 +501,7 @@ export const dictionary = {
       dictate: 'Dictate an update',
       emptyTitle: 'No plan yet',
       emptyBody:
-        'Add the company goal and at least one objective with projects. The engine runs every morning at 5:00.',
+        'The engine has not generated your plan yet. It runs every night at 2:00; you can also ask for one with “Recalculate my plan” once the company has objectives and tasks.',
       emptyAction: 'Set up the company',
       offline: "Offline: showing today's saved plan",
     },
@@ -797,6 +798,7 @@ export const dictionary = {
 
     briefing: {
       title: 'Executive briefing',
+      notYet: 'The engine has not generated today\'s briefing yet. It runs every night at 2:00.',
       generatedAt: (time: string) => `generated today ${time}`,
       topRisks: 'Top risks',
       readMore: 'Read all',

@@ -374,8 +374,9 @@ include the binary: set `CLAUDE_BIN=/home/truenorth/.local/bin/claude` in
 ## 8b. First morning: what to do once, by hand
 
 1. Open the app on the phone, sign in, install it to the home screen.
-2. *Equipo* → add the people on the team (they need no account) and write
-   *Lo que espero* for each. Responsibles on tasks come from Notion by name,
+2. *Empresa* → the north star and its date. *Equipo* → add the people on the
+   team (they need no account) and write *Lo que espero* for each. The company
+   starts empty; nothing is sample data. Responsibles on tasks come from Notion by name,
    so the names here should match the ones in Notion.
 3. Run the engine once by hand (`?company=<id>` above) instead of waiting for
    02:00, and read *Seguimiento*. The first day the "has not moved" signals
