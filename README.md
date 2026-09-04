@@ -164,3 +164,35 @@ the latest when you touch a dependency, and verify with
 ## Author and licence
 
 Sergio Castro. Private project, all rights reserved.
+
+## Running the engine by hand
+
+The engine is three route handlers in the same process as the app, all under
+`app/api/engine/`. Two are for the operator and take the shared token from
+`ENGINE_LOCAL_TOKEN`; the third is for a signed-in person and takes their
+Firebase ID token.
+
+| Route | Who calls it | What it does |
+|---|---|---|
+| `GET /api/engine/selftest` | you, after installing | Builds a plan from the sample company by calling `claude -p`. No database. |
+| `POST /api/engine/daily` | the systemd timer at 02:00 | Every company: signals, one analysis, one plan per member, heartbeat. `?company=<id>` limits it to one, `?date=YYYY-MM-DD` overrides today. |
+| `POST /api/engine/replan` | the *Recalcular mi plan* button | Recomputes the caller's plan for today, reusing the day's analysis. |
+
+One more route handler exists for the same reason — a write the browser is not
+allowed to make: `POST /api/company/logo` takes a company id and an image,
+verifies the ID token, checks membership with the Admin SDK and writes the
+object to Storage. See `docs/firebase-setup.md` for why the logo does not go
+straight from the browser.
+
+Locally, put `ENGINE_LOCAL_TOKEN`, `CLAUDE_BIN` and, for the two routes that
+write, `GOOGLE_APPLICATION_CREDENTIALS` in `apps/web/.env.local`, then:
+
+```bash
+curl -s -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" http://localhost:3210/api/engine/selftest | jq .plan
+```
+
+Claude Code is invoked with `--json-schema` built from the Zod contracts in
+`packages/core`, targeted at JSON Schema draft-07 because that is what the CLI
+validates against, and the answer is validated again with Zod before it is
+written. The child runs in an empty directory so it never reads this
+repository's `CLAUDE.md` as context.

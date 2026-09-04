@@ -83,7 +83,7 @@ Never commit or push either branch unless Sergio asks.
 - **Code, identifiers, comments, commits and technical docs in English.** UI text in Spanish, in `apps/web/lib/i18n/dictionary.ts`, with an English variant for every string. Never hardcode user-facing text in a component.
 - **Never commit or push unless Sergio asks.** Leave changes in the working tree.
 - **No secrets in the repo.** Firebase service accounts, Notion tokens and the Anthropic key live in Secret Manager or in an untracked `.env.local`.
-- **Every new collection ships with a security rule and a rule test.** The engine runs with the Admin SDK and bypasses rules, so the private-project filter lives in the capture step and has its own tests.
+- **Every new collection ships with a security rule and a rule test.** The engine runs with the Admin SDK and bypasses rules, so the same visibility is re-applied in `packages/core/src/visibility.ts` before any prompt is built, with its own tests.
 - **All real business data is editable in the app.** North star, objectives, indicators, projects, tasks, roles and risks are all created and edited by the user. Anything you add to the domain needs an editing path too.
 - Prefer editing an existing file over adding one. Keep components small and typed.
 

@@ -8,7 +8,7 @@ import { Card, SectionLabel, StatusPill, TextButton } from '../../components/ui'
 import { DateField, EditSheet, FieldGroup, TextAreaField } from '../../components/form';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
-import { fixtures } from '@truenorth/core';
+import { todayIso } from '@truenorth/core';
 
 export default function CompanyPage() {
   const { t, locale } = usePreferences();
@@ -60,7 +60,7 @@ export default function CompanyPage() {
               {formatShortDate(company.northStarDeadline, locale)}
             </span>
             <span className="tn-tabular">
-              · {t.company.daysLeft(daysUntil(company.northStarDeadline, fixtures.TODAY))}
+              · {t.company.daysLeft(daysUntil(company.northStarDeadline, todayIso()))}
             </span>
           </div>
         </Card>

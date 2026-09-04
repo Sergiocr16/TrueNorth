@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import type { Locale, ThemePreference } from '@truenorth/core';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
-import { Avatar, Card, SectionLabel } from '../../components/ui';
+import { Avatar, Card, SectionLabel, StatusPill } from '../../components/ui';
+import { formatShortDate } from '../../lib/i18n/dictionary';
 import {
   DestructiveRow,
   FieldGroup,
@@ -96,6 +97,11 @@ export default function SettingsPage() {
         </Card>
       </div>
 
+      <div className="mx-4 mt-4">
+        <SectionLabel>{t.settings.engine}</SectionLabel>
+        <EngineCard />
+      </div>
+
       <FieldGroup header={t.settings.language}>
         <SelectField
           label={t.settings.language}
@@ -182,5 +188,63 @@ export default function SettingsPage() {
         </Card>
       </div>
     </Screen>
+  );
+}
+
+/**
+ * Whether the engine on the Pi is alive and what its last run did. Read from
+ * the heartbeat document the engine writes after every run.
+ */
+function EngineCard() {
+  const { t, locale } = usePreferences();
+  const { engine } = useStore();
+
+  if (!engine) {
+    return (
+      <Card className="p-4">
+        <p className="text-[15px] leading-snug text-[var(--sec)]">{t.settings.engineNever}</p>
+      </Card>
+    );
+  }
+
+  const run = engine.lastRun;
+  const failed = run ? !run.analysisOk || run.plansFailed > 0 : false;
+  const heartbeat = engine.lastHeartbeatAt
+    ? new Date(engine.lastHeartbeatAt).toLocaleString(locale === 'es' ? 'es-CR' : 'en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+    : null;
+
+  return (
+    <Card className="p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[17px] font-semibold text-[var(--ink)]">{engine.hostname}</span>
+        <span className="tn-tabular text-[13px] text-[var(--ter)]">v{engine.version}</span>
+        <span className="ml-auto">
+          <StatusPill status={failed ? 'late' : 'on_track'} />
+        </span>
+      </div>
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[15px]">
+        <dt className="text-[var(--sec)]">{t.settings.engineLastRun}</dt>
+        <dd className="tn-tabular text-[var(--ink)]">
+          {run ? formatShortDate(run.date, locale) : '—'}
+          {heartbeat ? <span className="text-[var(--ter)]"> · {heartbeat}</span> : null}
+        </dd>
+        {run ? (
+          <>
+            <dt className="text-[var(--sec)]">{t.nav.today}</dt>
+            <dd className="tn-tabular text-[var(--ink)]">{t.settings.enginePlans(run.plansOk, run.plansFailed)}</dd>
+            <dt className="text-[var(--sec)]">{t.settings.engineCost}</dt>
+            <dd className="tn-tabular text-[var(--ink)]">${run.costUsd.toFixed(2)}</dd>
+          </>
+        ) : null}
+      </dl>
+      {run?.error ? (
+        <p className="mt-3 text-[13px] leading-snug text-[var(--sec)]">
+          <strong className="font-semibold">{t.settings.engineFailed}:</strong> {run.error}
+        </p>
+      ) : null}
+    </Card>
   );
 }

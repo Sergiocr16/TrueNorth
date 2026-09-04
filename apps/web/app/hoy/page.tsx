@@ -27,6 +27,7 @@ export default function TodayPage() {
   const store = useStore();
   const riskCount = useRiskCount();
   const [recalculating, setRecalculating] = useState(false);
+  const [recalculateError, setRecalculateError] = useState<string | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [offline, setOffline] = useState(false);
 
@@ -51,16 +52,20 @@ export default function TodayPage() {
   const gap = headlineObjective ? progressGap(headlineObjective, today) : 0;
 
   /**
-   * Recalculating is a real round trip in production: the change lands in the
-   * jobs queue and the Raspberry Pi worker answers. Here it resolves locally so
-   * the state is reachable and reviewable.
+   * A real round trip: this same server runs Claude Code and writes the new
+   * plan, and the live listener on the plan document repaints the screen when
+   * it lands. Nothing is queued; the request simply waits.
    */
   const recalculate = () => {
     setRecalculating(true);
-    window.setTimeout(() => {
-      setRecalculating(false);
-      store.markPlanStale(false);
-    }, 1600);
+    setRecalculateError(null);
+    store
+      .replan()
+      .then(() => store.markPlanStale(false))
+      .catch((cause: unknown) =>
+        setRecalculateError(cause instanceof Error ? cause.message : String(cause)),
+      )
+      .finally(() => setRecalculating(false));
   };
 
   const hasPlan = plan.items.length > 0;
@@ -77,6 +82,14 @@ export default function TodayPage() {
         <div className="mt-3 px-4">
           <Banner tone="info" icon={<OfflineIcon />}>
             {t.today.offline}
+          </Banner>
+        </div>
+      ) : null}
+
+      {recalculateError ? (
+        <div className="mt-3 px-4">
+          <Banner tone="warning" icon={<WarningTriangle />}>
+            <strong className="font-semibold">{t.today.recalculateFailed}</strong> {recalculateError}
           </Banner>
         </div>
       ) : null}

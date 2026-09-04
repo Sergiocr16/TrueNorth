@@ -332,34 +332,38 @@ export function SidebarCompanyButton() {
  * logo is company data rather than a display preference.
  */
 export function CompanyLogoPicker() {
-  const { locale } = usePreferences();
+  const { t } = usePreferences();
   const store = useStore();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const es = locale === 'es';
   const { company } = store;
+
+  /** The route answers with a code so the reason can be said in the reader's language. */
+  const explain = (cause: unknown): string => {
+    const code = cause instanceof Error ? cause.message : '';
+    const known: Record<string, string> = {
+      image_too_large: t.logo.image_too_large,
+      not_an_image: t.logo.not_an_image,
+      forbidden: t.logo.forbidden,
+    };
+    return known[code] ?? t.logo.failed;
+  };
 
   const pick = (file: File | undefined) => {
     if (!file) return;
+    // Checked again on the server, which is where it is enforced; here it only
+    // saves a pointless round trip with the whole file attached.
     if (file.size > 2 * 1024 * 1024) {
-      setFailure(es ? 'La imagen pasa de 2 MB.' : 'The image is over 2 MB.');
+      setFailure(t.logo.image_too_large);
       return;
     }
     setBusy(true);
     setFailure(null);
     void store
       .uploadCompanyLogo(company.id, file)
-      .catch((cause: unknown) =>
-        setFailure(
-          cause instanceof Error
-            ? cause.message
-            : es
-              ? 'No se pudo subir el logo.'
-              : 'Could not upload the logo.',
-        ),
-      )
+      .catch((cause: unknown) => setFailure(explain(cause)))
       .finally(() => setBusy(false));
   };
 
@@ -368,10 +372,10 @@ export function CompanyLogoPicker() {
       <CompanyMark name={company.name} logoUrl={company.logoUrl} size={56} />
       <div className="min-w-0 flex-1">
         <div className="text-[17px] font-semibold text-[var(--ink)]">
-          {es ? 'Logo' : 'Logo'}
+          {t.logo.title}
         </div>
         <p className="mt-0.5 text-[13px] leading-snug text-[var(--ter)]">
-          {es ? 'PNG o SVG, hasta 2 MB.' : 'PNG or SVG, up to 2 MB.'}
+          {t.logo.hint}
         </p>
         {failure ? (
           <p className="mt-1.5 text-[13px] text-[var(--red)]">{failure}</p>
@@ -382,17 +386,7 @@ export function CompanyLogoPicker() {
             onClick={() => input.current?.click()}
             className="tn-press text-[15px] font-semibold text-[var(--accent)]"
           >
-            {busy
-              ? es
-                ? 'Subiendo…'
-                : 'Uploading…'
-              : company.logoUrl
-                ? es
-                  ? 'Cambiar'
-                  : 'Change'
-                : es
-                  ? 'Subir'
-                  : 'Upload'}
+            {busy ? t.logo.uploading : company.logoUrl ? t.logo.change : t.logo.upload}
           </button>
           {company.logoUrl ? (
             <button
@@ -400,7 +394,7 @@ export function CompanyLogoPicker() {
               onClick={() => void store.removeCompanyLogo(company.id)}
               className="tn-press text-[15px] font-semibold text-[var(--sec)]"
             >
-              {es ? 'Quitar' : 'Remove'}
+              {t.logo.remove}
             </button>
           ) : null}
         </div>

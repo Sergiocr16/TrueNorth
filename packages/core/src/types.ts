@@ -287,10 +287,23 @@ export interface Job {
   lastError?: string;
 }
 
+/** What the last daily run did, written by the engine next to the heartbeat. */
+export interface EngineRun {
+  companyId: string;
+  date: string;
+  analysisOk: boolean;
+  plansOk: number;
+  plansFailed: number;
+  durationMs: number;
+  costUsd: number;
+  error: string | null;
+}
+
 export interface WorkerHeartbeat {
   id: string;
-  lastHeartbeatAt: string;
+  /** ISO timestamp. The engine writes a server timestamp; the store converts it. */
+  lastHeartbeatAt: string | null;
   version: string;
   hostname: string;
-  jobsInFlight: number;
+  lastRun?: EngineRun;
 }

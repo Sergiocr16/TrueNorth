@@ -5,15 +5,15 @@ rules_version = '2';
 // and the result lands in Firestore.
 service firebase.storage {
   match /b/{bucket}/o {
-    // Company logos. Membership is checked against Firestore, so somebody who
-    // merely has an account cannot replace another company's mark.
+    // Company logos. Written only by the server, through
+    // /api/company/logo, which verifies the ID token and checks membership
+    // with the Admin SDK. The browser never touches this folder: the rule
+    // that used to authorise it had to read Firestore, and that cross-service
+    // check needs an IAM grant the CLI does not create, so it failed closed.
+    // Reading happens through the download-token URL the route hands back,
+    // which authenticates with the token rather than with these rules.
     match /logos/{companyId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-                   && firestore.exists(
-                        /databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid))
-                   && request.resource.size < 2 * 1024 * 1024
-                   && request.resource.contentType.matches('image/.*');
+      allow read, write: if false;
     }
 
     match /voice/{companyId}/{uid}/{fileName} {

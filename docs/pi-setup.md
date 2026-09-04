@@ -245,6 +245,34 @@ sudo systemctl enable --now truenorth-daily.timer
 systemctl list-timers truenorth-daily.timer
 ```
 
+### Checking the engine
+
+Two routes exist for this, both behind the same token. The first talks to
+Claude Code with sample data and touches no database, so it separates a Claude
+problem (not signed in, binary not on the service PATH) from a Firestore one:
+
+```bash
+source /etc/truenorth/env
+curl -s -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" http://localhost:3000/api/engine/selftest | jq .plan.headline
+```
+
+The second is the real thing, for one company, today. It is what the timer
+calls without `?company=`:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" "http://localhost:3000/api/engine/daily?company=<companyId>" | jq .
+```
+
+Afterwards *Ajustes → Motor* in the app shows the heartbeat: host, last run,
+plans written, and the error if one failed. A full run for a company of four
+takes two to three minutes; each plan is one `claude -p` call of thirty to
+forty seconds, and they run one after another on purpose.
+
+If the selftest fails with `could not start claude`, the service PATH does not
+include the binary: set `CLAUDE_BIN=/home/truenorth/.local/bin/claude` in
+`/etc/truenorth/env`. If it fails with an authentication error, run
+`claude` once interactively as the `truenorth` user and sign in again.
+
 ## 9. Deploying a new version
 
 `/usr/local/bin/truenorth-deploy`:

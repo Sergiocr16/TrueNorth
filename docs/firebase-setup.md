@@ -167,3 +167,68 @@ Deliberately not yet:
 
 - [ ] Service-account key generated **only when the Pi is being set up**, copied
       over with scp, kept off the repo and out of any chat
+
+## Server credentials (the Admin SDK)
+
+The browser uses the public web config, which ships in the bundle by design.
+The engine is different: it writes plans and analyses that no client may write,
+so it runs with a service-account key that bypasses the security rules. That
+key is a secret. It never goes in the repo, in `.env.local` as a literal, or
+into a chat window — only its **path** is configuration.
+
+Generate one in the Firebase console: *Project settings → Service accounts →
+Generate new private key*. It downloads as a JSON file.
+
+**On a development machine**, keep it outside the working tree:
+
+```bash
+mkdir -p ~/.config/truenorth && chmod 700 ~/.config/truenorth
+mv ~/Downloads/truenorth-*-firebase-adminsdk-*.json ~/.config/truenorth/service-account.json
+chmod 600 ~/.config/truenorth/service-account.json
+```
+
+`apps/web/.env.local` then holds the path only:
+
+```
+GOOGLE_APPLICATION_CREDENTIALS=/Users/<you>/.config/truenorth/service-account.json
+```
+
+**On the Pi** the same file lives at `/etc/truenorth/service-account.json`,
+owned by the `truenorth` user with mode 600, and the path is set in
+`/etc/truenorth/env`. See `docs/pi-setup.md`.
+
+The engine refuses to start if the path is empty, unreadable, or inside the
+repository, and says which of the three it was. Without it, the app still runs:
+the two routes that write answer 503 and the rest of the screens are unaffected.
+Generate a separate key per machine, and revoke one in the console the moment a
+machine is lost.
+
+### Why logo uploads go through the server
+
+`storage.rules` used to authorise the browser to write a logo by checking
+membership in Firestore:
+
+```
+firestore.exists(/databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid))
+```
+
+That is a *cross-service* rule, and it does not work on permission alone: the
+Cloud Storage rules engine needs its own IAM grant to read Firestore, which
+deploying the rules with the CLI does not create. The rule failed closed, and
+from the browser that is indistinguishable from being denied —
+`storage/unauthorized`, even for a legitimate member.
+
+Rather than depend on a console click that is invisible in the repository, the
+upload moved to `POST /api/company/logo`. The route verifies the caller's ID
+token, checks membership with the Admin SDK, validates the type and the 2 MB
+limit, writes the object, and updates `logoUrl` on the company. Clients no
+longer touch the `logos/` folder at all, so its rule is now `if false` for both
+read and write.
+
+Reading still works from a plain `<img src>` because the object is saved with a
+`firebaseStorageDownloadTokens` metadata value and the route returns the
+matching download URL. That URL authenticates with its own token, not with the
+Storage rules, so nothing has to be made public and no signed URL expires.
+
+The same shape applies to anything else the browser cannot be trusted to write
+directly: verify the token, check membership, write with the Admin SDK.

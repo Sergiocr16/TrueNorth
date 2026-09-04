@@ -26,8 +26,11 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  atMidnight,
   computeSignals,
   fixtures,
+  shiftIso,
+  todayIso,
   healthFrom,
   type Company,
   type CompanyAnalysis,
@@ -43,9 +46,9 @@ import {
   type Task,
   type User,
   type VoiceUpdate,
+  type WorkerHeartbeat,
 } from '@truenorth/core';
 import { useAuth } from './auth';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { firebase } from './firebase';
 
 /**
@@ -64,13 +67,27 @@ import { firebase } from './firebase';
 
 const COMPANY_KEY = 'truenorth.companyId';
 
+/** The engine that serves this app. One Pi, one id; see run.ts. */
+const WORKER_ID = 'pi-01';
+
+/** Today in Costa Rica, fixed when the module loads. A reload picks up a new day. */
+const TODAY = todayIso();
+
+/**
+ * The sample data is written against a frozen date. When it is seeded, its
+ * relative dates are shifted so "yesterday" in the fixture is yesterday here.
+ */
+const SEED_SHIFT_DAYS = Math.round(
+  (atMidnight(TODAY).getTime() - atMidnight(fixtures.TODAY).getTime()) / 86_400_000,
+);
+
 /**
  * Adds today's value to a history, replacing any entry already recorded today.
  * Kept short: a year of daily edits is 365 small objects, well inside a
  * document, and Reports only ever plots the recent tail.
  */
 function appendReading(history: Reading[] | undefined, value: number): Reading[] {
-  const date = fixtures.TODAY;
+  const date = TODAY;
   const rest = (history ?? []).filter((entry) => entry.date !== date);
   return [...rest, { date, value }].slice(-180);
 }
@@ -141,6 +158,8 @@ interface StoreValue {
   /** Company analyses by date, newest first. Written by the engine. */
   analyses: CompanyAnalysis[];
   voiceUpdates: VoiceUpdate[];
+  /** The engine heartbeat from the Pi, or null before it has ever run. */
+  engine: WorkerHeartbeat | null;
 
   currentUser: User;
   currentMembership: Membership;
@@ -183,6 +202,8 @@ interface StoreValue {
   /** Shares this company with somebody who already has an account. */
   inviteMember: (email: string, roleTitle: string, access: Membership['access']) => Promise<void>;
   resetToSeed: () => Promise<void>;
+  /** Asks the engine on this server to recompute my plan for today. */
+  replan: () => Promise<void>;
 }
 
 /**
@@ -200,16 +221,16 @@ const EMPTY_COMPANY: Company = {
   name: '',
   slug: '',
   northStar: '',
-  northStarDeadline: fixtures.TODAY,
+  northStarDeadline: TODAY,
   plans: { m3: '', m6: '', m12: '' },
 };
 
 function emptyPlan(companyId: string, userId: string): DailyPlan {
   return {
-    id: `${fixtures.TODAY}_${userId}`,
+    id: `${TODAY}_${userId}`,
     companyId,
     userId,
-    date: fixtures.TODAY,
+    date: TODAY,
     headline: '',
     why: '',
     items: [],
@@ -235,6 +256,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [planHistory, setPlanHistory] = useState<DailyPlan[]>([]);
   const [analyses, setAnalyses] = useState<CompanyAnalysis[]>([]);
   const [voiceUpdates, setVoiceUpdates] = useState<VoiceUpdate[]>([]);
+  const [engine, setEngine] = useState<WorkerHeartbeat | null>(null);
   const [ready, setReady] = useState(false);
   const [needsBootstrap, setNeedsBootstrap] = useState(false);
   const [pendingInvite, setPendingInvite] = useState<PendingInvite | null>(null);
@@ -396,10 +418,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         () => setAnalyses([]),
       ),
       onSnapshot(
-        doc(base, 'plans', `${fixtures.TODAY}_${uid}`),
+        doc(base, 'plans', `${TODAY}_${uid}`),
         (snap) => setPlan(snap.exists() ? ({ id: snap.id, ...snap.data() } as DailyPlan) : null),
         // A missing plan is normal before the engine has run; do not shout.
         () => setPlan(null),
+      ),
+      onSnapshot(
+        doc(db, 'workers', WORKER_ID),
+        (snap) => {
+          if (!snap.exists()) {
+            setEngine(null);
+            return;
+          }
+          const data = snap.data();
+          const at: unknown = data.lastHeartbeatAt;
+          setEngine({
+            id: snap.id,
+            lastHeartbeatAt:
+              at && typeof at === 'object' && 'toDate' in at
+                ? (at as { toDate: () => Date }).toDate().toISOString()
+                : null,
+            version: String(data.version ?? ''),
+            hostname: String(data.hostname ?? ''),
+            lastRun: data.lastRun,
+          });
+        },
+        () => setEngine(null),
       ),
     ];
 
@@ -421,7 +465,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const withHealth = useCallback(
     <T extends { startDate: string; targetDate: string; progressPct: number }>(item: T) => ({
       ...item,
-      status: healthFrom(item, new Date(`${fixtures.TODAY}T00:00:00`)),
+      status: healthFrom(item, new Date(`${TODAY}T00:00:00`)),
     }),
     [],
   );
@@ -496,11 +540,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     // Until the engine runs, seed today's plan so the app is usable end to end.
     const seedPlan = fixtures.todaysPlan;
-    batch.set(doc(base, 'plans', `${fixtures.TODAY}_${uid}`), {
+    batch.set(doc(base, 'plans', `${TODAY}_${uid}`), {
       companyId: cid,
       uid,
       userId: uid,
-      date: fixtures.TODAY,
+      date: TODAY,
       headline: seedPlan.headline,
       why: seedPlan.why,
       items: seedPlan.items,
@@ -513,16 +557,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // A short run of past days, so the briefing calendar is not empty on the
     // first launch. Sample data, like the rest of the seed.
     for (const past of fixtures.pastPlans) {
-      batch.set(doc(base, 'plans', `${past.date}_${uid}`), {
+      const date = shiftIso(past.date, SEED_SHIFT_DAYS);
+      batch.set(doc(base, 'plans', `${date}_${uid}`), {
         companyId: cid,
         uid,
         userId: uid,
-        date: past.date,
+        date,
         headline: past.headline,
         why: past.why,
         items: past.items.map((item) => ({ ...item, signalIds: item.signalIds })),
         consequenceIfNotDone: past.consequenceIfNotDone,
-        deliveredAt: `${past.date}T06:30:00-06:00`,
+        deliveredAt: `${date}T06:30:00-06:00`,
         stale: false,
         feedback: past.feedback,
       });
@@ -555,7 +600,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [sharedProjects, ownProjects]);
 
   const value = useMemo<StoreValue>(() => {
-    const today = new Date(`${fixtures.TODAY}T00:00:00`);
+    const today = new Date(`${TODAY}T00:00:00`);
 
     // users and memberships both come from the member documents.
     const users: User[] = Object.entries(members).map(([id, m]) => ({
@@ -625,6 +670,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       planHistory,
       analyses,
       voiceUpdates,
+      engine,
       currentUser,
       currentMembership,
 
@@ -816,7 +862,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!uid || !user) return;
         const { db } = firebase();
         const cid = newId('c');
-        const year = new Date(`${fixtures.TODAY}T00:00:00`).getFullYear() + 1;
+        const year = new Date(`${TODAY}T00:00:00`).getFullYear() + 1;
 
         // Same three-step ordering as the bootstrap: the company has to exist
         // before its creator can add themselves, because the rule that lets
@@ -856,14 +902,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       uploadCompanyLogo: async (targetCompanyId, file) => {
-        const { db, storage } = firebase();
-        // The extension keeps the object recognisable in the console; the name
-        // is fixed so a new upload replaces the old one instead of piling up.
-        const extension = (file.name.split('.').pop() ?? 'png').toLowerCase().slice(0, 5);
-        const objectRef = ref(storage, `logos/${targetCompanyId}/logo.${extension}`);
-        await uploadBytes(objectRef, file, { contentType: file.type });
-        const logoUrl = await getDownloadURL(objectRef);
-        await updateDoc(doc(db, 'companies', targetCompanyId), { logoUrl });
+        if (!user) return;
+        // The server writes the object: the Storage rule that used to authorise
+        // a browser upload had to read Firestore, and that cross-service check
+        // needs a grant the CLI does not create. The route verifies this token,
+        // checks membership with the Admin SDK, and updates `logoUrl` itself,
+        // so the live listener repaints the mark without a second write here.
+        const body = new FormData();
+        body.append('companyId', targetCompanyId);
+        body.append('file', file);
+        const response = await fetch('/api/company/logo', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${await user.getIdToken()}` },
+          body,
+        });
+        if (!response.ok) {
+          const failure = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(failure.error ?? `HTTP ${response.status}`);
+        }
       },
 
       removeCompanyLogo: async (targetCompanyId) => {
@@ -944,6 +1000,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
 
+      replan: async () => {
+        if (!user || !companyId) return;
+        // The route verifies this token with the Admin SDK and checks membership
+        // itself; the client only proves who is asking.
+        const token = await user.getIdToken();
+        const response = await fetch('/api/engine/replan', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId }),
+        });
+        if (!response.ok) {
+          const body = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `HTTP ${response.status}`);
+        }
+      },
+
       resetToSeed: async () => {
         if (!companyId || !uid) return;
         const { db } = firebase();
@@ -1006,13 +1078,13 @@ export function useRiskCount(): number {
 /* ------------------------------------------------------------------ */
 
 export function makeObjective(companyId: string, ownerUserId: string): Objective {
-  const year = new Date(`${fixtures.TODAY}T00:00:00`).getFullYear();
+  const year = new Date(`${TODAY}T00:00:00`).getFullYear();
   return {
     id: newId('o'),
     companyId,
     title: '',
     expectedResult: '',
-    startDate: fixtures.TODAY,
+    startDate: TODAY,
     targetDate: `${year}-12-31`,
     priority: 'medium',
     ownerUserId,
@@ -1023,7 +1095,7 @@ export function makeObjective(companyId: string, ownerUserId: string): Objective
 }
 
 export function makeProject(companyId: string, ownerUserId: string): Project {
-  const year = new Date(`${fixtures.TODAY}T00:00:00`).getFullYear();
+  const year = new Date(`${TODAY}T00:00:00`).getFullYear();
   return {
     id: newId('p'),
     companyId,
@@ -1033,7 +1105,7 @@ export function makeProject(companyId: string, ownerUserId: string): Project {
     objectiveIds: [],
     memberUserIds: [ownerUserId],
     ownerUserId,
-    startDate: fixtures.TODAY,
+    startDate: TODAY,
     targetDate: `${year}-12-31`,
     progressPct: 0,
     status: 'on_track',
