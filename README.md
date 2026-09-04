@@ -98,9 +98,28 @@ Record in the app → Cloud Storage → Speech-to-Text with a phrase set built f
 
 No recogniser is perfect, so the design does not pretend otherwise: nothing is written before you confirm, and every correction is stored to improve the phrase set.
 
-## Deploying
+## Branches and deploying
 
-The web app deploys to **Firebase App Hosting** from GitHub. Configure the backend to build `apps/web` and add `apphosting.yaml` at the repo root. Environment variables are listed in `apps/web/.env.example`.
+| Branch | Role |
+| --- | --- |
+| `main` | Where work lands. Default branch, kept green. |
+| `production` | What Firebase App Hosting deploys. Protected; moves forward from `main` only. |
+
+Point the App Hosting backend at **`production`**, with `apps/web` as the app
+root. `apphosting.yaml` at the repo root already carries the build and
+environment configuration; the values marked `secret` must exist in Secret
+Manager under those names, or be switched to plain `value` entries, which is
+fine for the Firebase web config since it is public by design. Local variables
+are listed in `apps/web/.env.example`.
+
+Releasing:
+
+```bash
+git checkout production
+git merge --ff-only main
+git push origin production      # triggers the App Hosting rollout
+git checkout main
+```
 
 Not yet wired: Firestore rules and indexes, Cloud Functions, the Notion OAuth callback, FCM, and the Raspberry Pi worker. See `CLAUDE.md` for the phase plan.
 

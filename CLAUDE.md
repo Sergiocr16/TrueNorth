@@ -54,6 +54,28 @@ place to check rather than assume is the deploy runtime: Firebase App Hosting
 and Cloud Functions pin their own Node versions, so confirm what they support
 before setting `engines` for a deployed package.
 
+## Branches
+
+- **`main`** — where work lands. Default branch, always green: `pnpm test`,
+  `pnpm typecheck` and `pnpm build` must pass before anything merges.
+- **`production`** — what App Hosting deploys. Protected against force pushes
+  and deletion. It only ever moves forward from `main`.
+
+Releasing is a fast-forward merge, never a direct commit:
+
+```bash
+git checkout production
+git merge --ff-only main
+git push origin production      # App Hosting builds and rolls out
+git checkout main
+```
+
+If the fast-forward is refused, `production` has drifted, which should not
+happen. Find out why before forcing anything: a hotfix committed straight to
+`production` is the usual cause, and it needs merging back into `main`.
+
+Never commit or push either branch unless Sergio asks.
+
 ## Rules of work
 
 - **Code, identifiers, comments, commits and technical docs in English.** UI text in Spanish, in `apps/web/lib/i18n/dictionary.ts`, with an English variant for every string. Never hardcode user-facing text in a component.
