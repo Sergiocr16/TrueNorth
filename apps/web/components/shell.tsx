@@ -13,14 +13,14 @@ import {
   ChevronLeft,
   CompanyIcon,
   CompassGlyph,
+  AskIcon,
+  FollowUpIcon,
   IntegrationIcon,
-  MoreIcon,
   ObjectiveIcon,
   ProjectIcon,
   ReportIcon,
   RiskIcon,
   SettingsIcon,
-  SendIcon,
   TeamIcon,
 } from './icons';
 
@@ -32,6 +32,7 @@ export const ROUTES = {
   projects: '/proyectos',
   team: '/equipo',
   followUps: '/seguimiento',
+  ask: '/asistente',
   risks: '/riesgos',
   reports: '/reportes',
   integrations: '/integraciones',
@@ -46,10 +47,9 @@ const TAB_ITEMS = [
   { href: ROUTES.today, key: 'today', Icon: CompassGlyph },
   { href: ROUTES.briefing, key: 'briefing', Icon: BriefingIcon },
   { href: ROUTES.projects, key: 'projects', Icon: ProjectIcon },
-  { href: ROUTES.followUps, key: 'followUps', Icon: SendIcon },
+  { href: ROUTES.followUps, key: 'followUps', Icon: FollowUpIcon },
   { href: ROUTES.risks, key: 'risks', Icon: RiskIcon },
   { href: ROUTES.reports, key: 'reports', Icon: ReportIcon },
-  { href: ROUTES.settings, key: 'more', Icon: MoreIcon },
 ] as const;
 
 export function TabBar({ riskCount }: { riskCount?: number }) {
@@ -80,13 +80,13 @@ export function TabBar({ riskCount }: { riskCount?: number }) {
               aria-label={label}
               title={label}
               aria-current={active ? 'page' : undefined}
-              className="tn-press relative flex h-[50px] w-[46px] items-center justify-center rounded-full transition-colors"
+              className="tn-press relative flex h-[52px] w-[52px] items-center justify-center rounded-full transition-colors"
               style={{
                 background: active ? 'var(--accent-bg)' : 'transparent',
                 color: active ? 'var(--accent)' : 'var(--sec)',
               }}
             >
-              <Icon size={24} strokeWidth={active ? 2 : 1.7} />
+              <Icon size={26} strokeWidth={active ? 2 : 1.7} />
               {key === 'risks' && riskCount ? (
                 <span
                   className="tn-tabular absolute right-2.5 top-2 rounded-full px-1.5 text-[10px] font-bold"
@@ -114,7 +114,8 @@ const SIDEBAR_ITEMS = [
   { href: ROUTES.objectives, key: 'objectives', Icon: ObjectiveIcon },
   { href: ROUTES.projects, key: 'projects', Icon: ProjectIcon },
   { href: ROUTES.team, key: 'team', Icon: TeamIcon },
-  { href: ROUTES.followUps, key: 'followUps', Icon: SendIcon },
+  { href: ROUTES.followUps, key: 'followUps', Icon: FollowUpIcon },
+  { href: ROUTES.ask, key: 'ask', Icon: AskIcon },
   { href: ROUTES.risks, key: 'risks', Icon: RiskIcon },
   { href: ROUTES.reports, key: 'reports', Icon: ReportIcon },
   { href: ROUTES.integrations, key: 'integrations', Icon: IntegrationIcon },

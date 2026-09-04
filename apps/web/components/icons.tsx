@@ -208,6 +208,48 @@ export function CalendarIcon({ size = 20, strokeWidth = 1.7 }: IconProps) {
   );
 }
 
+/** Two speech bubbles: the follow-up is a conversation, not a broadcast. */
+export function FollowUpIcon({ size = 24, strokeWidth = 1.8 }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <path
+        d="M4 6.5A2.5 2.5 0 0 1 6.5 4h7A2.5 2.5 0 0 1 16 6.5v4a2.5 2.5 0 0 1-2.5 2.5H9l-3.5 3v-3H6.5A2.5 2.5 0 0 1 4 10.5v-4Z"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18 9.5h.5A2.5 2.5 0 0 1 21 12v3.5a2.5 2.5 0 0 1-2.5 2.5H18v3l-3.5-3H12"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** A bubble with a question mark: ask the day. */
+export function AskIcon({ size = 24, strokeWidth = 1.8 }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <path
+        d="M4.5 7A3 3 0 0 1 7.5 4h9a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-5l-4.5 3.5V16h.5a3 3 0 0 1-3-3V7Z"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.2 8.6a1.9 1.9 0 0 1 3.7.5c0 1.3-1.9 1.5-1.9 2.6"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="13.9" r="0.7" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function SendIcon({ size = 24, strokeWidth = 1.8 }: IconProps) {
   return (
     <svg {...base(size)}>

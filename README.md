@@ -107,6 +107,7 @@ npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/cor
 | `/proyectos` | Projects with a health strip and filters; each with objectives, tasks by status, dependencies |
 | `/equipo` | Who is on the team, with or without an account: role, responsibility, what you expect of them |
 | `/seguimiento` | Managers only: how each person is doing, private situations, and today's messages — greeting first, ready to copy |
+| `/asistente` | The chief of staff as a conversation: ask about the day, by text or voice, and confirm what it proposes — a situation, a message to copy, a follow-up marked sent, an expectation |
 | `/riesgos` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
 | `/integraciones` | Notion connection, authorised sources, property and status mapping |
 | `/ajustes` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
@@ -137,11 +138,20 @@ The fifteen Notion statuses collapse onto four internal states in `packages/core
 
 Writes go back to Notion when a dictated update is confirmed. Notion always wins: if the page changed since the last sync, the app shows the conflict instead of overwriting.
 
-## Voice updates
+## The assistant
 
-Record in the app → Cloud Storage → Speech-to-Text with a phrase set built from the company's own project names, `TAR` codes, people and statuses → the worker interprets it into concrete changes, each carrying the exact phrase that produced it → you confirm or correct each card → the changes land in Notion and Firestore.
+`/asistente` is the chief of staff as a conversation. One question, one
+`claude -p` call (Sonnet by default — `ASK_MODEL` changes it — about ten
+seconds and three cents) over the same context the morning run had, cut down
+to what the person may see. Answers cite signals like a plan does. Voice is
+an input method, not a feature: the browser's own speech recognition fills
+the box where it exists, the keyboard's microphone everywhere else.
 
-No recogniser is perfect, so the design does not pretend otherwise: nothing is written before you confirm, and every correction is stored to improve the phrase set.
+It can also *propose* an action — record a situation, draft a message, mark
+today's follow-up as sent, add to what you expect of somebody — which the
+server validates and the screen shows as a card. Nothing is written until you
+confirm, and a message is never sent from the app: it is copied. That is
+ADR-004 in practice: Claude interprets, code writes.
 
 ## Branches and deploying
 

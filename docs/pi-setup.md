@@ -152,6 +152,7 @@ ENGINE_LOCAL_TOKEN=…            # long random string; the timer and the selfte
 ENGINE_AUTH=subscription        # or api_key
 ANTHROPIC_API_KEY=              # only if ENGINE_AUTH=api_key
 ENGINE_MODEL=claude-opus-5      # pinned: the analysis, plans and follow-up all use it
+ASK_MODEL=claude-sonnet-5       # the assistant: one question, seconds not a minute
 CLAUDE_BIN=/home/truenorth/.local/bin/claude
 ENGINE_WORKDIR=/var/tmp/truenorth-engine   # empty dir the child runs in; created if missing
 WORKER_ID=pi-01                 # the heartbeat document the app watches

@@ -85,6 +85,40 @@ export const teamFollowUpSchema = z.object({
   messages: z.array(followUpSchema).max(10),
 });
 
+/**
+ * An answer to a question about the day. Short, and it cites what it rests on
+ * so the screen can show the signals under it — same contract as a plan item,
+ * except that a question with no signal behind the answer is still answered.
+ */
+export const askActionSchema = z.object({
+  /** What the assistant proposes to do. `none` is the usual answer. */
+  kind: z.enum(['none', 'situation', 'message', 'mark_sent', 'expectation']),
+  /** The person it concerns, by userId, for everything but `none`. */
+  userId: z.string().optional(),
+  /** For `mark_sent`: the id of today's message being reported as sent. */
+  messageId: z.string().optional(),
+  /** The note, the message body, or the expectation sentence. */
+  text: z.string().max(1400).optional(),
+  situationKind: z.enum(['personal', 'carga', 'desempeno', 'salud', 'motivacion', 'otro']).optional(),
+  discreet: z.boolean().optional(),
+  /** YYYY-MM-DD, when the situation has an end. */
+  endsAt: z.string().optional(),
+  /** One line saying what will happen, shown on the confirmation card. */
+  summary: z.string().max(160).optional(),
+});
+
+export const askSchema = z.object({
+  answer: z.string().min(1).max(1400),
+  signalIds: z.array(z.string()).max(8),
+  /** A question back, when the honest answer needs one. */
+  followUp: z.string().max(200).optional(),
+  /**
+   * The assistant interprets; the app writes, and only after the person
+   * confirms (ADR-004). So an action is a proposal, never a side effect.
+   */
+  action: askActionSchema.optional(),
+});
+
 export const interpretedChangeSchema = z.object({
   taskCode: z.string().optional(),
   taskId: z.string().optional(),
@@ -106,5 +140,7 @@ export type DailyPlanOutput = z.infer<typeof dailyPlanSchema>;
 export type TeamReadingOutput = z.infer<typeof teamReadingSchema>;
 export type FollowUpOutput = z.infer<typeof followUpSchema>;
 export type TeamFollowUpOutput = z.infer<typeof teamFollowUpSchema>;
+export type AskOutput = z.infer<typeof askSchema>;
+export type AskAction = z.infer<typeof askActionSchema>;
 export type CompanyAnalysisOutput = z.infer<typeof companyAnalysisSchema>;
 export type VoiceInterpretationOutput = z.infer<typeof voiceInterpretationSchema>;

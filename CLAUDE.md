@@ -167,7 +167,9 @@ situations included) and computes signals; one `claude -p` call writes
 `analyses/{date}`; one per member with an account writes `plans/{date}_{uid}`;
 one per manager (`owner`/`admin`) writes `followups/{date}_{managerUid}` — a
 reading of everyone, messages only for whoever needs one, greeting first,
-guarded in code by `packages/core/src/followup.ts`. `/api/engine/replan`
+guarded in code by `packages/core/src/followup.ts`. `/api/engine/ask` answers one
+question from the same context, scoped to the caller, and may return a
+proposed action the client confirms before writing (ADR-004); `/api/engine/replan`
 recomputes one person's plan from the Today screen; `/api/engine/selftest`
 (`?step=followup`) proves Claude answers without touching the database. The
 three load-bearing flags in `server/engine/claude.ts` are `--restricted`,

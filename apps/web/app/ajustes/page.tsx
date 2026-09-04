@@ -56,6 +56,7 @@ export default function SettingsPage() {
     { href: ROUTES.objectives, label: t.nav.objectives },
     { href: ROUTES.team, label: t.nav.team },
     { href: ROUTES.followUps, label: t.nav.followUps },
+    { href: ROUTES.ask, label: t.nav.ask },
     { href: ROUTES.reports, label: t.nav.reports },
     { href: ROUTES.integrations, label: t.nav.integrations },
   ];

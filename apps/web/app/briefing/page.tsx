@@ -1,11 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import type { PerspectiveKey, Standing } from '@truenorth/core';
+import type { PerspectiveKey } from '@truenorth/core';
 import { fixtures, shareHealthy, todayIso } from '@truenorth/core';
 import Link from 'next/link';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
-import { Avatar, Card, GlanceTile, SectionLabel, Segmented, TextButton } from '../../components/ui';
+import { Card, GlanceTile, SectionLabel, Segmented, TextButton } from '../../components/ui';
 import { HealthCompass } from '../../components/day-compass';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
@@ -64,7 +64,11 @@ export default function BriefingPage() {
           label={t.briefing.glanceDecisions}
           tone="accent"
         />
-        <GlanceTile value={stuck} label={t.briefing.glanceStuck} tone={stuck > 0 ? 'red' : 'green'} />
+        {/* People are read on the follow-up screen; the briefing only counts
+            them, and the count is the door. */}
+        <Link href={ROUTES.followUps} className="tn-press block">
+          <GlanceTile value={stuck} label={t.briefing.glanceStuck} tone={stuck > 0 ? 'red' : 'green'} />
+        </Link>
       </div>
 
       <div className="mx-4 mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-5">
@@ -143,8 +147,6 @@ export default function BriefingPage() {
             ))}
           </Card>
 
-          <TeamReadings />
-
           <div className="mt-4">
             <SectionLabel>{t.briefing.decisions}</SectionLabel>
             <Card className="overflow-hidden">
@@ -172,74 +174,6 @@ export default function BriefingPage() {
         </div>
       </div>
     </Screen>
-  );
-}
-
-const STANDING_STYLE: Record<Standing, { bg: string; fg: string }> = {
-  adelantado: { bg: 'var(--green-bg)', fg: 'var(--green)' },
-  en_curso: { bg: 'var(--chip-bg)', fg: 'var(--sec)' },
-  atrasado: { bg: 'var(--amber-bg)', fg: 'var(--amber)' },
-  trabado: { bg: 'var(--red-bg)', fg: 'var(--red)' },
-};
-
-/**
- * How the team is doing, one line each.
- *
- * The same readings the Team screen shows in full, compressed to a glance and
- * placed next to the risks — because "who is stuck" is a reading of the company,
- * not a separate report. Only managers have a follow-up document to read, so for
- * everybody else this section is simply not there.
- */
-function TeamReadings() {
-  const { t } = usePreferences();
-  const store = useStore();
-  const readings = store.followUp?.readings ?? [];
-  if (readings.length === 0) return null;
-
-  return (
-    <div className="mt-4">
-      <SectionLabel
-        action={
-          <Link href={ROUTES.team} className="text-[15px] font-semibold text-[var(--accent)]">
-            {t.team.title}
-          </Link>
-        }
-      >
-        {t.team.reading}
-      </SectionLabel>
-      <Card className="overflow-hidden">
-        {readings.map((reading, index) => {
-          const user = store.users.find((candidate) => candidate.id === reading.userId);
-          const style = STANDING_STYLE[reading.standing];
-          return (
-            <div
-              key={reading.userId}
-              className={`flex items-start gap-3 px-4 py-3 ${
-                index === readings.length - 1 ? '' : 'tn-hairline'
-              }`}
-            >
-              <Avatar initials={user?.initials ?? '—'} size={28} />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[15px] font-semibold text-[var(--ink)]">
-                    {user?.displayName ?? reading.userId}
-                  </span>
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[12px] font-semibold"
-                    style={{ background: style.bg, color: style.fg }}
-                  >
-                    {t.team.standing[reading.standing]}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[13px] leading-snug text-[var(--sec)]">
-                  {reading.recommendation}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-      </Card>
-    </div>
   );
 }
 

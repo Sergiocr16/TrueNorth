@@ -37,6 +37,8 @@ import {
   type DailyPlan,
   type Indicator,
   type Membership,
+  type AskAction,
+  type CitedSignal,
   type FollowUpOutcome,
   type Situation,
   type TeamFollowUp,
@@ -120,6 +122,15 @@ interface MemberDoc {
   expectations?: string;
   notionUserId?: string;
   commsTone?: Membership['commsTone'];
+}
+
+/** What comes back from /api/engine/ask. */
+export interface AskAnswer {
+  answer: string;
+  followUp: string | null;
+  signals: CitedSignal[];
+  /** A proposal the person confirms; the app then writes it. */
+  action: (AskAction & { userName?: string }) | null;
 }
 
 /** One row in the company switcher, from the mirror under the user. */
@@ -226,6 +237,8 @@ interface StoreValue {
   resetToSeed: () => Promise<void>;
   /** Asks the engine on this server to recompute my plan for today. */
   replan: () => Promise<void>;
+  /** One question about today, answered from the day's context. */
+  ask: (question: string, history: { role: 'user' | 'assistant'; text: string }[]) => Promise<AskAnswer>;
 }
 
 /**
@@ -1127,6 +1140,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           invitedBy: uid,
           createdAt: serverTimestamp(),
         });
+      },
+
+      ask: async (question, history) => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const response = await fetch('/api/engine/ask', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId, question, history }),
+        });
+        const body = (await response.json().catch(() => ({}))) as AskAnswer & { error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body;
       },
 
       replan: async () => {

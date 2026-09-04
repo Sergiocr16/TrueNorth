@@ -17,13 +17,12 @@ import {
   StatusPill,
   TextButton,
 } from '../../components/ui';
-import { CalendarIcon, CheckIcon, ClockIcon, MicIcon, OfflineIcon, WarningTriangle } from '../../components/icons';
+import { AskIcon, CalendarIcon, CheckIcon, Chevron, ClockIcon, OfflineIcon, SettingsIcon, WarningTriangle } from '../../components/icons';
 import { PlanCalendar } from '../../components/plan-calendar';
 import { DayCompass } from '../../components/day-compass';
 import { formatShortDate } from '../../lib/i18n/dictionary';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
-import { VoiceFlow } from './voice-flow';
 
 export default function TodayPage() {
   const { t, locale } = usePreferences();
@@ -33,7 +32,6 @@ export default function TodayPage() {
   const [recalculateError, setRecalculateError] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
-  const [voiceOpen, setVoiceOpen] = useState(false);
   const [offline, setOffline] = useState(false);
 
   const { plan, objectives, tasks, currentMembership, company, today } = store;
@@ -89,6 +87,16 @@ export default function TodayPage() {
         subtitle={`${formatShortDate(plan.date, locale)} · ${currentMembership.roleTitle} · ${company.name}`}
         trailing={
           <div className="flex items-center gap-2">
+            {/* Settings live here now, not in the tab capsule: the capsule is
+                for places you go every day. */}
+            <Link
+              href={ROUTES.settings}
+              aria-label={t.nav.settings}
+              title={t.nav.settings}
+              className="tn-press flex h-11 w-11 items-center justify-center rounded-full border border-[var(--hair)] bg-[var(--surface)] text-[var(--sec)]"
+            >
+              <SettingsIcon size={20} />
+            </Link>
             {/* The record of past days opens from here, next to the date it
                 belongs to, rather than from the briefing. */}
             <button
@@ -234,33 +242,26 @@ export default function TodayPage() {
             </Card>
           </div>
 
-          <div className="mx-4 mt-2.5 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setVoiceOpen(true)}
-              aria-label={t.today.dictate}
-              className="tn-press relative h-[58px] w-[58px] shrink-0 overflow-hidden rounded-full"
-              style={{ boxShadow: '0 4px 14px rgba(23,29,46,.18)' }}
-            >
-              <span
-                className="absolute inset-0"
-                style={{
-                  background: 'var(--fab-glass)',
-                  backdropFilter: 'blur(28px) saturate(200%)',
-                  WebkitBackdropFilter: 'blur(28px) saturate(200%)',
-                }}
-              />
-              <span
-                className="absolute inset-0 rounded-full"
-                style={{
-                  border: '0.5px solid var(--fab-border)',
-                  boxShadow: 'var(--shine)',
-                }}
-              />
-              <span className="relative flex h-full items-center justify-center text-[var(--accent)]">
-                <MicIcon size={22} />
-              </span>
-            </button>
+          {/* The assistant is a destination, so it gets a row like any other
+              card, not a call to action shouting over the plan. */}
+          <div className="mx-4 mt-3">
+            <Link href={ROUTES.ask}>
+              <Card className="tn-press flex items-center gap-3.5 p-4">
+                <span
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}
+                >
+                  <AskIcon size={24} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[17px] font-semibold text-[var(--ink)]">{t.ask.cta}</span>
+                  <span className="block text-[13px] leading-snug text-[var(--sec)]">{t.ask.ctaHint}</span>
+                </span>
+                <span className="text-[var(--ter)]">
+                  <Chevron />
+                </span>
+              </Card>
+            </Link>
           </div>
 
           {/* Today is this person's own plan. The team's follow-up lives on the
@@ -280,7 +281,6 @@ export default function TodayPage() {
         </>
       )}
 
-      <VoiceFlow open={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </Screen>
   );
 }

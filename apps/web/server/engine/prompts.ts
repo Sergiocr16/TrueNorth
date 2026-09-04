@@ -58,6 +58,22 @@ Rules you must follow:
 - If the same thing was already raised on three recent days, set escalate and propose a conversation instead of another message.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
 
+export const ASK_SYSTEM = `You are the chief of staff of a small company, answering one question from a person on the team about today. You have the same context the morning engine had: the north star, objectives, projects, tasks with their last movement and comments, signals computed in code, and — when the person is a manager — how each team member is doing.
+
+Rules you must follow:
+- Answer in Spanish (Costa Rica), as a sharp colleague would out loud: two to five sentences, the answer first, then the reason. No headings, no lists, no filler.
+- The person asking is named at the top. Speak to them as "vos": their tasks are "tus tareas", a comment they owe is one *you* owe. Never refer to them in the third person, and never offer to tell them something — they are the one reading.
+- Only say what the context supports. If it does not answer the question, say so in one sentence and, if useful, ask the one question that would.
+- Cite the signal ids the answer rests on in signalIds; leave it empty when none apply. Never invent a task, a person or a number.
+- You can also propose one action, which the person confirms before anything is written. Use it only when the message clearly asks for it:
+  · situation — they tell you something going on with a person ("Marco anda con un tema familiar esta semana"). Fill userId, text (the note, in their words), situationKind, discreet (true unless they say it can be mentioned), endsAt when a date or "esta semana" is implied.
+  · message — they ask you to write to somebody. Put the full message in text: warm, natural, opens with "Hola <nombre>," and can be sent as it is.
+  · mark_sent — they report having sent one of today's messages ("ya le escribí a Marco"). Fill messageId from the list of today's messages.
+  · expectation — they say what they expect of somebody ("de Lucía espero que…"). Put the sentence in text.
+  Otherwise kind is none. Always fill summary with one line of what will happen. userId comes from the team list, never invented.
+- An action is a proposal: the person confirms it on screen before anything is written. Say what you propose ("te lo dejo listo para confirmar"), never that it is already done.
+- Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
+
 export interface CompanyContext {
   company: Company;
   objectives: Objective[];
@@ -274,4 +290,73 @@ ${team.map(person).join('\n\n')}
 Para cada persona escribí su lectura: compará lo que ${manager.displayName} espera de ella con lo que realmente pasó en sus tareas (estados que se movieron o no, comentarios respondidos o no, fechas), decí en qué estado la ubicás, y qué le recomendás a ${manager.displayName} hacer al respecto. La expectativa es el criterio; las señales y las tareas son la evidencia.
 
 Después, solo para quienes hoy lo ameritan, escribí el mensaje que ${manager.displayName} les debería mandar: dónde va (comentario en la tarea o mensaje directo), con qué tono, el texto listo para copiar, qué está pidiendo exactamente, y por qué se lo manda.`;
+}
+
+export interface AskTurn {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+/**
+ * A question about today, with the whole day as context. One call per
+ * question; the conversation so far travels along so a follow-up question
+ * reads as one.
+ */
+export function askPrompt(
+  ctx: CompanyContext,
+  member: CompanyContext['members'][number],
+  personalSignals: Signal[],
+  team: FollowUpSubject[] | null,
+  briefing: string | null,
+  history: AskTurn[],
+  question: string,
+  todaysMessages: { id: string; userId: string; ask: string }[] = [],
+): string {
+  const { company, objectives, projects, tasks, today, todayIso } = ctx;
+  const open = tasks.filter((t) => t.status !== 'done');
+
+  return `# Pregunta de ${member.displayName} (${member.membership.roleTitle}) — ${todayIso}
+Quien pregunta es ${member.displayName} (userId ${member.id}); en el contexto aparece como responsable o autor con ese nombre. Hablale de vos.
+
+## Personas (userId — nombre, rol)
+${ctx.members.map((m) => `- ${m.id} — ${m.displayName}, ${m.membership.roleTitle}`).join('\n')}
+${
+  todaysMessages.length
+    ? `\n## Mensajes sugeridos hoy (messageId — para quién: qué pide)\n${todaysMessages
+        .map((m) => `- ${m.id} — ${ctx.members.find((x) => x.id === m.userId)?.displayName ?? m.userId}: ${m.ask}`)
+        .join('\n')}\n`
+    : ''
+}
+## Meta global
+${company.northStar}
+Fecha objetivo: ${company.northStarDeadline}
+${briefing ? `\n## Briefing de hoy\n${briefing}\n` : ''}
+## Objetivos
+${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
+
+## Proyectos
+${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
+
+## Tareas abiertas (${open.length})
+${open.map((t) => fmtTask(t, ctx.members, today)).join('\n') || '(ninguna)'}
+
+## Señales (${personalSignals.length}) — citá estos ids en signalIds
+${personalSignals.map(fmtSignal).join('\n') || '(ninguna)'}
+${
+  team
+    ? `\n## El equipo, como lo ve quien pregunta\n${team
+        .map(
+          (s) =>
+            `- ${s.member.displayName} (${s.member.membership.roleTitle}): ${s.signals.length} señales${s.signals.length ? ' — ' + s.signals.map((x) => x.id).join(', ') : ''}. Se espera: ${s.member.membership.expectations?.trim() || '(sin escribir)'}`,
+        )
+        .join('\n')}\n`
+    : ''
+}
+${
+  history.length
+    ? `## Conversación hasta ahora\n${history.map((h) => `${h.role === 'user' ? 'Pregunta' : 'Respuesta'}: ${h.text}`).join('\n')}\n`
+    : ''
+}
+## Pregunta
+${question}`;
 }

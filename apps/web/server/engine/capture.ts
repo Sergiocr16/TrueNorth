@@ -12,7 +12,7 @@ import type {
   Task,
   User,
 } from '@truenorth/core';
-import { atMidnight, computeSignals, shiftIso } from '@truenorth/core';
+import { atMidnight, computeSignals, shiftIso, todayIso as computeTodayIso } from '@truenorth/core';
 import { adminDb } from '../admin';
 
 /**
@@ -70,7 +70,10 @@ interface MemberDoc {
   commsTone?: Membership['commsTone'];
 }
 
-export async function captureCompany(companyId: string, todayIso: string): Promise<Captured> {
+export async function captureCompany(
+  companyId: string,
+  todayIso: string = computeTodayIso(),
+): Promise<Captured> {
   const db = adminDb();
   const base = db.collection('companies').doc(companyId);
 
