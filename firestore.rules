@@ -1,0 +1,181 @@
+rules_version = '2';
+
+// TrueNorth security rules.
+//
+// The whole multi-company isolation rests here: nothing under a company is
+// readable without a membership document inside that same company. The daily
+// engine runs with the Admin SDK and bypasses these rules entirely, so the
+// private-project filter is duplicated in the capture step, with its own tests.
+//
+// Every rule below has a matching emulator test. Two of them are the reason
+// this file exists at all: nobody reads another company, and nobody reads a
+// private project they are not a member of.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function membershipPath(companyId) {
+      return /databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid);
+    }
+
+    function isMember(companyId) {
+      return signedIn() && exists(membershipPath(companyId));
+    }
+
+    function access(companyId) {
+      return get(membershipPath(companyId)).data.access;
+    }
+
+    function isAdmin(companyId) {
+      return isMember(companyId) && access(companyId) in ['owner', 'admin'];
+    }
+
+    function isOwner(companyId) {
+      return isMember(companyId) && access(companyId) == 'owner';
+    }
+
+    // Only the listed fields changed, and nothing else.
+    function changedOnly(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Users                                                             */
+    /* ---------------------------------------------------------------- */
+
+    match /users/{uid} {
+      // A person reads and writes only their own profile. Display name, locale,
+      // theme, notify hour and FCM tokens all live here.
+      allow read, write: if signedIn() && request.auth.uid == uid;
+
+      // Mirror of the companies this person belongs to, so the app can list
+      // them at sign-in without a collection-group query. Written by a trigger.
+      match /memberships/{companyId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Companies                                                         */
+    /* ---------------------------------------------------------------- */
+
+    match /companies/{companyId} {
+      allow read: if isMember(companyId);
+      // The north star and the 3/6/12-month plans are company-wide direction,
+      // so only an admin edits them.
+      allow update: if isAdmin(companyId);
+      allow create: if signedIn();
+      allow delete: if isOwner(companyId);
+
+      match /members/{memberUid} {
+        allow read: if isMember(companyId);
+        // A person may edit their own role description; an admin may edit
+        // anyone's role and access level.
+        allow update: if isAdmin(companyId)
+                      || (request.auth.uid == memberUid
+                          && changedOnly(['roleTitle', 'roleDescription']));
+        allow create, delete: if isAdmin(companyId);
+      }
+
+      match /invites/{inviteId} {
+        allow read, write: if isAdmin(companyId);
+      }
+
+      match /objectives/{objectiveId} {
+        allow read: if isMember(companyId);
+        allow write: if isMember(companyId);
+      }
+
+      match /projects/{projectId} {
+        // A private project is visible only to the people on it. This is the
+        // rule the emulator test must prove.
+        allow read: if isMember(companyId)
+                    && (resource.data.visibility != 'private'
+                        || request.auth.uid in resource.data.memberUids);
+        allow create: if isMember(companyId);
+        allow update, delete: if isMember(companyId)
+                              && (resource.data.visibility != 'private'
+                                  || request.auth.uid in resource.data.memberUids);
+      }
+
+      match /tasks/{taskId} {
+        allow read, write: if isMember(companyId);
+      }
+
+      match /risks/{riskId} {
+        allow read, write: if isMember(companyId);
+      }
+
+      // The Notion connection holds only the Secret Manager name, never a
+      // token, but it still stays with the admins.
+      match /integrations/{provider} {
+        allow read: if isMember(companyId);
+        allow write: if isAdmin(companyId);
+      }
+
+      match /notionSources/{sourceId} {
+        allow read: if isMember(companyId);
+        allow write: if isAdmin(companyId);
+      }
+
+      // Analyses and plans are written by the engine only. A person may read
+      // the company analysis, but only their own plan, and may only add
+      // feedback to it.
+      match /analyses/{day} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+
+      match /plans/{planId} {
+        allow read: if isMember(companyId) && resource.data.uid == request.auth.uid;
+        allow update: if isMember(companyId)
+                      && resource.data.uid == request.auth.uid
+                      && changedOnly(['feedback']);
+        allow create, delete: if false;
+      }
+
+      // Dictated updates: a person creates and edits their own until it is
+      // applied. The engine and the Notion writer take it from there.
+      match /updates/{updateId} {
+        allow read: if isMember(companyId) && resource.data.uid == request.auth.uid;
+        allow create: if isMember(companyId)
+                      && request.resource.data.uid == request.auth.uid;
+        allow update: if isMember(companyId)
+                      && resource.data.uid == request.auth.uid
+                      && resource.data.appliedAt == null;
+        allow delete: if false;
+      }
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* Engine plumbing — server only                                     */
+    /* ---------------------------------------------------------------- */
+
+    // The job queue the Raspberry Pi worker leases from, and the worker
+    // heartbeats. Both are written with the Admin SDK. Members may read the
+    // heartbeat so the app can show when the engine last ran.
+    match /jobs/{jobId} {
+      allow read, write: if false;
+    }
+
+    match /workers/{workerId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Outbound email queue for the Trigger Email extension.
+    match /mail/{docId} {
+      allow read, write: if false;
+    }
+
+    // Anything not matched above is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

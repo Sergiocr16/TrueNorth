@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// Voice recordings only. A person writes their own audio under their own uid
+// and nobody reads it back from the client: the transcription runs server-side
+// and the result lands in Firestore.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /voice/{companyId}/{uid}/{fileName} {
+      allow write: if request.auth != null
+                   && request.auth.uid == uid
+                   && request.resource.size < 25 * 1024 * 1024
+                   && request.resource.contentType.matches('audio/.*');
+      allow read: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

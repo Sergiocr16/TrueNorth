@@ -1,0 +1,14 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm holds back very fresh releases by default, which is a supply-chain
+# guard: a compromised publish is usually caught within days. This project
+# tracks current releases, so the packages below are allowed through ahead of
+# that window. Add an entry only when you have deliberately chosen a release
+# that is newer than the default hold.
+minimumReleaseAgeExclude:
+  - '@types/react-dom@19.2.7'
+  - '@vitest/mocker@5.0.0'
+  - '@vitest/spy@5.0.0'
+  - vitest@5.0.0

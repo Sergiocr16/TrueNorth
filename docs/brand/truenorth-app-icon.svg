@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="TrueNorth">
+  <!-- Ícono maskable: fondo a sangre completa, marca dentro del área segura (80 % central) -->
+  <rect width="512" height="512" fill="#171D2E"/>
+  <g transform="translate(96 96) scale(5)">
+    <circle cx="32" cy="32" r="29" fill="none" stroke="#3B4562" stroke-width="2"/>
+    <circle cx="32" cy="32" r="3" fill="#EDEFF6"/>
+    <polygon points="32,6 37,32 32,30 27,32" fill="#8C9BF5"/>
+    <polygon points="32,58 37,32 32,34 27,32" fill="#3B4562"/>
+    <polygon points="6,32 32,27 30,32 32,37" fill="#3B4562"/>
+    <polygon points="58,32 32,27 34,32 32,37" fill="#3B4562"/>
+  </g>
+</svg>

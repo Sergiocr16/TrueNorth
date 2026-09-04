@@ -1,0 +1,372 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens, taken verbatim from the TrueNorth design canvas.
+ * Light is the base set; dark redefines only the tokens, so a colour that only
+ * exists inside a dark block can never leak into the un-stamped state.
+ */
+:root {
+  --ground: #f3f4f8;
+  --ground-bg: radial-gradient(140% 70% at 50% -10%, #fbfcff 0%, #f3f4f8 55%, #eaeef9 100%);
+  --surface: #ffffff;
+  --ink: #171d2e;
+  --sec: rgba(23, 29, 46, 0.62);
+  --ter: rgba(23, 29, 46, 0.45);
+  --faint: rgba(23, 29, 46, 0.5);
+  --hair: rgba(23, 29, 46, 0.08);
+  --accent: #2e47c9;
+  --accent-bg: rgba(46, 71, 201, 0.08);
+  --chip-bg: rgba(23, 29, 46, 0.06);
+  --slate: #4a5468;
+  --slate-bg: rgba(90, 100, 120, 0.1);
+  --amber: #9a5b00;
+  --amber-bg: rgba(217, 119, 6, 0.12);
+  --amber-line: rgba(217, 119, 6, 0.2);
+  --red: #b2352d;
+  --red-bg: rgba(194, 55, 47, 0.1);
+  --green: #1f7a3d;
+  --green-bg: rgba(31, 122, 61, 0.1);
+  --warn: #7a4800;
+  --glass: rgba(255, 255, 255, 0.42);
+  --glass-solid: #f8f9fc;
+  --on-accent: #ffffff;
+  --btn-border: rgba(23, 29, 46, 0.1);
+  --shine: inset 0 1.5px 1px rgba(255, 255, 255, 0.8), inset 0 -1px 1px rgba(255, 255, 255, 0.25);
+  --fab-glass: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.3));
+  --fab-border: rgba(255, 255, 255, 0.55);
+  --card-shadow: 0 1px 3px rgba(23, 29, 46, 0.05);
+  --compass-ring: #b9becd;
+  --sheet-bg: linear-gradient(160deg, rgba(252, 253, 255, 0.96), rgba(240, 242, 249, 0.97));
+  --scrim: rgba(9, 12, 22, 0.5);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ground: #000000;
+    --ground-bg: radial-gradient(140% 70% at 50% -10%, #151c30 0%, #000 62%);
+    --surface: #161c2c;
+    --ink: #edeff7;
+    --sec: rgba(237, 239, 247, 0.6);
+    --ter: rgba(237, 239, 247, 0.45);
+    --faint: rgba(237, 239, 247, 0.48);
+    --hair: rgba(237, 239, 247, 0.08);
+    --accent: #8c9bf5;
+    --accent-bg: rgba(140, 155, 245, 0.14);
+    --chip-bg: rgba(237, 239, 247, 0.08);
+    --slate: #a8b0c4;
+    --slate-bg: rgba(168, 176, 196, 0.14);
+    --amber: #f0b35c;
+    --amber-bg: rgba(245, 180, 80, 0.14);
+    --amber-line: rgba(245, 180, 80, 0.24);
+    --red: #f28b84;
+    --red-bg: rgba(242, 139, 132, 0.14);
+    --green: #58c77d;
+    --green-bg: rgba(88, 199, 125, 0.14);
+    --warn: #f3ce96;
+    --glass: rgba(14, 18, 30, 0.52);
+    --glass-solid: #1a2136;
+    --on-accent: #050710;
+    --btn-border: rgba(237, 239, 247, 0.14);
+    --shine: inset 0 1.5px 1px rgba(255, 255, 255, 0.12);
+    --fab-glass: linear-gradient(135deg, rgba(90, 105, 160, 0.55), rgba(28, 36, 60, 0.5));
+    --fab-border: rgba(237, 239, 247, 0.18);
+    --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --compass-ring: #495472;
+    --sheet-bg: linear-gradient(160deg, rgba(42, 50, 80, 0.95), rgba(19, 24, 40, 0.97));
+    --scrim: rgba(0, 0, 0, 0.62);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --ground: #000000;
+  --ground-bg: radial-gradient(140% 70% at 50% -10%, #151c30 0%, #000 62%);
+  --surface: #161c2c;
+  --ink: #edeff7;
+  --sec: rgba(237, 239, 247, 0.6);
+  --ter: rgba(237, 239, 247, 0.45);
+  --faint: rgba(237, 239, 247, 0.48);
+  --hair: rgba(237, 239, 247, 0.08);
+  --accent: #8c9bf5;
+  --accent-bg: rgba(140, 155, 245, 0.14);
+  --chip-bg: rgba(237, 239, 247, 0.08);
+  --slate: #a8b0c4;
+  --slate-bg: rgba(168, 176, 196, 0.14);
+  --amber: #f0b35c;
+  --amber-bg: rgba(245, 180, 80, 0.14);
+  --amber-line: rgba(245, 180, 80, 0.24);
+  --red: #f28b84;
+  --red-bg: rgba(242, 139, 132, 0.14);
+  --green: #58c77d;
+  --green-bg: rgba(88, 199, 125, 0.14);
+  --warn: #f3ce96;
+  --glass: rgba(14, 18, 30, 0.52);
+  --glass-solid: #1a2136;
+  --on-accent: #050710;
+  --btn-border: rgba(237, 239, 247, 0.14);
+  --shine: inset 0 1.5px 1px rgba(255, 255, 255, 0.12);
+  --fab-glass: linear-gradient(135deg, rgba(90, 105, 160, 0.55), rgba(28, 36, 60, 0.5));
+  --fab-border: rgba(237, 239, 247, 0.18);
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --compass-ring: #495472;
+  --sheet-bg: linear-gradient(160deg, rgba(42, 50, 80, 0.95), rgba(19, 24, 40, 0.97));
+  --scrim: rgba(0, 0, 0, 0.62);
+  color-scheme: dark;
+}
+
+/* Map tokens into Tailwind's theme so utilities like bg-surface work. */
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-sec: var(--sec);
+  --color-ter: var(--ter);
+  --color-faint: var(--faint);
+  --color-hair: var(--hair);
+  --color-accent: var(--accent);
+  --color-accent-bg: var(--accent-bg);
+  --color-chip: var(--chip-bg);
+  --color-slate: var(--slate);
+  --color-slate-bg: var(--slate-bg);
+  --color-amber: var(--amber);
+  --color-amber-bg: var(--amber-bg);
+  --color-red: var(--red);
+  --color-red-bg: var(--red-bg);
+  --color-green: var(--green);
+  --color-green-bg: var(--green-bg);
+  --color-warn: var(--warn);
+  --color-on-accent: var(--on-accent);
+  --color-btn-border: var(--btn-border);
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, system-ui, 'Segoe UI', sans-serif;
+
+  /* iOS type scale */
+  --text-caption: 12px;
+  --text-footnote: 13px;
+  --text-subhead: 15px;
+  --text-callout: 16px;
+  --text-body: 17px;
+  --text-title3: 20px;
+  --text-title2: 22px;
+  --text-title1: 28px;
+  --text-large: 34px;
+
+  /* continuous radii */
+  --radius-card: 20px;
+  --radius-sheet: 32px;
+  --radius-control: 16px;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* The ground gradient lives on a wrapper so the body still paints a solid
+     colour behind it, which keeps the page correct on either host background. */
+  .tn-ground {
+    background: var(--ground-bg);
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+@layer components {
+  /*
+   * Glass is for chrome only: nav bars, the tab bar, sheets, the mic button.
+   * Body text never sits on it. When the viewer asks for reduced transparency,
+   * or the browser cannot blur, it falls back to a solid surface.
+   */
+  /* `position` and `overflow` sit inside :where() so they carry zero specificity.
+     A Tailwind utility such as `absolute` on the same element must win, otherwise
+     the glass chrome drops back into the layout flow and squeezes the content. */
+  :where(.tn-glass) {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .tn-glass {
+    background: var(--glass);
+    backdrop-filter: blur(28px) saturate(200%);
+    -webkit-backdrop-filter: blur(28px) saturate(200%);
+  }
+
+  .tn-glass::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: var(--shine);
+  }
+
+  /* Sheets and overlays: readable first. The blur is decoration on top of a
+     background that already carries the contrast on its own. */
+  .tn-sheet-surface {
+    background: var(--sheet-bg);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+  }
+
+  .tn-scrim {
+    background: var(--scrim);
+  }
+
+  .tn-glass-strong {
+    backdrop-filter: blur(36px) saturate(200%);
+    -webkit-backdrop-filter: blur(36px) saturate(200%);
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .tn-glass {
+      background: var(--glass-solid);
+    }
+  }
+
+  :root[data-reduce-transparency='true'] .tn-glass {
+    background: var(--glass-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  :where(.tn-card) {
+    border-radius: var(--radius-card);
+  }
+
+  .tn-card {
+    background: var(--surface);
+    box-shadow: var(--card-shadow);
+  }
+
+  .tn-hairline {
+    border-bottom: 0.5px solid var(--hair);
+  }
+
+  .tn-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Motion, per the token sheet: springy sheets, quick presses, calm progress. */
+  @media (prefers-reduced-motion: no-preference) {
+    .tn-sheet-in {
+      animation: tn-sheet-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .tn-fade-in {
+      animation: tn-fade-in 200ms ease-out;
+    }
+    .tn-press {
+      transition: transform 120ms ease-out, background-color 120ms ease-out;
+    }
+    .tn-press:active {
+      transform: scale(0.97);
+    }
+    .tn-bar {
+      transition: width 400ms ease-out;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tn-sheet-in,
+    .tn-fade-in {
+      animation: tn-fade-in 150ms ease-out;
+    }
+  }
+
+  @keyframes tn-sheet-in {
+    from {
+      transform: translateY(18px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes tn-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes tn-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .tn-rec-dot {
+    animation: tn-pulse 1.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tn-rec-dot {
+      animation: none;
+    }
+  }
+
+  .tn-skeleton {
+    background: linear-gradient(90deg, var(--chip-bg) 25%, var(--hair) 37%, var(--chip-bg) 63%);
+    background-size: 400% 100%;
+    animation: tn-shimmer 1.4s ease infinite;
+    border-radius: 8px;
+  }
+
+  @keyframes tn-shimmer {
+    from {
+      background-position: 100% 50%;
+    }
+    to {
+      background-position: 0 50%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tn-skeleton {
+      animation: none;
+    }
+  }
+
+  /* Hide scrollbars on the phone-shaped scroll areas without losing scrolling. */
+  .tn-scroll {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tn-scroll::-webkit-scrollbar {
+    display: none;
+  }
+}
