@@ -57,17 +57,20 @@ export default function CompanyPage() {
           <p className="text-[20px] font-semibold leading-snug tracking-[-0.2px] text-[var(--ink)] text-pretty">
             {company.northStar}
           </p>
-          <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[15px] text-[var(--sec)]">
-            <span className="text-[13px] font-semibold uppercase tracking-[0.6px] text-[var(--ter)]">
-              {t.company.deadline}
-            </span>
-            <span className="tn-tabular font-semibold text-[var(--ink)]">
-              {formatShortDate(company.northStarDeadline, locale)}
-            </span>
-            <span className="tn-tabular">
-              · {t.company.daysLeft(daysUntil(company.northStarDeadline, todayIso()))}
-            </span>
-          </div>
+          {/* A company starts empty: no deadline until somebody sets one. */}
+          {company.northStarDeadline ? (
+            <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[15px] text-[var(--sec)]">
+              <span className="text-[13px] font-semibold uppercase tracking-[0.6px] text-[var(--ter)]">
+                {t.company.deadline}
+              </span>
+              <span className="tn-tabular font-semibold text-[var(--ink)]">
+                {formatShortDate(company.northStarDeadline, locale)}
+              </span>
+              <span className="tn-tabular">
+                · {t.company.daysLeft(daysUntil(company.northStarDeadline, todayIso()))}
+              </span>
+            </div>
+          ) : null}
         </Card>
       </div>
 
