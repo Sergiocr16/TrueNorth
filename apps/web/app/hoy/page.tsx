@@ -268,7 +268,7 @@ export default function TodayPage() {
           {pendingFollowUps > 0 ? (
             <div className="mx-4 mt-3">
               <Link
-                href={ROUTES.team}
+                href={ROUTES.followUps}
                 className="tn-press flex items-center justify-between rounded-2xl px-4 py-3 text-[15px] font-semibold"
                 style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}
               >

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRepeat, leaksNote, messageId } from './followup';
+import { ensureGreeting, isRepeat, leaksNote, messageId } from './followup';
 import type { CitedSignal, FollowUp } from './types';
 
 const signal = (id: string, severity: CitedSignal['severity'] = 'warning'): CitedSignal => ({
@@ -85,5 +85,21 @@ describe('leaksNote', () => {
   // model's problem, not the guard's.
   it('ignores a note too short to match on', () => {
     expect(leaksNote('Está saturado hoy', 'saturado')).toBe(false);
+  });
+});
+
+describe('ensureGreeting', () => {
+  it('opens with the first name when the model forgot to', () => {
+    expect(ensureGreeting('¿cómo vas con TAR-931?', 'Marco')).toBe('Hola Marco, ¿cómo vas con TAR-931?');
+  });
+
+  it('leaves a message alone when it already greets or names the person', () => {
+    expect(ensureGreeting('Hola Marco, ¿cómo vas?', 'Marco')).toBe('Hola Marco, ¿cómo vas?');
+    expect(ensureGreeting('Buenas, Marco. ¿Cómo vas?', 'Marco')).toBe('Buenas, Marco. ¿Cómo vas?');
+    expect(ensureGreeting('Marco, ¿cómo vas?', 'Marco')).toBe('Marco, ¿cómo vas?');
+  });
+
+  it('does nothing without a name to greet with', () => {
+    expect(ensureGreeting('¿cómo vas?', '')).toBe('¿cómo vas?');
   });
 });

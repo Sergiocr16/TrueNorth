@@ -5,6 +5,7 @@ import { hostname } from 'node:os';
 import {
   companyAnalysisSchema,
   dailyPlanSchema,
+  ensureGreeting,
   isRepeat,
   leaksNote,
   messageId,
@@ -349,12 +350,14 @@ async function followUpFor(
     const before = history.yesterday.get(id);
     if (before && !message.escalate && isRepeat(signals, before)) continue;
 
+    const firstName =
+      captured.members.find((m) => m.id === message.userId)?.displayName.split(' ')[0] ?? '';
     messages.push({
       id,
       userId: message.userId,
       target,
       tone: message.tone,
-      message: message.message,
+      message: ensureGreeting(message.message, firstName),
       why: message.why,
       ask: message.ask,
       signals,

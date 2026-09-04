@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import { daysUntil, formatShortDate } from '../../lib/i18n/dictionary';
 import { CompanyLogoPicker } from '../../components/company-switcher';
+import { HealthCompass } from '../../components/day-compass';
 import { LargeTitle, Screen } from '../../components/shell';
 import { Card, SectionLabel, StatusPill, TextButton } from '../../components/ui';
 import { DateField, EditSheet, FieldGroup, TextAreaField } from '../../components/form';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
-import { todayIso } from '@truenorth/core';
+import { shareHealthy, todayIso } from '@truenorth/core';
 
 export default function CompanyPage() {
   const { t, locale } = usePreferences();
@@ -38,7 +39,11 @@ export default function CompanyPage() {
 
   return (
     <Screen riskCount={riskCount}>
-      <LargeTitle title={t.nav.company} subtitle={company.name} />
+      <LargeTitle
+        title={t.nav.company}
+        subtitle={company.name}
+        trailing={<HealthCompass ratio={shareHealthy(objectives)} label={t.common.health} />}
+      />
 
       <div className="mt-3">
         <CompanyLogoPicker />

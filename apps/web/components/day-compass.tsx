@@ -124,3 +124,32 @@ export function CompassNeedle({
     </svg>
   );
 }
+
+/**
+ * The compass in the corner of a screen: how healthy is what this screen
+ * shows. Position says how much; colour only marks the ends — green at north,
+ * red once less than a third is right.
+ */
+export function HealthCompass({ ratio, label, size = 44 }: { ratio: number; label: string; size?: number }) {
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const angle = 180 - clamped * 180;
+  const needle = clamped >= 0.999 ? 'var(--green)' : clamped < 1 / 3 ? 'var(--red)' : 'var(--accent)';
+  return (
+    <div
+      role="img"
+      aria-label={`${label}: ${Math.round(clamped * 100)}%`}
+      title={`${label} · ${Math.round(clamped * 100)}%`}
+      className="flex items-center justify-center rounded-full border border-[var(--hair)] bg-[var(--surface)]"
+      style={{ width: size, height: size }}
+    >
+      <svg width={size - 10} height={size - 10} viewBox="0 0 64 64" aria-hidden>
+        <circle cx="32" cy="32" r="28" fill="none" stroke="var(--compass-ring)" strokeWidth="4" />
+        <g className="tn-needle" style={{ transform: `rotate(${angle}deg)`, transformOrigin: '32px 32px' }}>
+          <polygon points="32,6 39,32 32,29 25,32" fill={needle} className="tn-needle" />
+          <polygon points="32,58 39,32 32,35 25,32" fill="var(--compass-ring)" />
+        </g>
+        <circle cx="32" cy="32" r="4" fill="var(--ink)" />
+      </svg>
+    </div>
+  );
+}

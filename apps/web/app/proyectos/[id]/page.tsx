@@ -34,6 +34,8 @@ export default function ProjectDetailPage() {
   const [editingProject, setEditingProject] = useState(false);
   const [taskDraft, setTaskDraft] = useState<Task | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const [showDone, setShowDone] = useState(false);
 
   const project = store.projects.find((p) => p.id === params.id);
 
@@ -68,7 +70,14 @@ export default function ProjectDetailPage() {
           </div>
         </div>
         {project.description ? (
-          <p className="mt-1 text-[15px] leading-snug text-[var(--sec)]">{project.description}</p>
+          <p
+            className={`mt-1 text-[15px] leading-snug text-[var(--sec)] ${
+              descriptionOpen ? '' : 'line-clamp-2'
+            }`}
+            onClick={() => setDescriptionOpen((open) => !open)}
+          >
+            {project.description}
+          </p>
         ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <StatusPill status={project.status} />
@@ -151,6 +160,18 @@ export default function ProjectDetailPage() {
           {GROUP_ORDER.flatMap((group) => {
             const rows = projectTasks.filter((task) => task.status === group);
             if (rows.length === 0) return [];
+            if (group === 'done' && !showDone) {
+              return [
+                <button
+                  key="show-done"
+                  type="button"
+                  onClick={() => setShowDone(true)}
+                  className="tn-press flex min-h-[48px] w-full items-center px-4 text-[15px] font-semibold text-[var(--accent)]"
+                >
+                  {t.projects.showDone(rows.length)}
+                </button>,
+              ];
+            }
             return [
               <div
                 key={`h-${group}`}

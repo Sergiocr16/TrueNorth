@@ -208,6 +208,20 @@ export function CalendarIcon({ size = 20, strokeWidth = 1.7 }: IconProps) {
   );
 }
 
+export function SendIcon({ size = 24, strokeWidth = 1.8 }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <path
+        d="M20.5 3.5 3.8 10.2c-.9.4-.9 1.7.1 2l6.6 2.1 2.1 6.6c.3 1 1.6 1 2 .1L21.3 4.3c.3-.8-.4-1.5-1.2-1.2Z"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinejoin="round"
+      />
+      <path d="M10.5 14.3 20.5 3.5" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function WarningTriangle({ size = 16, strokeWidth = 1.6 }: IconProps) {
   return (
     <svg width={size} height={(size * 15) / 16} viewBox="0 0 16 15" fill="none" aria-hidden>

@@ -306,6 +306,38 @@ export function TaskLine({
   );
 }
 
+/**
+ * One number and what it counts. Three of these above a list say more than
+ * the list's first screen, which is why they come first.
+ */
+export function GlanceTile({
+  value,
+  label,
+  tone,
+}: {
+  value: number;
+  label: string;
+  tone: 'amber' | 'accent' | 'red' | 'green' | 'neutral';
+}) {
+  const colour = {
+    amber: 'var(--amber)',
+    accent: 'var(--accent)',
+    red: 'var(--red)',
+    green: 'var(--green)',
+    neutral: 'var(--ink)',
+  }[tone];
+  return (
+    <Card className="flex flex-col items-start px-3.5 py-3">
+      <span className="tn-tabular text-[28px] font-bold leading-none" style={{ color: colour }}>
+        {value}
+      </span>
+      <span className="mt-1 text-[12px] font-semibold uppercase tracking-[0.6px] text-[var(--ter)]">
+        {label}
+      </span>
+    </Card>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Progress                                                            */
 /* ------------------------------------------------------------------ */

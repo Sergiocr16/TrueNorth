@@ -1,43 +1,31 @@
 'use client';
 
 import { useState } from 'react';
-import type {
-  AccessLevel,
-  FollowUp,
-  Membership,
-  Situation,
-  Standing,
-  TeamReading,
-} from '@truenorth/core';
-import { isOverdue, notionUrl, todayIso } from '@truenorth/core';
+import type { AccessLevel, Membership } from '@truenorth/core';
+import { isOverdue, shareQuiet } from '@truenorth/core';
 import { LargeTitle, Screen } from '../../components/shell';
-import { Avatar, Banner, Card, ChipButton, SectionLabel, TextButton } from '../../components/ui';
+import { Avatar, Banner, Card, SectionLabel, TextButton } from '../../components/ui';
 import {
   AddRow,
-  DateField,
   DestructiveRow,
   EditSheet,
   FieldGroup,
   SelectField,
   TextAreaField,
   TextField,
-  ToggleField,
   useConfirm,
 } from '../../components/form';
-import { NotionMark } from '../../components/icons';
+import { HealthCompass } from '../../components/day-compass';
 import { usePreferences } from '../../lib/preferences';
-import { formatShortDate } from '../../lib/i18n/dictionary';
-import { makeSituation, useRiskCount, useStore } from '../../lib/store';
+import { useRiskCount, useStore } from '../../lib/store';
 
 /**
  * The team, and the follow-up that goes with it.
  *
- * Two audiences share this screen. Anybody may read who is on the team and what
- * each person answers for. Only owners and admins see the rest — the reading of
- * how somebody is doing, the private note about what is going on with them, and
- * the message the engine suggests sending today. That split is enforced in
- * firestore.rules; here it only decides what to draw, because a listener that is
- * refused simply comes back empty.
+ * Who is on the team, what each person answers for, and what is expected of
+ * them. Nothing about how they are doing: that reading, the notes about what is
+ * going on with somebody, and the messages to send all live on the follow-up
+ * screen, which is the manager's, not the team's.
  */
 export default function TeamPage() {
   const { t, locale } = usePreferences();
@@ -45,22 +33,23 @@ export default function TeamPage() {
   const riskCount = useRiskCount();
   const [editingRole, setEditingRole] = useState<Membership | null>(null);
   const [addingPerson, setAddingPerson] = useState(false);
-  const [editingSituation, setEditingSituation] = useState<Situation | null>(null);
   const [inviting, setInviting] = useState(false);
 
-  const { memberships, users, tasks, today, plan, followUp, situations } = store;
+  const { memberships, users, tasks, today, plan } = store;
   const isManager = store.currentMembership.access !== 'member';
-  const today0 = todayIso();
 
   return (
     <Screen riskCount={riskCount}>
-      <LargeTitle title={t.team.title} subtitle={store.company.name} />
-
-      {isManager && !followUp ? (
-        <div className="mx-4 mt-3">
-          <Banner tone="info">{t.team.followUpNotYet}</Banner>
-        </div>
-      ) : null}
+      <LargeTitle
+        title={t.team.title}
+        subtitle={store.company.name}
+        trailing={
+          <HealthCompass
+            ratio={shareQuiet(memberships.map((m) => m.userId), store.signals)}
+            label={t.common.health}
+          />
+        }
+      />
 
       <div className="mx-4 mt-3">
         <SectionLabel>{t.team.title}</SectionLabel>
@@ -75,11 +64,6 @@ export default function TeamPage() {
             const overdue = own.filter((task) => isOverdue(task, today));
             const focus = membership.userId === plan.userId ? plan.headline : null;
 
-            const reading = followUp?.readings.find((r) => r.userId === user.id) ?? null;
-            const messages = followUp?.messages.filter((m) => m.userId === user.id) ?? [];
-            const situation =
-              situations.find((s) => s.userId === user.id && (!s.endsAt || s.endsAt >= today0)) ??
-              null;
 
             return (
               <Card key={membership.userId} className="p-4">
@@ -102,8 +86,6 @@ export default function TeamPage() {
                     {t.team.editRole}
                   </TextButton>
                 </div>
-
-                {isManager && reading ? <Reading reading={reading} /> : null}
 
                 <p className="mt-2.5 text-[15px] leading-snug text-[var(--sec)]">
                   <span className="font-semibold text-[var(--ink)]">
@@ -129,44 +111,7 @@ export default function TeamPage() {
                       {overdue.length} {t.team.overdueTasks}
                     </span>
                   ) : null}
-                  {isManager && situation ? (
-                    <button
-                      type="button"
-                      onClick={() => setEditingSituation(situation)}
-                      className="tn-press rounded-full px-2.5 py-1 text-[13px] font-semibold"
-                      style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}
-                    >
-                      {t.team.situationActive}
-                      {situation.endsAt ? ` · ${formatShortDate(situation.endsAt, locale)}` : ''}
-                    </button>
-                  ) : null}
                 </div>
-
-                {isManager && !situation ? (
-                  <div className="mt-2">
-                    <TextButton
-                      onClick={() =>
-                        setEditingSituation(
-                          makeSituation(store.company.id, user.id, store.currentUser.id),
-                        )
-                      }
-                    >
-                      {t.team.addSituation}
-                    </TextButton>
-                  </div>
-                ) : null}
-
-                {isManager && followUp ? (
-                  messages.length > 0 ? (
-                    messages.map((message) => (
-                      <FollowUpBlock key={message.id} message={message} />
-                    ))
-                  ) : (
-                    <p className="mt-3 border-t border-[var(--hair)] pt-2.5 text-[13px] leading-snug text-[var(--ter)]">
-                      {t.team.followUpNone}
-                    </p>
-                  )
-                ) : null}
 
                 {focus ? (
                   <p className="mt-2.5 border-t border-[var(--hair)] pt-2.5 text-[13px] leading-snug text-[var(--ter)]">
@@ -253,199 +198,7 @@ export default function TeamPage() {
         />
       ) : null}
 
-      {editingSituation ? (
-        <SituationEditor
-          situation={editingSituation}
-          onCancel={() => setEditingSituation(null)}
-          onSave={(situation) => {
-            store.upsertSituation(situation);
-            setEditingSituation(null);
-          }}
-          onDelete={() => {
-            store.deleteSituation(editingSituation.id);
-            setEditingSituation(null);
-          }}
-        />
-      ) : null}
     </Screen>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* How somebody is doing                                               */
-/* ------------------------------------------------------------------ */
-
-const STANDING_STYLE: Record<Standing, { bg: string; fg: string }> = {
-  adelantado: { bg: 'var(--green-bg)', fg: 'var(--green)' },
-  en_curso: { bg: 'var(--chip-bg)', fg: 'var(--sec)' },
-  atrasado: { bg: 'var(--amber-bg)', fg: 'var(--amber)' },
-  trabado: { bg: 'var(--red-bg)', fg: 'var(--red)' },
-};
-
-function Reading({ reading }: { reading: TeamReading }) {
-  const { t, locale } = usePreferences();
-  const style = STANDING_STYLE[reading.standing];
-
-  return (
-    <div className="mt-3 border-t border-[var(--hair)] pt-3">
-      <div className="flex items-center gap-2">
-        <span
-          className="rounded-full px-2.5 py-1 text-[13px] font-semibold"
-          style={{ background: style.bg, color: style.fg }}
-        >
-          {t.team.standing[reading.standing]}
-        </span>
-        <span className="text-[13px] font-semibold uppercase tracking-wide text-[var(--ter)]">
-          {t.team.reading}
-        </span>
-      </div>
-
-      <p className="mt-2 text-[15px] leading-snug text-[var(--ink)]">{reading.reading}</p>
-      <p className="mt-2 text-[15px] leading-snug text-[var(--sec)]">
-        <span className="font-semibold">{t.team.recommendation}: </span>
-        {reading.recommendation}
-      </p>
-
-      {reading.signals.length > 0 ? (
-        <ul className="mt-2 flex flex-col gap-1">
-          {reading.signals.map((signal) => (
-            <li key={signal.id} className="text-[13px] leading-snug text-[var(--faint)]">
-              · {signal.summary[locale]}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* The suggested message                                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * Nothing leaves the app on its own: the text is copied, and the manager
- * decides where it goes. Editing before copying is not a nicety — what actually
- * gets sent is stored and fed back to tomorrow's run, so the engine learns the
- * register instead of repeating itself.
- */
-function FollowUpBlock({ message }: { message: FollowUp }) {
-  const { t, locale } = usePreferences();
-  const store = useStore();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.message);
-  const [failed, setFailed] = useState(false);
-
-  const outcome = store.followUp?.outcome?.[message.id];
-  // Narrowed into a const so the closure below keeps the discriminant.
-  const target = message.target;
-  const task =
-    target.kind === 'comentario'
-      ? store.tasks.find((candidate) => candidate.id === target.taskId)
-      : undefined;
-  const notion = notionUrl(task?.notionPageId);
-
-  const copy = async () => {
-    const text = editing ? draft : message.message;
-    try {
-      await navigator.clipboard.writeText(text);
-      setFailed(false);
-    } catch {
-      // A browser that refuses the clipboard should not swallow the decision:
-      // the message still counts as sent, and the text stays on screen to copy
-      // by hand.
-      setFailed(true);
-    }
-    store.markFollowUp(message.id, 'sent', text === message.message ? undefined : text);
-    setEditing(false);
-  };
-
-  return (
-    <div className="mt-3 border-t border-[var(--hair)] pt-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[13px] font-semibold uppercase tracking-wide text-[var(--ter)]">
-          {t.team.followUp}
-        </span>
-        <span
-          className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold"
-          style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}
-        >
-          {t.team.tone[message.tone]}
-        </span>
-        <span className="text-[13px] text-[var(--ter)]">
-          {task ? t.team.followUpComment(task.code || task.title) : t.team.followUpDirect}
-        </span>
-        {notion ? (
-          <a
-            href={notion}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={t.task.openInNotion}
-            title={t.task.openInNotion}
-            className="tn-press inline-flex h-6 w-6 items-center justify-center"
-          >
-            <NotionMark size={15} />
-          </a>
-        ) : null}
-      </div>
-
-      {message.escalate ? (
-        <div className="mt-2">
-          <Banner tone="warning">{t.team.followUpEscalate}</Banner>
-        </div>
-      ) : null}
-
-      {editing ? (
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          rows={6}
-          className="mt-2 w-full rounded-xl border border-[var(--hair)] bg-[var(--chip-bg)] p-3 text-[15px] leading-snug text-[var(--ink)] outline-none"
-        />
-      ) : (
-        <p className="mt-2 whitespace-pre-wrap rounded-xl bg-[var(--chip-bg)] p-3 text-[15px] leading-snug text-[var(--ink)]">
-          {message.message}
-        </p>
-      )}
-
-      <p className="mt-2 text-[13px] leading-snug text-[var(--ter)]">
-        <span className="font-semibold">{t.team.followUpWhy}: </span>
-        {message.why}
-      </p>
-
-      {message.signals.length > 0 ? (
-        <ul className="mt-1.5 flex flex-col gap-1">
-          {message.signals.map((signal) => (
-            <li key={signal.id} className="text-[13px] leading-snug text-[var(--faint)]">
-              · {signal.summary[locale]}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {failed ? (
-        <p className="mt-2 text-[13px] text-[var(--red)]">
-          {locale === 'es'
-            ? 'El navegador no dejó copiar. Seleccioná el texto de arriba.'
-            : 'The browser refused to copy. Select the text above.'}
-        </p>
-      ) : null}
-
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        <ChipButton tone="positive" selected={outcome === 'sent'} onClick={() => void copy()}>
-          {outcome === 'sent' ? t.team.followUpSent : t.team.followUpCopy}
-        </ChipButton>
-        <ChipButton selected={editing} onClick={() => setEditing((was) => !was)}>
-          {t.team.followUpEdit}
-        </ChipButton>
-        <ChipButton
-          selected={outcome === 'dismissed'}
-          onClick={() => store.markFollowUp(message.id, 'dismissed')}
-        >
-          {t.team.followUpDismiss}
-        </ChipButton>
-      </div>
-    </div>
   );
 }
 
@@ -599,101 +352,6 @@ function RoleEditor({
           </div>
         </div>
       ) : null}
-    </EditSheet>
-  );
-}
-
-function SituationEditor({
-  situation,
-  onCancel,
-  onSave,
-  onDelete,
-}: {
-  situation: Situation;
-  onCancel: () => void;
-  onSave: (situation: Situation) => void;
-  onDelete: () => void;
-}) {
-  const { t, locale } = usePreferences();
-  const [draft, setDraft] = useState(situation);
-  const [armed, arm, disarm] = useConfirm();
-  const es = locale === 'es';
-
-  const kinds: { value: Situation['kind']; label: string }[] = [
-    { value: 'personal', label: t.team.kind.personal },
-    { value: 'carga', label: t.team.kind.carga },
-    { value: 'desempeno', label: t.team.kind.desempeno },
-    { value: 'salud', label: t.team.kind.salud },
-    { value: 'motivacion', label: t.team.kind.motivacion },
-    { value: 'otro', label: t.team.kind.otro },
-  ];
-
-  return (
-    <EditSheet
-      open
-      title={t.team.editSituation}
-      onCancel={onCancel}
-      onSave={() => onSave(draft)}
-      canSave={draft.note.trim().length > 0}
-    >
-      <FieldGroup footer={t.team.situationPrivate}>
-        <TextAreaField
-          label={t.team.situationNote}
-          value={draft.note}
-          onChange={(note) => setDraft({ ...draft, note })}
-          rows={4}
-          placeholder={
-            es
-              ? 'Anda con un tema familiar esta semana; bajarle la carga.'
-              : 'Family matter this week; ease their load.'
-          }
-        />
-        <SelectField
-          label={t.team.situationKind}
-          value={draft.kind}
-          options={kinds}
-          onChange={(kind) => setDraft({ ...draft, kind })}
-        />
-        <DateField
-          label={t.team.situationUntil}
-          value={draft.endsAt}
-          onChange={(endsAt) => setDraft({ ...draft, endsAt })}
-          isLast
-        />
-      </FieldGroup>
-
-      <FieldGroup footer={t.team.situationDiscreetHint}>
-        <ToggleField
-          label={t.team.situationDiscreet}
-          value={draft.discreet}
-          onChange={(discreet) => setDraft({ ...draft, discreet })}
-          isLast
-        />
-      </FieldGroup>
-
-      <div className="mt-6">
-        <div className="tn-card mx-4 overflow-hidden">
-          <DestructiveRow
-            label={
-              armed
-                ? es
-                  ? 'Tocá otra vez para eliminar'
-                  : 'Tap again to delete'
-                : es
-                  ? 'Eliminar situación'
-                  : 'Delete situation'
-            }
-            onClick={() => {
-              if (armed) {
-                disarm();
-                onDelete();
-              } else {
-                arm();
-              }
-            }}
-          />
-        </div>
-      </div>
     </EditSheet>
   );
 }

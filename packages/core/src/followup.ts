@@ -69,3 +69,19 @@ export function leaksNote(message: string, note: string): boolean {
   const needle = flatten(note);
   return needle.length >= 12 && flatten(message).includes(needle);
 }
+
+/**
+ * A message that can be pasted as it is starts by greeting the person. The
+ * prompt asks for it; this makes sure of it, with the first name, when the
+ * model forgot. A message that already opens with a greeting or with the
+ * person's name is left alone.
+ */
+export function ensureGreeting(message: string, firstName: string): string {
+  const text = message.trim();
+  const opening = text.slice(0, 40).toLowerCase();
+  const name = firstName.trim().toLowerCase();
+  const greets = /^(hola|buenas|buen dia|buen día|buenos dias|buenos días|hey|qué tal|que tal)\b/.test(opening);
+  const named = name.length > 0 && opening.startsWith(name);
+  if (greets || named) return text;
+  return firstName.trim() ? `Hola ${firstName.trim()}, ${text}` : text;
+}

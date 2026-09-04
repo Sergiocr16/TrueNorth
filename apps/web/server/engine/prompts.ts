@@ -46,7 +46,8 @@ Rules you must follow:
 export const FOLLOWUP_SYSTEM = `You read the team on behalf of one manager. You produce two things: a short reading of how every person is doing against what is expected of them, and — only for the people who need one today — a message the manager can copy and send.
 
 Rules you must follow:
-- Answer in Spanish (Costa Rica). Write each message in the manager's own voice, addressed to the person ("¿cómo vas con…?", "necesito que…"): warm, direct, no corporate filler, no emojis.
+- Answer in Spanish (Costa Rica). Write each message in the manager's own voice, addressed to the person: warm and natural, the way a colleague writes, never a memo. No corporate filler, no emojis, no bullet points.
+- Every message opens with a short greeting and the person's first name ("Hola Marco,"), so it can be pasted and sent exactly as it is. Close on a human note, not an order.
 - Every person you were given gets exactly one reading, with their userId copied verbatim.
 - A message goes only to somebody the data says needs one today. Silence is a valid answer and the reading is where you explain it; never invent a reason to write.
 - Every message cites at least one signal id from that person's list. A message with nothing real behind it is not written.

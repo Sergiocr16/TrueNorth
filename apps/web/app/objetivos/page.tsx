@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import type { Objective } from '@truenorth/core';
-import { expectedProgressPct, progressGap } from '@truenorth/core';
+import { expectedProgressPct, progressGap, shareHealthy } from '@truenorth/core';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
 import { Card, EmptyState, ProgressBar, SectionLabel, StatusPill } from '../../components/ui';
 import { AddRow } from '../../components/form';
 import { ObjectiveIcon } from '../../components/icons';
+import { HealthCompass } from '../../components/day-compass';
 import { formatShortDate } from '../../lib/i18n/dictionary';
 import { usePreferences } from '../../lib/preferences';
 import { makeObjective, useRiskCount, useStore } from '../../lib/store';
@@ -23,7 +24,10 @@ export default function ObjectivesPage() {
 
   return (
     <Screen riskCount={riskCount}>
-      <LargeTitle title={t.objectives.title} />
+      <LargeTitle
+        title={t.objectives.title}
+        trailing={<HealthCompass ratio={shareHealthy(objectives)} label={t.common.health} />}
+      />
 
       <div className="mx-4 mt-3">
         {objectives.length === 0 ? (
