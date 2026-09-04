@@ -445,6 +445,15 @@ export const dictionary = {
       notion: 'Notion',
       app: 'TrueNorth',
     },
+
+    error: {
+      title: 'Esta pantalla se rompió',
+      body: 'Es un error de la app, no algo que hayas hecho mal. Tus datos están a salvo en Firebase; solo falló el dibujo de esta pantalla.',
+      cause: 'Causa',
+      reference: 'Referencia',
+      retry: 'Reintentar',
+      goToday: 'Ir a Hoy',
+    },
   },
 
   en: {
@@ -883,6 +892,15 @@ export const dictionary = {
       source: 'Source',
       notion: 'Notion',
       app: 'TrueNorth',
+    },
+
+    error: {
+      title: 'This screen broke',
+      body: 'This is a bug in the app, not something you did wrong. Your data is safe in Firebase; only the drawing of this screen failed.',
+      cause: 'Cause',
+      reference: 'Reference',
+      retry: 'Try again',
+      goToday: 'Go to Today',
     },
   },
 } as const;
