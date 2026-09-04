@@ -157,10 +157,11 @@ CLAUDE_BIN=/home/truenorth/.local/bin/claude
 ENGINE_WORKDIR=/var/tmp/truenorth-engine   # empty dir the child runs in; created if missing
 WORKER_ID=pi-01                 # the heartbeat document the app watches
 
-# Notion — when the sync (ADR-006 "Fase 0") lands. Two databases.
+# Notion. One internal integration for the workspace; the databases are
+# registered from the app (Integraciones), not here. Create it at
+# notion.so/my-integrations with read content, read comments and read user
+# information, then share each database with it (••• → Connections).
 NOTION_TOKEN=…
-NOTION_TASKS_DB=…               # "Tareas Software"
-NOTION_BACKLOG_DB=…             # "ADITUM Backlog"
 ```
 
 ```bash
@@ -292,6 +293,42 @@ sudo systemctl enable --now truenorth-daily.timer
 systemctl list-timers truenorth-daily.timer
 ```
 
+### The Notion sync
+
+The daily run syncs Notion itself before it reads the company, so nothing
+more is needed for the morning. An optional third timer keeps the app fresh
+during the day — every two hours in working hours — and is the one to enable
+once the first databases are registered:
+
+```ini
+# /etc/systemd/system/truenorth-sync.service
+[Unit]
+Description=TrueNorth Notion sync
+
+[Service]
+Type=oneshot
+User=truenorth
+EnvironmentFile=/etc/truenorth/env
+ExecStart=/usr/bin/curl -fsS --max-time 600 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" "http://localhost:3000/api/notion/sync?company=<company id>"
+```
+
+```ini
+# /etc/systemd/system/truenorth-sync.timer
+[Unit]
+Description=Sync Notion during the day
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 07..19/2:15:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+```
+
+`?full=1` forces a full read; the sync does one by itself weekly and whenever
+a source's mapping changes. *Integraciones → Sincronizar ahora* calls the
+same route with the admin's own session.
+
 ### The reminder timer
 
 Push is sent by the same server, once per person per day, at the hour each
@@ -374,10 +411,15 @@ include the binary: set `CLAUDE_BIN=/home/truenorth/.local/bin/claude` in
 ## 8b. First morning: what to do once, by hand
 
 1. Open the app on the phone, sign in, install it to the home screen.
-2. *Empresa* → the north star and its date. *Equipo* → add the people on the
-   team (they need no account) and write *Lo que espero* for each. The company
-   starts empty; nothing is sample data. Responsibles on tasks come from Notion by name,
-   so the names here should match the ones in Notion.
+2. *Empresa* → the north star and its date. *Integraciones* → paste the link
+   of each Notion database (Tareas Software, the two backlogs, Test de Pruebas,
+   Proyectos), check the suggested mapping and the status table, save, then
+   *Sincronizar ahora*. *Equipo* → rename the *General* role or add roles
+   (CTO, Ventas…), tick the databases each reads, then add the people on the
+   team (they need no account), give each their roles and write *Lo que espero*.
+   The company starts empty; nothing is sample data. Responsibles on tasks come
+   from Notion by name, so the names here should match the ones in Notion —
+   anybody Notion names that the team lacks is added without an account.
 3. Run the engine once by hand (`?company=<id>` above) instead of waiting for
    02:00, and read *Seguimiento*. The first day the "has not moved" signals
    have nothing to say — `statusChangedAt` only exists from the first Notion
@@ -433,7 +475,10 @@ A release is then: merge `main` into `production`, push, and run
 | "Insufficient permissions" in the app on a new screen | The rules in the repo were not deployed (§5b). |
 | No reminder arrived | Is the timer running (`systemctl list-timers truenorth-notify.timer`)? Was the toggle turned on from the installed app? `curl … /api/push/hourly?hour=<h>` reports sent/skipped/dead per run. |
 | *Seguimiento* is empty for an admin | The engine has not run today, or the company has nobody on the team but you. Members with `access: member` never see it. |
-| The engine ran but every message repeats yesterday's | It should not: identical signals are dropped in code. Check `followups/{date}_{uid}` in Firestore for what was actually written. |
+| The engine ran but every message repeats yesterday's | It should not: identical signals are dropped in code. Check `followups/{date}_{uid}_{roleId}` in Firestore for what was actually written. |
+| *Integraciones* says the sync failed | `NOTION_TOKEN` missing in the env; the database not shared with the integration (••• → Connections in Notion); the integration lacking the read-comments or read-users capability; or Notion answering 429 — the client retries three times and gives up. The error text on the source says which. |
+| No Notion tasks on a screen that had them | Which role is on? A source is readable only while it is on the active role (*Equipo → Roles*). A listener for a source the role does not read is refused and empties quietly. |
+| "Insufficient permissions" everywhere after a deploy | Rules and code moved together in ADR-008: deploy `firestore:rules,firestore:indexes` (§5b) and `truenorth-deploy` in the same sitting. |
 
 The app's own heartbeat is at `workers/pi-01` in Firestore; Settings shows it,
 so "is the engine up" can be answered from the phone.

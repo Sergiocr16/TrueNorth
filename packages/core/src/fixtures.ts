@@ -3,13 +3,16 @@ import type {
   CompanyAnalysis,
   DailyPlan,
   Membership,
+  NotionSource,
   Objective,
   Project,
   Risk,
+  Role,
   Task,
   User,
   VoiceUpdate,
 } from './types';
+import { NOTION_PRIORITY, NOTION_TASK_STATUS } from './notion-status';
 
 /**
  * ADITUM's real shape, as reviewed in Notion on 2026-09-03 and drawn in the
@@ -83,11 +86,85 @@ export const companies: Company[] = [
   },
 ];
 
+/**
+ * Roles decide scope. Every fixture role reads the same single source, so the
+ * golden cases see the whole company the way they did before roles existed.
+ */
+export const roles: Role[] = [
+  {
+    id: 'r_cto',
+    companyId: 'c_aditum',
+    name: 'CTO',
+    description:
+      'Estabilidad de la plataforma, arquitectura, seguridad, rendimiento y cumplimiento de fechas técnicas.',
+    sourceIds: ['ns_tareas'],
+    createdAt: '2026-08-01T00:00:00-06:00',
+  },
+  {
+    id: 'r_soporte',
+    companyId: 'c_aditum',
+    name: 'Soporte',
+    description: 'Atención de tickets, calidad percibida y escalamiento de incidentes.',
+    sourceIds: ['ns_tareas'],
+    createdAt: '2026-08-01T00:00:00-06:00',
+  },
+  {
+    id: 'r_dev',
+    companyId: 'c_aditum',
+    name: 'Desarrollo',
+    description: 'Entrega de funcionalidades del módulo financiero y del portal de proveedores.',
+    sourceIds: ['ns_tareas'],
+    createdAt: '2026-08-01T00:00:00-06:00',
+  },
+  {
+    id: 'r_coo',
+    companyId: 'c_aditum',
+    name: 'COO',
+    description: 'Procesos operativos, eficiencia del equipo y relación con los condominios.',
+    sourceIds: ['ns_tareas'],
+    createdAt: '2026-08-01T00:00:00-06:00',
+  },
+];
+
+/** ADITUM's "Tareas Software" database, mapped the way the sync would map it. */
+export const sources: NotionSource[] = [
+  {
+    id: 'ns_tareas',
+    companyId: 'c_aditum',
+    kind: 'tasks',
+    title: 'Tareas Software',
+    databaseId: '7ebdc9f1-b0c6-4a99-95e4-7560e9a80211',
+    dataSourceId: 'e0b0a979-7c1c-4b53-97fa-22ea36b428fc',
+    properties: {
+      title: 'Nombre de tarea',
+      status: 'Estado',
+      assignee: 'responsable',
+      dueDate: 'Fecha límite',
+      priority: 'Prioridad',
+      project: 'Proyecto',
+      parent: 'Tarea principal',
+      code: '',
+    },
+    statusType: 'status',
+    statusMap: { ...NOTION_TASK_STATUS },
+    priorityMap: { ...NOTION_PRIORITY },
+    mappingHash: 'fixture',
+    lastSyncAt: '2026-09-03T05:02:00-06:00',
+    lastFullSyncAt: '2026-09-01T05:02:00-06:00',
+    lastSyncError: null,
+    counts: { pages: 8, open: 7, unmatchedPeople: 0 },
+    createdBy: 'u_esteban',
+    createdAt: '2026-08-01T00:00:00-06:00',
+  },
+];
+
 export const memberships: Membership[] = [
   {
     userId: 'u_esteban',
     companyId: 'c_aditum',
     roleTitle: 'CTO',
+    roleIds: ['r_cto'],
+    activeRoleId: 'r_cto',
     roleDescription:
       'Estabilidad de la plataforma, arquitectura, seguridad, rendimiento y cumplimiento de fechas técnicas.',
     access: 'owner',
@@ -99,6 +176,8 @@ export const memberships: Membership[] = [
     userId: 'u_adriana',
     companyId: 'c_aditum',
     roleTitle: 'Soporte',
+    roleIds: ['r_soporte'],
+    activeRoleId: 'r_soporte',
     roleDescription: 'Atención de tickets, calidad percibida y escalamiento de incidentes.',
     access: 'member',
     hasAccount: true,
@@ -109,6 +188,8 @@ export const memberships: Membership[] = [
     userId: 'u_marco',
     companyId: 'c_aditum',
     roleTitle: 'Desarrollo',
+    roleIds: ['r_dev'],
+    activeRoleId: 'r_dev',
     roleDescription: 'Entrega de funcionalidades del módulo financiero y del portal de proveedores.',
     access: 'member',
     hasAccount: true,
@@ -119,6 +200,8 @@ export const memberships: Membership[] = [
     userId: 'u_lucia',
     companyId: 'c_aditum',
     roleTitle: 'COO',
+    roleIds: ['r_coo'],
+    activeRoleId: 'r_coo',
     roleDescription: 'Procesos operativos, eficiencia del equipo y relación con los condominios.',
     access: 'admin',
     hasAccount: true,
@@ -255,6 +338,7 @@ export const projects: Project[] = [
     progressPct: 46,
     status: 'at_risk',
     source: 'notion',
+    sourceId: 'ns_tareas',
     notionPageId: '3acddbac34cb81e6b4c0ea280b95217b',
   },
   {
@@ -271,6 +355,7 @@ export const projects: Project[] = [
     progressPct: 52,
     status: 'at_risk',
     source: 'notion',
+    sourceId: 'ns_tareas',
   },
   {
     id: 'p_sentry',
@@ -286,6 +371,7 @@ export const projects: Project[] = [
     progressPct: 20,
     status: 'at_risk',
     source: 'notion',
+    sourceId: 'ns_tareas',
     notionPageId: '37dddbac34cb81908340fbc18787638c',
   },
   {
@@ -302,6 +388,7 @@ export const projects: Project[] = [
     progressPct: 12,
     status: 'on_track',
     source: 'notion',
+    sourceId: 'ns_tareas',
     notionPageId: '3c9ddbac34cb81f6a7c1f5318ea1e9a5',
   },
 ];
@@ -320,6 +407,7 @@ export const tasks: Task[] = [
     assigneeUserIds: ['u_esteban'],
     dependsOn: [],
     source: 'notion',
+    sourceId: 'ns_tareas',
     notionPageId: '3acddbac34cb81e6b4c0ea280b95217b',
     syncedAt: '2026-09-03T05:02:00-06:00',
     updatedAt: '2026-08-29T16:40:00-06:00',
@@ -351,6 +439,7 @@ export const tasks: Task[] = [
     assigneeUserIds: ['u_esteban'],
     dependsOn: [],
     source: 'notion',
+    sourceId: 'ns_tareas',
     notionPageId: '37dddbac34cb81908340fbc18787638c',
     syncedAt: '2026-09-03T05:02:00-06:00',
     updatedAt: '2026-08-14T11:02:00-06:00',
@@ -371,6 +460,7 @@ export const tasks: Task[] = [
     assigneeUserIds: ['u_marco'],
     dependsOn: [],
     source: 'notion',
+    sourceId: 'ns_tareas',
     syncedAt: '2026-09-03T05:02:00-06:00',
     updatedAt: '2026-08-27T09:30:00-06:00',
     notionLastEditedAt: '2026-08-27T09:30:00-06:00',
@@ -401,6 +491,7 @@ export const tasks: Task[] = [
     assigneeUserIds: [],
     dependsOn: ['t_931'],
     source: 'notion',
+    sourceId: 'ns_tareas',
     syncedAt: '2026-09-03T05:02:00-06:00',
   },
   {
@@ -416,6 +507,7 @@ export const tasks: Task[] = [
     assigneeUserIds: ['u_marco'],
     dependsOn: ['t_966'],
     source: 'notion',
+    sourceId: 'ns_tareas',
     syncedAt: '2026-09-03T05:02:00-06:00',
     updatedAt: '2026-08-15T09:00:00-06:00',
     notionLastEditedAt: '2026-08-15T09:00:00-06:00',
@@ -435,6 +527,7 @@ export const tasks: Task[] = [
     assigneeUserIds: ['u_esteban'],
     dependsOn: [],
     source: 'notion',
+    sourceId: 'ns_tareas',
     syncedAt: '2026-09-03T05:02:00-06:00',
   },
   {
@@ -450,6 +543,7 @@ export const tasks: Task[] = [
     assigneeUserIds: ['u_marco'],
     dependsOn: [],
     source: 'notion',
+    sourceId: 'ns_tareas',
     syncedAt: '2026-09-03T05:02:00-06:00',
     updatedAt: '2026-08-27T14:30:00-06:00',
     notionLastEditedAt: '2026-08-27T14:30:00-06:00',
@@ -469,6 +563,7 @@ export const tasks: Task[] = [
     assigneeUserIds: ['u_adriana'],
     dependsOn: [],
     source: 'notion',
+    sourceId: 'ns_tareas',
     syncedAt: '2026-09-03T05:02:00-06:00',
     updatedAt: '2026-09-02T09:15:00-06:00',
     notionLastEditedAt: '2026-09-02T09:15:00-06:00',
@@ -518,9 +613,10 @@ export const risks: Risk[] = [
 ];
 
 export const todaysPlan: DailyPlan = {
-  id: `${TODAY}_u_esteban`,
+  id: `${TODAY}_u_esteban_r_cto`,
   companyId: 'c_aditum',
   userId: 'u_esteban',
+  roleId: 'r_cto',
   date: TODAY,
   headline: 'Desbloquea el portal de proveedores: revisa el link seguro de TAR-966.',
   // Reads after the objective link: "Por qué: <objetivo> va detrás del plan."
@@ -562,8 +658,11 @@ export const todaysPlan: DailyPlan = {
 };
 
 export const todaysAnalysis: CompanyAnalysis = {
-  id: TODAY,
+  id: `${TODAY}_u_esteban_r_cto`,
   companyId: 'c_aditum',
+  userId: 'u_esteban',
+  roleId: 'r_cto',
+  sourceIds: ['ns_tareas'],
   date: TODAY,
   generatedAt: `${TODAY}T05:12:00-06:00`,
   briefing:

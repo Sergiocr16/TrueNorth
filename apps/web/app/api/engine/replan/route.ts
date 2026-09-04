@@ -7,8 +7,9 @@ import { replan } from '../../../../server/engine/run';
  *
  * The caller is a signed-in person, so this verifies their Firebase ID token
  * and then checks, with the Admin SDK, that they are actually a member of the
- * company they name. Only their own plan is recomputed; the company analysis
- * of the day is reused rather than regenerated.
+ * company they name. Only their own plan is recomputed, in the role they have
+ * on or the one they name; the role's briefing of the day is reused when it
+ * exists, and made along with the plan when it does not.
  */
 
 export const dynamic = 'force-dynamic';
@@ -30,9 +31,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid token' }, { status: 401 });
   }
 
-  let body: { companyId?: string };
+  let body: { companyId?: string; roleId?: string };
   try {
-    body = (await request.json()) as { companyId?: string };
+    body = (await request.json()) as { companyId?: string; roleId?: string };
   } catch {
     body = {};
   }
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
   if (!member.exists) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
   try {
-    const report = await replan(companyId, uid);
+    const report = await replan(companyId, uid, body.roleId);
     const plan = report.plans[0];
     if (!plan?.ok) {
       return NextResponse.json({ error: plan?.error ?? 'replan failed' }, { status: 502 });

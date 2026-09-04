@@ -3,139 +3,140 @@ import 'server-only';
 import { FieldValue, type DocumentReference } from 'firebase-admin/firestore';
 import { hostname } from 'node:os';
 import {
-  companyAnalysisSchema,
   dailyPlanSchema,
   ensureGreeting,
   isRepeat,
   leaksNote,
   messageId,
+  personalBriefingSchema,
   shiftIso,
   teamFollowUpSchema,
   teamSignals,
   todayIso as computeTodayIso,
-  visibleProjects,
   visibleSignals,
-  visibleTasks,
   type CitedSignal,
   type CompanyAnalysisOutput,
   type DailyPlanOutput,
   type FollowUp,
+  type Scoped,
   type Signal,
   type TeamFollowUp,
   type TeamFollowUpOutput,
 } from '@truenorth/core';
 import { adminDb } from '../admin';
+import { syncCompany } from '../notion/sync';
+import type { SyncReport } from '../notion/types';
 import { askClaude, type ClaudeUsage } from './claude';
-import { captureCompany, type Captured, type MemberRecord } from './capture';
 import {
-  ANALYSIS_SYSTEM,
+  captureCompany,
+  contextFor,
+  roleFor,
+  scopeOf,
+  type Captured,
+  type MemberRecord,
+} from './capture';
+import {
+  BRIEFING_PLAN_SYSTEM,
   FOLLOWUP_SYSTEM,
   PLAN_SYSTEM,
-  analysisPrompt,
+  briefingAndPlanPrompt,
   followUpPrompt,
   planPrompt,
   type FollowUpSubject,
 } from './prompts';
 
 /**
- * The daily engine, and the same machinery reused for a single-person replan.
+ * The daily engine, and the same machinery reused on demand.
  *
- * One company per call. The steps are the ones the product plan describes:
- * capture, signals in code, one analysis call, one plan call per member, then
- * write. The two model calls are the only places Claude is involved; everything
- * around them is deterministic and logged.
+ * One company per call. Since ADR-008 the unit of work is a person in a
+ * role: the sync runs first, the company is captured once, and for every
+ * account the engine scopes the company to the role they have on, computes
+ * that scope's signals, and makes one model call that writes their briefing
+ * and their plan. Managers get a follow-up in the same role. Other roles are
+ * generated when the person switches to them, from the same functions.
  */
 
 export interface RunReport {
   companyId: string;
   date: string;
-  /** True when the company had nothing to analyse, so no model call was made. */
+  /** True when the company had nothing to reason about, so no model call was made. */
   skipped?: boolean;
+  sync: SyncReport[];
+  /** Kept for the daily route and the heartbeat: false when any briefing failed. */
   analysis: { ok: boolean; usage?: ClaudeUsage; error?: string };
-  plans: { uid: string; ok: boolean; usage?: ClaudeUsage; error?: string }[];
+  plans: { uid: string; roleId: string; ok: boolean; skipped?: boolean; usage?: ClaudeUsage; error?: string }[];
   /** One per manager: owners and admins are the people who follow up. */
-  followUps: { uid: string; ok: boolean; messages?: number; usage?: ClaudeUsage; error?: string }[];
+  followUps: { uid: string; roleId: string; ok: boolean; messages?: number; usage?: ClaudeUsage; error?: string }[];
   durationMs: number;
 }
 
 const WORKER_ID = process.env.WORKER_ID ?? 'pi-01';
 
+/** `${date}_${uid}_${roleId}`: one document per person per role per day. */
+function docId(date: string, uid: string, roleId: string): string {
+  return `${date}_${uid}_${roleId}`;
+}
+
 export async function runDaily(companyId: string, dateIso?: string): Promise<RunReport> {
   const started = Date.now();
   const date = dateIso ?? computeTodayIso();
-  const captured = await captureCompany(companyId, date);
-  const db = adminDb();
-  const base = db.collection('companies').doc(companyId);
-
   const report: RunReport = {
     companyId,
     date,
-    analysis: { ok: false },
+    sync: [],
+    analysis: { ok: true },
     plans: [],
     followUps: [],
     durationMs: 0,
   };
 
-  // An empty workspace has nothing to reason about, and the nightly run goes
-  // over every company. Skipping costs nothing; analysing costs a model call
-  // and produces a briefing about no data.
-  if (captured.objectives.length === 0 && captured.tasks.length === 0) {
-    report.skipped = true;
-    report.analysis = { ok: true };
-    report.durationMs = Date.now() - started;
-    return report;
+  // 0. Notion first, so the day is read from this morning's pages. A failed
+  //    sync is reported and the run goes on: a plan from yesterday's Notion
+  //    beats no plan.
+  try {
+    report.sync = await syncCompany(companyId);
+  } catch (cause) {
+    report.sync = [];
+    report.analysis = { ok: true, error: `sync: ${describe(cause)}` };
   }
 
-  // 1. The company analysis. If this fails there is no point going on: every
-  //    plan quotes it.
-  let analysis: CompanyAnalysisOutput;
-  let analysisUsage: ClaudeUsage;
-  try {
-    const answer = await askClaude(analysisPrompt(captured), companyAnalysisSchema, {
-      system: ANALYSIS_SYSTEM,
-    });
-    analysis = answer.value;
-    analysisUsage = answer.usage;
-    report.analysis = { ok: true, usage: analysisUsage };
-  } catch (cause) {
-    report.analysis = { ok: false, error: describe(cause) };
+  const captured = await captureCompany(companyId, date);
+
+  // An empty workspace has nothing to reason about, and the nightly run goes
+  // over every company. Skipping costs nothing; analysing costs a model call.
+  if (captured.objectives.length === 0 && captured.tasks.length === 0) {
+    report.skipped = true;
     report.durationMs = Date.now() - started;
     await heartbeat(report);
     return report;
   }
 
-  await base.collection('analyses').doc(date).set({
-    companyId,
-    date,
-    generatedAt: new Date().toISOString(),
-    briefing: analysis.briefing,
-    topRisks: analysis.topRisks,
-    pendingDecisions: analysis.pendingDecisions,
-    perspectives: analysis.perspectives,
-    model: analysisUsage.model,
-    costUsd: analysisUsage.costUsd,
-    usage: {
-      inputTokens: analysisUsage.inputTokens,
-      outputTokens: analysisUsage.outputTokens,
-      durationMs: analysisUsage.durationMs,
-    },
-  });
-
-  // 2. One plan per member. Sequential on purpose: a Raspberry Pi has four
-  //    cores and the subscription has a rate window, and a company of a few
-  //    people finishes in a few minutes either way.
-  //    Only for people who will read one: a team member without an account is
-  //    followed up on below, but a plan nobody opens is a wasted call.
+  // 1. One call per account, in the role they have on. Sequential on
+  //    purpose: a Raspberry Pi has four cores and the subscription has a
+  //    rate window, and a company of a few people finishes in minutes.
   for (const member of captured.members.filter((m) => m.membership.hasAccount)) {
-    const result = await planFor(captured, member, analysis.briefing);
-    report.plans.push({ uid: member.id, ...result });
+    const roleId = roleFor(member);
+    if (!roleId) continue;
+    const result = await briefingAndPlanFor(captured, member, roleId);
+    report.plans.push({ uid: member.id, roleId, ...result });
+  }
+  if (report.plans.some((p) => !p.ok)) {
+    report.analysis = {
+      ok: false,
+      error: report.plans.find((p) => !p.ok)?.error ?? report.analysis.error,
+    };
   }
 
-  // 3. The team follow-up, once per manager. A plain member has nobody to
-  //    follow up with, and the situations behind it are theirs to not see.
-  for (const manager of captured.members.filter((m) => m.membership.access !== 'member')) {
-    const result = await followUpFor(captured, manager, analysis.briefing);
-    report.followUps.push({ uid: manager.id, ...result });
+  // 2. The team follow-up, once per manager in their role. A plain member
+  //    has nobody to follow up with, and the situations behind it are theirs
+  //    to not see.
+  for (const manager of captured.members.filter(
+    (m) => m.membership.hasAccount && m.membership.access !== 'member',
+  )) {
+    const roleId = roleFor(manager);
+    if (!roleId) continue;
+    const result = await followUpFor(captured, manager, roleId);
+    report.followUps.push({ uid: manager.id, roleId, ...result });
   }
 
   report.durationMs = Date.now() - started;
@@ -143,33 +144,38 @@ export async function runDaily(companyId: string, dateIso?: string): Promise<Run
   return report;
 }
 
-/** Recalculate one person's plan now, e.g. from the button on the Today screen. */
-export async function replan(companyId: string, uid: string, dateIso?: string): Promise<RunReport> {
+/**
+ * One person's plan now, in a role: from the Today screen, or when they
+ * switch to a role that has no plan yet. Reuses the role's briefing when
+ * today's exists, because a replan is about the plan; makes the whole
+ * morning call when it does not.
+ */
+export async function replan(companyId: string, uid: string, roleId?: string | null): Promise<RunReport> {
   const started = Date.now();
-  const date = dateIso ?? computeTodayIso();
+  const date = computeTodayIso();
   const captured = await captureCompany(companyId, date);
   const member = captured.members.find((m) => m.id === uid);
   if (!member) throw new Error(`user ${uid} is not a member of ${companyId}`);
+  const role = roleFor(member, roleId);
+  if (!role) throw new Error(roleId ? `role ${roleId} is not one of this person's` : 'no role to plan for');
 
-  // Reuse today's analysis if there is one; a replan is about the person, not
-  // the company, and should not spend a second analysis call.
-  const db = adminDb();
-  const analysisSnap = await db
+  const analysisSnap = await adminDb()
     .collection('companies')
     .doc(companyId)
     .collection('analyses')
-    .doc(date)
+    .doc(docId(date, uid, role))
     .get();
-  const briefing = analysisSnap.exists
-    ? String(analysisSnap.data()?.briefing ?? '')
-    : 'Sin briefing de empresa todavía para hoy.';
 
-  const result = await planFor(captured, member, briefing);
+  const result = analysisSnap.exists
+    ? await planOnlyFor(captured, member, role, String(analysisSnap.data()?.briefing ?? ''))
+    : await briefingAndPlanFor(captured, member, role);
+
   const report: RunReport = {
     companyId,
     date,
-    analysis: { ok: analysisSnap.exists },
-    plans: [{ uid, ...result }],
+    sync: [],
+    analysis: { ok: result.ok },
+    plans: [{ uid, roleId: role, ...result }],
     followUps: [],
     durationMs: Date.now() - started,
   };
@@ -177,25 +183,28 @@ export async function replan(companyId: string, uid: string, dateIso?: string): 
   return report;
 }
 
-async function planFor(
-  captured: Captured,
-  member: MemberRecord,
-  briefing: string,
-): Promise<{ ok: boolean; usage?: ClaudeUsage; error?: string }> {
-  const db = adminDb();
-  const base = db.collection('companies').doc(captured.company.id);
+/** Today's follow-up for one manager in a role, on demand. */
+export async function regenerateFollowUp(
+  companyId: string,
+  uid: string,
+  roleId?: string | null,
+): Promise<{ ok: boolean; messages?: number; usage?: ClaudeUsage; error?: string }> {
+  const captured = await captureCompany(companyId);
+  const manager = captured.members.find((m) => m.id === uid);
+  if (!manager) throw new Error(`user ${uid} is not a member of ${companyId}`);
+  if (manager.membership.access === 'member') throw new Error('managers only');
+  const role = roleFor(manager, roleId);
+  if (!role) throw new Error('no role to follow up in');
+  return followUpFor(captured, manager, role);
+}
 
-  // Visibility is re-applied here because the Admin SDK saw everything.
-  const scoped: Captured = {
-    ...captured,
-    projects: visibleProjects(captured.projects, member.id),
-    tasks: visibleTasks(captured.tasks, captured.projects, member.id),
-  };
-  const personal = visibleSignals(captured.signals, captured.projects, member.id);
-  const allowedSignalIds = new Set(personal.map((s) => s.id));
+/* ------------------------------------------------------------------ */
+/* The morning call                                                    */
+/* ------------------------------------------------------------------ */
 
-  const yesterday = captured.yesterdayPlans.get(member.id);
-  const yesterdaySummary = yesterday
+function yesterdaySummary(captured: Captured, member: MemberRecord, roleId: string) {
+  const yesterday = captured.yesterdayPlans.get(`${member.id}_${roleId}`);
+  return yesterday
     ? {
         headline: yesterday.headline,
         done: yesterday.items
@@ -206,42 +215,36 @@ async function planFor(
           .map((i) => i.title),
       }
     : null;
+}
 
-  let plan: DailyPlanOutput;
-  let usage: ClaudeUsage;
-  try {
-    const answer = await askClaude(
-      planPrompt(scoped, member, personal, briefing, yesterdaySummary),
-      dailyPlanSchema,
-      { system: PLAN_SYSTEM },
-    );
-    plan = answer.value;
-    usage = answer.usage;
-  } catch (cause) {
-    return { ok: false, error: describe(cause) };
-  }
-
-  // The contract, enforced: an item may only cite signals it was shown. Any
-  // that cites nothing real is dropped; a plan left with fewer than three
-  // items is still written, because a short honest plan beats a padded one.
-  const items = plan.items
-    .map((item) => ({
-      ...item,
-      signalIds: item.signalIds.filter((id) => allowedSignalIds.has(id)),
-    }))
+/** An item may only cite signals it was shown; one that cites nothing real is dropped. */
+function enforceCitations(plan: DailyPlanOutput, allowed: Set<string>): DailyPlanOutput['items'] {
+  return plan.items
+    .map((item) => ({ ...item, signalIds: item.signalIds.filter((id) => allowed.has(id)) }))
     .filter((item) => item.signalIds.length > 0);
+}
 
+async function writePlan(
+  captured: Captured,
+  member: MemberRecord,
+  roleId: string,
+  plan: DailyPlanOutput,
+  usage: ClaudeUsage,
+  allowed: Set<string>,
+): Promise<void> {
+  const base = adminDb().collection('companies').doc(captured.company.id);
   await base
     .collection('plans')
-    .doc(`${captured.todayIso}_${member.id}`)
+    .doc(docId(captured.todayIso, member.id, roleId))
     .set({
       companyId: captured.company.id,
       uid: member.id,
       userId: member.id,
+      roleId,
       date: captured.todayIso,
       headline: plan.headline,
       why: plan.why,
-      items,
+      items: enforceCitations(plan, allowed),
       consequenceIfNotDone: plan.consequenceIfNotDone,
       deliveredAt: new Date().toISOString(),
       stale: false,
@@ -249,52 +252,165 @@ async function planFor(
       model: usage.model,
       costUsd: usage.costUsd,
     });
-
-  return { ok: true, usage };
 }
 
+async function writeAnalysis(
+  captured: Captured,
+  member: MemberRecord,
+  roleId: string,
+  scope: Scoped,
+  analysis: CompanyAnalysisOutput,
+  usage: ClaudeUsage,
+): Promise<void> {
+  const base = adminDb().collection('companies').doc(captured.company.id);
+  await base
+    .collection('analyses')
+    .doc(docId(captured.todayIso, member.id, roleId))
+    .set({
+      companyId: captured.company.id,
+      uid: member.id,
+      userId: member.id,
+      roleId,
+      sourceIds: scope.sourceIds,
+      date: captured.todayIso,
+      generatedAt: new Date().toISOString(),
+      briefing: analysis.briefing,
+      topRisks: analysis.topRisks,
+      pendingDecisions: analysis.pendingDecisions,
+      perspectives: analysis.perspectives,
+      model: usage.model,
+      costUsd: usage.costUsd,
+      usage: {
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        durationMs: usage.durationMs,
+      },
+    });
+}
+
+/** Briefing and plan for one person in one role: one call, two documents. */
+async function briefingAndPlanFor(
+  captured: Captured,
+  member: MemberRecord,
+  roleId: string,
+): Promise<{ ok: boolean; skipped?: boolean; usage?: ClaudeUsage; error?: string }> {
+  const scope = scopeOf(captured, member.id, roleId);
+  // Nothing in view: no call, no documents. The screen says so honestly.
+  if (scope.objectives.length === 0 && scope.tasks.length === 0) {
+    return { ok: true, skipped: true };
+  }
+  const ctx = contextFor(captured, scope);
+  const personal = visibleSignals(scope, member.id);
+  const allowed = new Set(personal.map((s) => s.id));
+
+  try {
+    const answer = await askClaude(
+      briefingAndPlanPrompt(ctx, member, personal, yesterdaySummary(captured, member, roleId)),
+      personalBriefingSchema,
+      { system: BRIEFING_PLAN_SYSTEM },
+    );
+    await writeAnalysis(captured, member, roleId, scope, answer.value.analysis, answer.usage);
+    await writePlan(captured, member, roleId, answer.value.plan, answer.usage, allowed);
+    return { ok: true, usage: answer.usage };
+  } catch (cause) {
+    return { ok: false, error: describe(cause) };
+  }
+}
+
+/** The plan alone, quoting a briefing that already exists for the role. */
+async function planOnlyFor(
+  captured: Captured,
+  member: MemberRecord,
+  roleId: string,
+  briefing: string,
+): Promise<{ ok: boolean; usage?: ClaudeUsage; error?: string }> {
+  const scope = scopeOf(captured, member.id, roleId);
+  const ctx = contextFor(captured, scope);
+  const personal = visibleSignals(scope, member.id);
+  const allowed = new Set(personal.map((s) => s.id));
+
+  try {
+    const answer = await askClaude(
+      planPrompt(ctx, member, personal, briefing, yesterdaySummary(captured, member, roleId)),
+      dailyPlanSchema,
+      { system: PLAN_SYSTEM },
+    );
+    await writePlan(captured, member, roleId, answer.value, answer.usage, allowed);
+    return { ok: true, usage: answer.usage };
+  } catch (cause) {
+    return { ok: false, error: describe(cause) };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* The team follow-up                                                  */
+/* ------------------------------------------------------------------ */
+
 /**
- * The team follow-up for one manager.
+ * The team follow-up for one manager in one role.
  *
  * Everything here that can be checked is checked in code, because the model is
  * writing something a person will send to another person: a message may only
  * cite signals the manager was shown, may only point at a task they can see,
- * and may never repeat itself the day after.
+ * and may never repeat itself the day after. The team is the people in the
+ * manager's view — somebody whose work is all in a source this role does not
+ * read is not in the prompt at all.
  */
 async function followUpFor(
   captured: Captured,
   manager: MemberRecord,
-  briefing: string,
+  roleId: string,
 ): Promise<{ ok: boolean; messages?: number; usage?: ClaudeUsage; error?: string }> {
   const db = adminDb();
   const base = db.collection('companies').doc(captured.company.id);
   const date = captured.todayIso;
 
-  // Visibility again: a private project the manager is not on stays invisible,
-  // even when the person it concerns is somebody they manage.
-  const scoped: Captured = {
-    ...captured,
-    projects: visibleProjects(captured.projects, manager.id),
-    tasks: visibleTasks(captured.tasks, captured.projects, manager.id),
-  };
-  const signalsByUser = teamSignals(captured.signals, captured.projects, manager.id);
-  const visibleTaskIds = new Set(scoped.tasks.map((t) => t.id));
-  const memberIds = new Set(captured.members.map((m) => m.id));
+  const scope = scopeOf(captured, manager.id, roleId);
+  const ctx = contextFor(captured, scope);
+  const signalsByUser = teamSignals(scope);
+  const visibleTaskIds = new Set(scope.tasks.map((t) => t.id));
 
-  const history = await recentFollowUps(base, manager.id, date);
+  const briefingSnap = await base.collection('analyses').doc(docId(date, manager.id, roleId)).get();
+  const briefing = briefingSnap.exists
+    ? String(briefingSnap.data()?.briefing ?? '')
+    : 'Sin briefing todavía para este rol hoy.';
 
-  const team: FollowUpSubject[] = captured.members.map((member) => ({
-    member,
-    signals: signalsByUser.get(member.id) ?? [],
-    situations: captured.situations.filter((s) => s.userId === member.id),
-    recent: history.byUser.get(member.id) ?? [],
-  }));
+  const history = await recentFollowUps(base, manager.id, roleId, date);
+
+  // Everybody in the manager's view except the manager: the reading is of
+  // other people, and one's own follow-up is the plan.
+  const team: FollowUpSubject[] = scope.users
+    .filter((member) => member.id !== manager.id)
+    .map((member) => ({
+      member,
+      signals: signalsByUser.get(member.id) ?? [],
+      situations: captured.situations.filter((s) => s.userId === member.id),
+      recent: history.byUser.get(member.id) ?? [],
+    }));
+  const memberIds = new Set(team.map((s) => s.member.id));
+
+  if (team.length === 0) {
+    await base.collection('followups').doc(docId(date, manager.id, roleId)).set({
+      companyId: captured.company.id,
+      managerUid: manager.id,
+      roleId,
+      date,
+      generatedAt: new Date().toISOString(),
+      readings: [],
+      messages: [],
+      outcome: history.today?.outcome ?? {},
+      sentText: history.today?.sentText ?? {},
+      model: '',
+      costUsd: 0,
+    });
+    return { ok: true, messages: 0 };
+  }
 
   let output: TeamFollowUpOutput;
   let usage: ClaudeUsage;
   try {
     const answer = await askClaude(
-      followUpPrompt(scoped, manager, team, briefing),
+      followUpPrompt(ctx, manager, team, briefing),
       teamFollowUpSchema,
       { system: FOLLOWUP_SYSTEM },
     );
@@ -371,6 +487,7 @@ async function followUpFor(
   const document: Omit<TeamFollowUp, 'id'> = {
     companyId: captured.company.id,
     managerUid: manager.id,
+    roleId,
     date,
     generatedAt: new Date().toISOString(),
     readings,
@@ -380,7 +497,7 @@ async function followUpFor(
     model: usage.model,
     costUsd: usage.costUsd,
   };
-  await base.collection('followups').doc(`${date}_${manager.id}`).set(document);
+  await base.collection('followups').doc(docId(date, manager.id, roleId)).set(document);
 
   return { ok: true, messages: messages.length, usage };
 }
@@ -392,10 +509,11 @@ interface RecentEntry {
   outcome: string;
 }
 
-/** What this manager was told to say over the last few days, and what they did. */
+/** What this manager was told to say over the last few days, in this role, and what they did. */
 async function recentFollowUps(
   base: DocumentReference,
   managerUid: string,
+  roleId: string,
   todayIso: string,
 ): Promise<{
   byUser: Map<string, RecentEntry[]>;
@@ -405,7 +523,7 @@ async function recentFollowUps(
 }> {
   const days = [0, 1, 2, 3].map((back) => shiftIso(todayIso, -back));
   const snaps = await Promise.all(
-    days.map((day) => base.collection('followups').doc(`${day}_${managerUid}`).get()),
+    days.map((day) => base.collection('followups').doc(docId(day, managerUid, roleId)).get()),
   );
 
   const byUser = new Map<string, RecentEntry[]>();
@@ -435,6 +553,7 @@ async function recentFollowUps(
 /** The app reads this to say whether the engine is up and what it last did. */
 async function heartbeat(report: RunReport): Promise<void> {
   const db = adminDb();
+  const syncError = report.sync.find((s) => s.error)?.error ?? null;
   await db
     .collection('workers')
     .doc(WORKER_ID)
@@ -452,10 +571,10 @@ async function heartbeat(report: RunReport): Promise<void> {
           messages: report.followUps.reduce((sum, f) => sum + (f.messages ?? 0), 0),
           durationMs: report.durationMs,
           costUsd:
-            (report.analysis.usage?.costUsd ?? 0) +
             report.plans.reduce((sum, p) => sum + (p.usage?.costUsd ?? 0), 0) +
             report.followUps.reduce((sum, f) => sum + (f.usage?.costUsd ?? 0), 0),
           error: report.analysis.error ?? null,
+          syncError,
         },
       },
       { merge: true },

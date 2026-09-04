@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { InterpretedChange, VoiceUpdate } from '@truenorth/core';
-import { NOTION_TASK_STATUS } from '@truenorth/core';
+import { NOTION_TASK_STATUS, type NotionSource } from '@truenorth/core';
 import { fixtures } from '@truenorth/core';
 import { Banner, Card, PrimaryButton, TextButton } from '../../components/ui';
 import { CheckIcon, CloseIcon, WarningTriangle } from '../../components/icons';
@@ -296,7 +296,8 @@ function ChangeCard({
   onDiscard: () => void;
 }) {
   const { t } = usePreferences();
-  const statusOptions = useMemo(() => Object.keys(NOTION_TASK_STATUS), []);
+  const { sources } = useStore();
+  const statusOptions = useMemo(() => statusLabels(sources), [sources]);
 
   return (
     <Card className="p-3.5" style={discarded ? { opacity: 0.5 } : undefined}>
@@ -412,4 +413,10 @@ function Waveform({ seconds }: { seconds: number }) {
       ))}
     </div>
   );
+}
+
+/** Every label the registered databases use, or the ADITUM default when none is registered yet. */
+function statusLabels(sources: NotionSource[]): string[] {
+  const labels = new Set(sources.flatMap((s) => Object.keys(s.statusMap)));
+  return labels.size > 0 ? [...labels] : Object.keys(NOTION_TASK_STATUS);
 }

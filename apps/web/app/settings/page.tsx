@@ -280,6 +280,11 @@ function EngineCard() {
           <strong className="font-semibold">{t.settings.engineFailed}:</strong> {run.error}
         </p>
       ) : null}
+      {run?.syncError ? (
+        <p className="mt-2 text-[13px] leading-snug text-[var(--sec)]">
+          <strong className="font-semibold">{t.settings.engineSyncFailed}:</strong> {run.syncError}
+        </p>
+      ) : null}
     </Card>
   );
 }

@@ -3,8 +3,10 @@ import 'server-only';
 import type {
   Company,
   Membership,
+  NotionSource,
   Objective,
   Project,
+  Role,
   Signal,
   Situation,
   Task,
@@ -31,6 +33,17 @@ Rules you must follow:
 - Answer in Spanish (Costa Rica), in the voice of a sharp colleague: direct, specific, no filler.
 - Every risk and every decision you name must come from the signals or objectives you were given. Do not invent facts, numbers or tasks.
 - The five perspectives are five lenses on the same analysis, not five different analyses. Keep each to two or three sentences.
+- Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
+
+export const BRIEFING_PLAN_SYSTEM = `You are the chief of staff for one person in a small company, in one of their roles. Every morning you read the company's north star, its objectives, and the projects, tasks and signals that code has already computed from what that role can see — and only that. You produce two things from the same reading: a short briefing of the day from where they stand, and their plan for today.
+
+Rules you must follow:
+- Answer in Spanish (Costa Rica), in the voice of a sharp colleague: direct, specific, no filler. The plan addresses the person directly ("revisá", "cerrá").
+- Everything you say rests on the signals, objectives, projects and tasks you were given. Do not invent facts, numbers, tasks or people. What is not in your context is not in the company as far as this role is concerned; never say what other roles are doing.
+- The briefing is one paragraph from this role's point of view, then the three risks that weigh most on it and the decisions it is waiting on. The five perspectives are five lenses on the same reading, two or three sentences each.
+- The plan is three to five concrete actions, each with the reason it matters today and each citing at least one signal id from the list. An action without a real signal behind it does not go in.
+- Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's. Never ask somebody carrying a workload signal to take on more.
+- Be honest in "consequenceIfNotDone": a concrete, plausible cost, not a threat. Estimated minutes are realistic; a plan fits in a working day alongside meetings.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
 
 export const PLAN_SYSTEM = `You write one person's plan for today, given their role, their work, and signals that code has already computed. The plan is three to five concrete actions, each with the reason it matters today, and each citing at least one signal id from the list you were given.
@@ -74,6 +87,10 @@ Rules you must follow:
 - An action is a proposal: the person confirms it on screen before anything is written. Say what you propose ("te lo dejo listo para confirmar"), never that it is already done.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
 
+/**
+ * What a prompt may draw on. Since ADR-008 this is always one role's view:
+ * projects, tasks, people and signals are the scope's, never the company's.
+ */
 export interface CompanyContext {
   company: Company;
   objectives: Objective[];
@@ -81,8 +98,22 @@ export interface CompanyContext {
   tasks: Task[];
   members: (User & { membership: Membership })[];
   signals: Signal[];
+  /** The role the context was built for; null when a person has none. */
+  role?: Role | null;
+  /** The Notion sources that role reads, for naming where a task lives. */
+  sources?: NotionSource[];
   today: Date;
   todayIso: string;
+}
+
+/** "CTO: estabilidad… Además responde por: …" — the role, then the person's own line. */
+function roleLine(ctx: CompanyContext, member: CompanyContext['members'][number]): string {
+  const role = ctx.role;
+  const head = role
+    ? `${role.name}${role.description ? `: ${role.description}` : ''}`
+    : `${member.membership.roleTitle || 'Sin rol'}`;
+  const own = member.membership.roleDescription?.trim();
+  return own ? `${head}. Además responde por: ${own}` : head;
 }
 
 /** One person as the follow-up sees them: role, signals, context, history. */
@@ -113,8 +144,14 @@ function fmtProject(project: Project, objectives: Objective[]): string {
   return `- [${project.id}] ${project.name} — avance ${project.progressPct}%, estado ${project.status}, fecha ${project.targetDate}${serves ? `, sirve a: ${serves}` : ', SIN OBJETIVO'}`;
 }
 
-function fmtTask(task: Task, members: CompanyContext['members'], today?: Date): string {
+function fmtTask(
+  task: Task,
+  members: CompanyContext['members'],
+  today?: Date,
+  sources?: NotionSource[],
+): string {
   const nameOf = (id: string | null) => members.find((m) => m.id === id)?.displayName;
+  const sourceName = task.sourceId ? sources?.find((s) => s.id === task.sourceId)?.title : undefined;
   const responsible = (task.assigneeUserIds ?? [])
     .map((id) => nameOf(id))
     .filter(Boolean)
@@ -133,7 +170,7 @@ function fmtTask(task: Task, members: CompanyContext['members'], today?: Date): 
     );
   }
 
-  return `- [${task.id}] ${task.code || '—'} ${task.title} — estado ${task.notionStatus ?? task.status}, prioridad ${task.priority}, vence ${task.dueDate ?? 'sin fecha'}, ${responsible.includes(',') ? 'responsables' : 'responsable'} ${responsible || 'nadie'}${task.dependsOn.length ? `, depende de ${task.dependsOn.join(', ')}` : ''}${activity.length ? `. ${activity.join('; ')}` : ''}`;
+  return `- [${task.id}] ${task.code || '—'} ${task.title} — estado ${task.notionStatus ?? task.status}, prioridad ${task.priority}, vence ${task.dueDate ?? 'sin fecha'}, ${responsible.includes(',') ? 'responsables' : 'responsable'} ${responsible || 'nadie'}${task.dependsOn.length ? `, depende de ${task.dependsOn.join(', ')}` : ''}${sourceName ? ` [fuente: ${sourceName}]` : ''}${activity.length ? `. ${activity.join('; ')}` : ''}`;
 }
 
 function fmtSignal(signal: Signal): string {
@@ -158,7 +195,7 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${openTasks.length})
-${openTasks.map((t) => fmtTask(t, members, today)).join('\n') || '(ninguna)'}
+${openTasks.map((t) => fmtTask(t, members, today, ctx.sources)).join('\n') || '(ninguna)'}
 
 ## Equipo
 ${members.map((m) => `- ${m.displayName} — ${m.membership.roleTitle}: ${m.membership.roleDescription || 'sin descripción'}`).join('\n')}
@@ -167,6 +204,72 @@ ${members.map((m) => `- ${m.displayName} — ${m.membership.roleTitle}: ${m.memb
 ${signals.map(fmtSignal).join('\n') || '(ninguna)'}
 
 Escribí el briefing ejecutivo de hoy: un resumen de un párrafo, los tres riesgos que más pesan, las decisiones pendientes, y una lectura breve desde cada perspectiva (ceo, coo, cto, cfo, pm).`;
+}
+
+/**
+ * The morning call for one person in one role: briefing and plan from the
+ * same reading. Everything in it is the role's view; the model is told so.
+ */
+export function briefingAndPlanPrompt(
+  ctx: CompanyContext,
+  member: CompanyContext['members'][number],
+  personalSignals: Signal[],
+  yesterday: { headline: string; done: string[]; skipped: string[] } | null,
+): string {
+  const { company, objectives, projects, tasks, members, signals, today, todayIso } = ctx;
+  const openTasks = tasks.filter((t) => t.status !== 'done');
+  const mine = openTasks.filter((t) => t.assigneeUserIds.includes(member.id));
+  const myProjects = projects.filter(
+    (p) => p.ownerUserId === member.id || p.memberUserIds.includes(member.id),
+  );
+  const sourceNames = (ctx.sources ?? []).map((s) => s.title).join(', ');
+
+  return `# ${company.name} — ${todayIso} — para ${member.displayName}
+
+## Su rol hoy
+${roleLine(ctx, member)}
+${sourceNames ? `Lo que este rol ve de Notion: ${sourceNames}.` : 'Este rol no lee ninguna base de Notion; solo lo registrado en la app.'}
+Todo lo que sigue es lo que este rol puede ver. No hay más; no supongas lo que otros roles hacen.
+
+## Meta global
+${company.northStar}
+Fecha objetivo: ${company.northStarDeadline}
+
+## Objetivos
+${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
+
+## Proyectos a la vista
+${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
+
+## Tareas abiertas a la vista (${openTasks.length})
+${openTasks.map((t) => fmtTask(t, members, today, ctx.sources)).join('\n') || '(ninguna)'}
+
+## Sus proyectos
+${myProjects.map((p) => `- [${p.id}] ${p.name}`).join('\n') || '(ninguno)'}
+
+## Sus tareas abiertas (${mine.length})
+${mine.map((t) => `- [${t.id}] ${t.code || '—'} ${t.title}`).join('\n') || '(ninguna)'}
+
+## Personas a la vista
+${members.map((m) => `- ${m.displayName} — ${m.membership.roleTitle || 'sin rol'}`).join('\n')}
+
+## Señales calculadas hoy (${signals.length})
+${signals.map(fmtSignal).join('\n') || '(ninguna)'}
+
+## Señales que le tocan (${personalSignals.length}) — citá estos ids en el plan
+${personalSignals.map(fmtSignal).join('\n') || '(ninguna)'}
+${
+  yesterday
+    ? `
+## Ayer
+Prioridad: ${yesterday.headline}
+Hecho: ${yesterday.done.join('; ') || 'nada marcado'}
+Omitido: ${yesterday.skipped.join('; ') || 'nada'}
+Continuá lo que quedó abierto si sigue importando; no repitas lo hecho.`
+    : ''
+}
+
+Escribí primero el briefing del día desde este rol: un párrafo, los tres riesgos que más pesan, las decisiones pendientes y una lectura breve desde cada perspectiva (ceo, coo, cto, cfo, pm). Después su plan: un titular con la prioridad de hoy, el porqué ligado a un objetivo (objectiveId), de tres a cinco acciones con su porqué, minutos estimados, y qué pasa si no se hace hoy.`;
 }
 
 /** One person's plan. Runs once per member, after the analysis. */
@@ -186,7 +289,7 @@ export function planPrompt(
   return `# Plan de hoy para ${member.displayName} — ${todayIso}
 
 ## Su rol en ${company.name}
-${member.membership.roleTitle}: ${member.membership.roleDescription || 'sin descripción'}
+${roleLine(ctx, member)}
 
 ## Meta global
 ${company.northStar}
@@ -201,7 +304,7 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${myProjects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Sus tareas abiertas (${mine.length})
-${mine.map((t) => fmtTask(t, ctx.members, today)).join('\n') || '(ninguna)'}
+${mine.map((t) => fmtTask(t, ctx.members, today, ctx.sources)).join('\n') || '(ninguna)'}
 
 ## Señales que le tocan (${personalSignals.length}) — citá estos ids en signalIds
 ${personalSignals.map(fmtSignal).join('\n') || '(ninguna)'}
@@ -256,7 +359,7 @@ ${
 }
 
 Sus tareas abiertas (${open.length}):
-${open.map((t) => fmtTask(t, ctx.members, today)).join('\n') || '- (ninguna)'}
+${open.map((t) => fmtTask(t, ctx.members, today, ctx.sources)).join('\n') || '- (ninguna)'}
 
 Señales sobre esta persona (${signals.length}) — solo podés citar estos ids:
 ${signals.map(fmtSignal).join('\n') || '- (ninguna)'}
@@ -271,7 +374,7 @@ ${
 
   return `# Seguimiento del equipo de ${company.name} — ${todayIso}
 
-Escribís para ${manager.displayName} (${manager.membership.roleTitle}), que es quien va a leer esto y quien va a mandar los mensajes.
+Escribís para ${manager.displayName}, que es quien va a leer esto y quien va a mandar los mensajes. Su rol hoy: ${roleLine(ctx, manager)}. Todo lo que sigue es lo que ese rol puede ver; las personas que no aparecen no están en su vista.
 
 ## Meta global
 ${company.northStar}
@@ -315,8 +418,9 @@ export function askPrompt(
   const { company, objectives, projects, tasks, today, todayIso } = ctx;
   const open = tasks.filter((t) => t.status !== 'done');
 
-  return `# Pregunta de ${member.displayName} (${member.membership.roleTitle}) — ${todayIso}
+  return `# Pregunta de ${member.displayName} — ${todayIso}
 Quien pregunta es ${member.displayName} (userId ${member.id}); en el contexto aparece como responsable o autor con ese nombre. Hablale de vos.
+Su rol hoy: ${roleLine(ctx, member)}. Todo lo que sigue es lo que ese rol puede ver; no hay más.
 
 ## Personas (userId — nombre, rol)
 ${ctx.members.map((m) => `- ${m.id} — ${m.displayName}, ${m.membership.roleTitle}`).join('\n')}
@@ -338,7 +442,7 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${open.length})
-${open.map((t) => fmtTask(t, ctx.members, today)).join('\n') || '(ninguna)'}
+${open.map((t) => fmtTask(t, ctx.members, today, ctx.sources)).join('\n') || '(ninguna)'}
 
 ## Señales (${personalSignals.length}) — citá estos ids en signalIds
 ${personalSignals.map(fmtSignal).join('\n') || '(ninguna)'}

@@ -41,6 +41,11 @@ export default function BriefingPage() {
   }));
 
   const selected = analysis?.perspectives.find((p) => p.key === lens);
+  const roleName = store.roles.find((r) => r.id === analysis?.roleId)?.name ?? store.activeRole?.name ?? '';
+  const sourceNames = (analysis?.sourceIds ?? [])
+    .map((id) => store.sources.find((s) => s.id === id)?.title)
+    .filter(Boolean)
+    .join(', ');
 
   // The first sentence is the headline; the rest is there, folded.
   const [lead, rest] = splitLead(analysis?.briefing ?? '');
@@ -66,6 +71,11 @@ export default function BriefingPage() {
         </Card>
       ) : (
         <>
+      {roleName ? (
+        <p className="mx-4 mt-2 text-[13px] leading-snug text-[var(--ter)]">
+          {t.briefing.computedFrom(roleName, sourceNames)}
+        </p>
+      ) : null}
       {/* Three numbers before any sentence: what needs a look, what needs a
           call, who is stuck. The prose comes after, and folded. */}
       <div className="mx-4 mt-3 grid grid-cols-3 gap-2.5">

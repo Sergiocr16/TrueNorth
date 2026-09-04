@@ -20,6 +20,7 @@ import {
 import { AskIcon, CalendarIcon, CheckIcon, Chevron, ClockIcon, OfflineIcon, SettingsIcon, WarningTriangle } from '../../components/icons';
 import { PlanCalendar } from '../../components/plan-calendar';
 import { DayCompass } from '../../components/day-compass';
+import { RoleSwitcher } from '../../components/role-switcher';
 import { formatShortDate } from '../../lib/i18n/dictionary';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
@@ -34,7 +35,9 @@ export default function TodayPage() {
   const [whyOpen, setWhyOpen] = useState(false);
   const [offline, setOffline] = useState(false);
 
-  const { plan, objectives, tasks, currentMembership, company, today } = store;
+  const { plan, objectives, tasks, currentMembership, company, today, activeRole } = store;
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   // Only the messages still waiting on a decision; the ones already sent or
   // waved off should not keep asking for attention.
@@ -79,14 +82,32 @@ export default function TodayPage() {
 
   const hasPlan = plan.items.length > 0;
   const doneCount = Object.values(plan.feedback ?? {}).filter((v) => v === 'done').length;
+  const hasRole = currentMembership.roleIds.length > 0 && activeRole !== null;
+  // Something to plan from, so the empty state can offer to generate rather
+  // than send the person to set up the company.
+  const hasWork = objectives.length > 0 || tasks.length > 0;
+
+  /** The plan for a role that has none yet today: the same round trip as recalculating. */
+  const generate = () => {
+    if (!activeRole) return;
+    setGenerating(true);
+    setGenerateError(null);
+    store
+      .replan(activeRole.id)
+      .catch((cause: unknown) =>
+        setGenerateError(cause instanceof Error ? cause.message : String(cause)),
+      )
+      .finally(() => setGenerating(false));
+  };
 
   return (
     <Screen riskCount={riskCount}>
       <LargeTitle
         title={t.nav.today}
-        subtitle={`${formatShortDate(plan.date, locale)} · ${currentMembership.roleTitle} · ${company.name}`}
+        subtitle={`${formatShortDate(plan.date, locale)} · ${activeRole?.name ?? currentMembership.roleTitle} · ${company.name}`}
         trailing={
           <div className="flex items-center gap-2">
+            <RoleSwitcher compact />
             {/* Settings live here now, not in the tab capsule: the capsule is
                 for places you go every day. */}
             <Link
@@ -145,7 +166,21 @@ export default function TodayPage() {
         </div>
       ) : null}
 
-      {!hasPlan ? (
+      {!hasRole ? (
+        <Card className="mx-4 mt-4">
+          <EmptyState title={t.roles.none} body={t.roles.noRoleBody} />
+        </Card>
+      ) : !hasPlan && generating ? (
+        <RecalculatingState />
+      ) : !hasPlan && hasWork && activeRole ? (
+        <Card className="mx-4 mt-4">
+          <EmptyState
+            title={t.roles.noPlan(activeRole.name)}
+            body={generateError ? `${t.roles.generateFailed} ${generateError}` : t.roles.noPlanBody}
+            action={<PrimaryButton onClick={generate}>{t.roles.generate}</PrimaryButton>}
+          />
+        </Card>
+      ) : !hasPlan ? (
         <Card className="mx-4 mt-4">
           <EmptyState
             title={t.today.emptyTitle}

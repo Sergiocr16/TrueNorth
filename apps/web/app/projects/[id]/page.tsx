@@ -81,7 +81,10 @@ export default function ProjectDetailPage() {
         ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <StatusPill status={project.status} />
-          <SourceBadge source={project.source} />
+          <SourceBadge
+            source={project.source}
+            title={store.sources.find((s) => s.id === project.sourceId)?.title}
+          />
           <span className="tn-tabular text-[13px] text-[var(--sec)]">
             {formatShortDate(project.targetDate, locale)}
           </span>

@@ -1,15 +1,8 @@
 import { NextResponse } from 'next/server';
-import {
-  askSchema,
-  ensureGreeting,
-  teamSignals,
-  visibleProjects,
-  visibleSignals,
-  visibleTasks,
-} from '@truenorth/core';
+import { askSchema, ensureGreeting, teamSignals, visibleSignals } from '@truenorth/core';
 import { adminAuth, adminCredentials, adminDb } from '../../../../server/admin';
 import { askClaude } from '../../../../server/engine/claude';
-import { captureCompany, type Captured } from '../../../../server/engine/capture';
+import { captureCompany, contextFor, roleFor, scopeOf } from '../../../../server/engine/capture';
 import type { AskAction, TeamFollowUp } from '@truenorth/core';
 import { ASK_SYSTEM, askPrompt, type AskTurn, type FollowUpSubject } from '../../../../server/engine/prompts';
 
@@ -44,7 +37,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid_token' }, { status: 401 });
   }
 
-  let body: { companyId?: string; question?: string; history?: AskTurn[] };
+  let body: { companyId?: string; question?: string; history?: AskTurn[]; roleId?: string };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -69,23 +62,25 @@ export async function POST(request: Request) {
     const me = captured.members.find((m) => m.id === uid);
     if (!me) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
-    const scoped: Captured = {
-      ...captured,
-      projects: visibleProjects(captured.projects, uid),
-      tasks: visibleTasks(captured.tasks, captured.projects, uid),
-    };
-    const personal = visibleSignals(captured.signals, captured.projects, uid);
+    // The role they have on (or asked about) is the whole of the context:
+    // projects, tasks, people and signals are that role's view and no more.
+    const roleId = roleFor(me, body.roleId);
+    const scope = scopeOf(captured, uid, roleId);
+    const scoped = contextFor(captured, scope);
+    const personal = visibleSignals(scope, uid);
 
     // Managers ask about people; everybody else asks about their own work.
     const isManager = me.membership.access !== 'member';
-    const byUser = isManager ? teamSignals(captured.signals, captured.projects, uid) : null;
+    const byUser = isManager ? teamSignals(scope) : null;
     const team: FollowUpSubject[] | null = byUser
-      ? captured.members.map((m) => ({
-          member: m,
-          signals: byUser.get(m.id) ?? [],
-          situations: captured.situations.filter((s) => s.userId === m.id),
-          recent: [],
-        }))
+      ? scope.users
+          .filter((m) => m.id !== uid)
+          .map((m) => ({
+            member: m,
+            signals: byUser.get(m.id) ?? [],
+            situations: captured.situations.filter((s) => s.userId === m.id),
+            recent: [],
+          }))
       : null;
     const allowed = new Set([
       ...personal.map((s) => s.id),
@@ -96,7 +91,7 @@ export async function POST(request: Request) {
       .collection('companies')
       .doc(companyId)
       .collection('analyses')
-      .doc(captured.todayIso)
+      .doc(`${captured.todayIso}_${uid}_${roleId ?? ''}`)
       .get();
     const briefing = analysis.exists ? String(analysis.data()?.briefing ?? '') : null;
 
@@ -106,7 +101,7 @@ export async function POST(request: Request) {
           .collection('companies')
           .doc(companyId)
           .collection('followups')
-          .doc(`${captured.todayIso}_${uid}`)
+          .doc(`${captured.todayIso}_${uid}_${roleId ?? ''}`)
           .get()
       : null;
     const todaysMessages = followUpSnap?.exists
@@ -131,7 +126,7 @@ export async function POST(request: Request) {
 
     const cited = answer.value.signalIds
       .filter((id) => allowed.has(id))
-      .map((id) => captured.signals.find((s) => s.id === id))
+      .map((id) => scope.signals.find((s) => s.id === id))
       .filter((s): s is NonNullable<typeof s> => Boolean(s))
       .map((s) => ({ id: s.id, severity: s.severity, summary: s.summary }));
 
@@ -141,8 +136,10 @@ export async function POST(request: Request) {
     const proposed = answer.value.action;
     let action: (AskAction & { userName?: string }) | null = null;
     if (proposed && proposed.kind !== 'none') {
+      // Only somebody in this role's view: the assistant may not reach
+      // past what the screen shows.
       const person = proposed.userId
-        ? captured.members.find((m) => m.id === proposed.userId)
+        ? scope.users.find((m) => m.id === proposed.userId)
         : undefined;
       const managerOnly = proposed.kind !== 'message';
       const validMessage =

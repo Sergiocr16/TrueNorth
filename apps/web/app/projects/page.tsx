@@ -135,7 +135,12 @@ export default function ProjectsPage() {
                     >
                       {formatShortDate(project.targetDate, locale)} · {t.projects.daysLeft(left)}
                     </span>
-                    {project.source === 'notion' ? <SourceBadge source="notion" /> : null}
+                    {project.source === 'notion' ? (
+                      <SourceBadge
+                        source="notion"
+                        title={store.sources.find((s) => s.id === project.sourceId)?.title}
+                      />
+                    ) : null}
                     {isOrphan ? (
                       <span className="font-semibold text-[var(--amber)]">
                         {t.projects.filterOrphan}

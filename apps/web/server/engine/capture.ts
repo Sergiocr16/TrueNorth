@@ -4,24 +4,29 @@ import type {
   Company,
   DailyPlan,
   Membership,
+  NotionSource,
   Objective,
   Project,
   Risk,
-  Signal,
+  Role,
+  Scoped,
   Situation,
   Task,
   User,
 } from '@truenorth/core';
-import { atMidnight, computeSignals, shiftIso, todayIso as computeTodayIso } from '@truenorth/core';
+import { atMidnight, scopeFor, shiftIso, todayIso as computeTodayIso } from '@truenorth/core';
 import { adminDb } from '../admin';
+import type { CompanyContext } from './prompts';
 
 /**
  * Reading a company for the engine.
  *
  * This runs with the Admin SDK, which sees everything, so the visibility the
- * security rules enforce for people has to be re-applied here by hand: a
- * private project is stripped from any member who is not on it before their
- * prompt is built. That filter lives in @truenorth/core/visibility, with tests.
+ * security rules enforce for people has to be re-applied here by hand — and
+ * since ADR-008 that means per role: what a person's active role reads is
+ * the whole of what their prompt may contain, signals included. Nothing is
+ * computed here beyond reading; `scopeOf()` is the one door to a person's
+ * view, and it lives in @truenorth/core with its tests.
  */
 
 export interface MemberRecord extends User {
@@ -39,18 +44,20 @@ export const FOLLOWUP_WINDOW_DAYS = 7;
 export interface Captured {
   company: Company;
   members: MemberRecord[];
+  roles: Role[];
+  sources: NotionSource[];
   objectives: Objective[];
-  /** Every project, private ones included. Filter per person with `visibleTo`. */
+  /** Every project, private ones and every source included. Never prompt from this. */
   projects: Project[];
+  /** Every task. Never prompt from this. */
   tasks: Task[];
   risks: Risk[];
   /** Private notes about people, for the follow-up. Owners and admins only. */
   situations: Situation[];
-  /** Yesterday's plans by uid, for continuity. */
+  /** Yesterday's plans by `${uid}_${roleId}`, for continuity. */
   yesterdayPlans: Map<string, DailyPlan>;
   /** A week of plans for everybody, which is where the engagement signals come from. */
   planHistory: DailyPlan[];
-  signals: Signal[];
   today: Date;
   todayIso: string;
 }
@@ -61,6 +68,8 @@ interface MemberDoc {
   initials: string;
   roleTitle: string;
   roleDescription: string;
+  roleIds?: string[];
+  activeRoleId?: string | null;
   access: Membership['access'];
   /** Absent means true: every document written before profiles existed is an account. */
   hasAccount?: boolean;
@@ -80,6 +89,8 @@ export async function captureCompany(
   const [
     companySnap,
     membersSnap,
+    rolesSnap,
+    sourcesSnap,
     objectivesSnap,
     projectsSnap,
     tasksSnap,
@@ -88,6 +99,8 @@ export async function captureCompany(
   ] = await Promise.all([
     base.get(),
     base.collection('members').get(),
+    base.collection('roles').get(),
+    base.collection('notionSources').get(),
     base.collection('objectives').get(),
     base.collection('projects').get(),
     base.collection('tasks').get(),
@@ -100,9 +113,12 @@ export async function captureCompany(
   }
 
   const company = { id: companySnap.id, ...(companySnap.data() as Omit<Company, 'id'>) };
+  const roles = rolesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Role);
+  const sources = sourcesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as NotionSource);
 
   const members: MemberRecord[] = membersSnap.docs.map((d) => {
     const m = d.data() as MemberDoc;
+    const roleIds = m.roleIds ?? [];
     return {
       id: d.id,
       displayName: m.displayName,
@@ -118,6 +134,8 @@ export async function captureCompany(
         companyId,
         roleTitle: m.roleTitle,
         roleDescription: m.roleDescription,
+        roleIds,
+        activeRoleId: m.activeRoleId ?? roleIds[0] ?? null,
         access: m.access,
         hasAccount: m.hasAccount ?? true,
         expectations: typeof m.expectations === 'string' ? m.expectations : '',
@@ -149,25 +167,17 @@ export async function captureCompany(
     .get();
   const planHistory = historySnap.docs.map((d) => ({ id: d.id, ...d.data() }) as DailyPlan);
 
-  // Yesterday, for continuity: what was asked, what got done.
+  // Yesterday, for continuity: what was asked, what got done — in that role.
   const yesterdayPlans = new Map<string, DailyPlan>();
   for (const plan of planHistory) {
-    if (plan.date === yesterdayIso) yesterdayPlans.set(plan.userId, plan);
+    if (plan.date === yesterdayIso) yesterdayPlans.set(`${plan.userId}_${plan.roleId ?? ''}`, plan);
   }
-
-  const today = atMidnight(todayIso);
-  const signals = computeSignals({
-    today,
-    objectives,
-    projects,
-    tasks,
-    users: members,
-    planHistory,
-  });
 
   return {
     company,
     members,
+    roles,
+    sources,
     objectives,
     projects,
     tasks,
@@ -175,9 +185,51 @@ export async function captureCompany(
     situations,
     yesterdayPlans,
     planHistory,
-    signals,
-    today,
+    today: atMidnight(todayIso),
     todayIso,
   };
 }
 
+/**
+ * One person's view in one role, signals included. The only way a prompt
+ * gets projects, tasks or signals; see visibility.ts for what it hides.
+ */
+export function scopeOf(captured: Captured, userId: string, roleId: string | null): Scoped {
+  return scopeFor(
+    {
+      today: captured.today,
+      objectives: captured.objectives,
+      projects: captured.projects,
+      tasks: captured.tasks,
+      sources: captured.sources,
+      roles: captured.roles,
+      members: captured.members,
+      planHistory: captured.planHistory,
+    },
+    userId,
+    roleId,
+  );
+}
+
+/** The prompt context built from a scope and nothing else. */
+export function contextFor(captured: Captured, scope: Scoped): CompanyContext {
+  return {
+    company: captured.company,
+    objectives: scope.objectives,
+    projects: scope.projects,
+    tasks: scope.tasks,
+    members: scope.users as MemberRecord[],
+    signals: scope.signals,
+    role: scope.role,
+    sources: captured.sources.filter((s) => scope.sourceIds.includes(s.id)),
+    today: captured.today,
+    todayIso: captured.todayIso,
+  };
+}
+
+/** The role a person works in when nobody asked for one: the one they have on. */
+export function roleFor(member: MemberRecord, requested?: string | null): string | null {
+  const { roleIds, activeRoleId } = member.membership;
+  if (requested) return roleIds.includes(requested) ? requested : null;
+  return activeRoleId ?? roleIds[0] ?? null;
+}

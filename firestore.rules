@@ -12,6 +12,11 @@ rules_version = '2';
 //      and decide for themselves who else to share a project or the company
 //      with. Sharing is their call, not an administrator's.
 //
+//   4. What a member sees of Notion is decided by the role they have on.
+//      A role names the Notion sources it reads; a task or project synced
+//      from a source is readable only while the caller's active role reads
+//      that source. App-native records keep the project visibility above.
+//
 // Nothing under a company is readable without a membership document inside it,
 // so an account with no invitation sees an empty app and nothing else.
 //
@@ -91,6 +96,42 @@ service cloud.firestore {
     }
 
     /* ---------------------------------------------------------------- */
+    /* Roles and Notion sources                                          */
+    /* ---------------------------------------------------------------- */
+
+    // The caller's own member document. Firestore deduplicates identical
+    // get() calls within one evaluation, so reading it here as well as in
+    // access() costs nothing extra.
+    function me(companyId) {
+      return get(membershipPath(companyId)).data;
+    }
+
+    function activeRoleId(companyId) {
+      return me(companyId).get('activeRoleId', null);
+    }
+
+    // The Notion sources the caller's active role reads. No active role, no
+    // Notion: a person between roles sees app records only.
+    function activeSourceIds(companyId) {
+      return activeRoleId(companyId) == null
+             ? []
+             : get(/databases/$(database)/documents/companies/$(companyId)/roles/$(activeRoleId(companyId)))
+                 .data.get('sourceIds', []);
+    }
+
+    // A synced record is readable while its source is on the active role.
+    // Only `source` and `sourceId` are inspected, both of which the app's
+    // queries fix by equality, so every list the app issues can be proven.
+    function readsSource(companyId) {
+      return resource.data.source == 'notion'
+             && resource.data.sourceId in activeSourceIds(companyId);
+    }
+
+    function isAppRecord() {
+      return resource.data.source == 'app';
+    }
+
+    /* ---------------------------------------------------------------- */
     /* Invitations — top level, keyed by email address                   */
     /* ---------------------------------------------------------------- */
 
@@ -153,11 +194,15 @@ service cloud.firestore {
       // because a member may not read anyone else's users/{uid} document.
       match /members/{memberUid} {
         allow read: if isMember(companyId);
-        // A person may edit their own role description; an admin may edit
-        // anyone's role and access level.
+        // A person may edit their own responsibility text and switch the role
+        // they have on — only to one of their own; an admin may edit anyone's
+        // roles, access level and expectations.
         allow update: if isAdmin(companyId)
                       || (request.auth.uid == memberUid
-                          && changedOnly(['roleTitle', 'roleDescription']));
+                          && changedOnly(['roleDescription']))
+                      || (request.auth.uid == memberUid
+                          && changedOnly(['activeRoleId'])
+                          && request.resource.data.activeRoleId in resource.data.get('roleIds', []));
         // Three ways a member document comes into being:
         //   - an admin adds somebody — including a person with no account at
         //     all, under a synthetic id (`p_…`) that matches no uid and so
@@ -176,27 +221,48 @@ service cloud.firestore {
         allow write: if isMember(companyId);
       }
 
+      // Roles: what the company calls its jobs, and which Notion sources each
+      // reads. Everybody may see the list; admins shape it.
+      match /roles/{roleId} {
+        allow read: if isMember(companyId);
+        allow write: if isAdmin(companyId);
+      }
+
       // Rules are not filters. A rule that inspects resource.data rejects any
-      // query it cannot prove safe in advance, so the two branches below are
-      // written to match the two queries the app actually issues:
+      // query it cannot prove safe in advance, so the branches below are
+      // written to match the queries the app actually issues:
       //
-      //   where('visibility', '==', 'company')
-      //   where('memberUserIds', 'array-contains', uid)
+      //   where('source', '==', 'app').where('visibility', '==', 'company')
+      //   where('source', '==', 'app').where('memberUserIds', 'array-contains', uid)
+      //   where('source', '==', 'notion').where('sourceId', '==', <id>)
+      //                                       one per source the active role reads
       //
       // Anything else, including an unfiltered listener on the collection, is
       // refused outright — which is correct, and is what the tests pin down.
+      // A synced project is written with visibility 'company' for the type's
+      // sake only: for it, the source *is* the visibility.
       match /projects/{projectId} {
         allow read: if isMember(companyId)
-                    && (resource.data.visibility == 'company'
-                        || request.auth.uid in resource.data.memberUserIds);
-        allow create: if isMember(companyId);
+                    && ((isAppRecord()
+                         && (resource.data.visibility == 'company'
+                             || request.auth.uid in resource.data.memberUserIds))
+                        || readsSource(companyId));
+        allow create: if isMember(companyId) && request.resource.data.source == 'app';
         allow update, delete: if isMember(companyId)
+                              && isAppRecord()
                               && (resource.data.visibility == 'company'
                                   || request.auth.uid in resource.data.memberUserIds);
       }
 
+      // Two queries: where('source', '==', 'app') and, per source on the
+      // active role, where('source', '==', 'notion').where('sourceId', '==', <id>).
+      // A task that came from Notion is edited in Notion; the browser only
+      // ever writes app tasks.
       match /tasks/{taskId} {
-        allow read, write: if isMember(companyId);
+        allow read: if isMember(companyId)
+                    && (isAppRecord() || readsSource(companyId));
+        allow create: if isMember(companyId) && request.resource.data.source == 'app';
+        allow update, delete: if isMember(companyId) && isAppRecord();
       }
 
       match /risks/{riskId} {
@@ -211,23 +277,25 @@ service cloud.firestore {
         allow read, write: if isAdmin(companyId);
       }
 
-      // The Notion connection holds only the Secret Manager name, never a
-      // token, but it still stays with the admins.
+      // The Notion connection holds the workspace name and the last sync,
+      // never a token, but it still stays with the admins.
       match /integrations/{provider} {
         allow read: if isMember(companyId);
         allow write: if isAdmin(companyId);
       }
 
+      // A registered Notion database and its mapping. The assignment of who
+      // reads it lives on the roles, so the list itself is plain metadata.
       match /notionSources/{sourceId} {
         allow read: if isMember(companyId);
         allow write: if isAdmin(companyId);
       }
 
-      // Analyses and plans are written by the engine only. A person may read
-      // the company analysis, but only their own plan, and may only add
-      // feedback to it.
-      match /analyses/{day} {
-        allow read: if isMember(companyId);
+      // Briefings and plans are written by the engine only, one per person
+      // and role. A person reads their own, and may only add feedback to a
+      // plan.
+      match /analyses/{analysisId} {
+        allow read: if isMember(companyId) && resource.data.uid == request.auth.uid;
         allow write: if false;
       }
 

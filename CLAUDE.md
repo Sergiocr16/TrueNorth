@@ -21,9 +21,11 @@ Consequences you must preserve:
 ```
 apps/web/            Next.js 16 App Router, PWA, served from the Raspberry Pi
   app/               routes (English paths, ADR-007), one folder per screen
-  app/api/           route handlers: engine (daily, replan, selftest), company logo
-  server/            admin.ts (Admin SDK) and engine/ (capture, prompts, run,
-                     claude) — never imported by the browser
+  app/api/           route handlers: engine (daily, replan, followup, ask,
+                     selftest), notion (inspect, sync), push, company logo
+  server/            admin.ts (Admin SDK, authorizeCaller), engine/ (capture,
+                     prompts, run, claude) and notion/ (client, inspect, sync)
+                     — never imported by the browser
   components/        design system: ui.tsx, form.tsx, shell.tsx, icons.tsx,
                      day-compass.tsx, plan-calendar.tsx, follow-up.tsx
   lib/               preferences (theme, accent, locale), store (Firestore
@@ -31,16 +33,16 @@ apps/web/            Next.js 16 App Router, PWA, served from the Raspberry Pi
   scripts/           one-off operator scripts (authorize-domain.mjs)
 packages/core/       domain types, Zod contracts, signal engine, visibility,
                      follow-up guardrails, health shares, people matching,
-                     Notion mapping, ADITUM fixtures. Imported by web only.
+                     Notion mapping (schema → mapping, page → record),
+                     ADITUM fixtures. Imported by web only.
 docs/brand/          the compass mark (light, dark, maskable app icon)
 docs/design/         the Claude Design brief
 docs/adr/            architecture decision records
 docs/prompts/        engine prompts with their change history
 ```
 
-Not yet built: the Notion sync (`apps/web/server/notion/`, ADR-006 "Fase 0"),
-push and voice. There is no `apps/functions` and no `apps/worker`; both were
-dropped by ADR-005.
+Not yet built: voice, and writing back to Notion. There is no `apps/functions`
+and no `apps/worker`; both were dropped by ADR-005.
 
 ## Commands
 
@@ -100,7 +102,7 @@ Never commit or push either branch unless Sergio asks.
 
 ## Access model
 
-Three sentences, enforced in `firestore.rules`:
+Five sentences, enforced in `firestore.rules`:
 
 1. **Accounts are created by the administrator**, never by self-registration.
    The app has no sign-up screen; Firebase Authentication is the roster. Until a
@@ -116,6 +118,13 @@ Three sentences, enforced in `firestore.rules`:
    person to the team with no account at all: a `members/{p_…}` document whose
    synthetic id matches no uid, so it grants nothing. They exist to be followed
    up with. Sharing the app with them later is the invitation flow, unchanged.
+5. **The role a person has on decides what they see of Notion** (ADR-008). A
+   role (`companies/{cid}/roles`) names the Notion sources it reads; a person
+   holds several roles (`roleIds`) and switches `activeRoleId` themselves, only
+   among their own. A synced task or project is readable while its source is
+   on the active role; app-native records keep the project visibility above.
+   The engine applies the same scope in code and recomputes signals from it,
+   so nothing one role cannot see reaches its plan, briefing or follow-up.
 
 `founders()` in the rules lists who may create a company from scratch. Keep it
 short. `FOUNDERS` in `lib/store.tsx` mirrors it only to choose which screen to
@@ -141,10 +150,11 @@ generated; the data is safe in Firebase. That trade was made deliberately.
 
 ## Contracts that need an ADR to change
 
-- The daily plan schema (`packages/core/src/schemas.ts`): three to five items, each citing a signal, plus the consequence sentence.
+- The daily plan schema (`packages/core/src/schemas.ts`): three to five items, each citing a signal, plus the consequence sentence. Since ADR-008 it travels inside `personalBriefingSchema` with the briefing, one call per person per role.
 - The team follow-up schema in the same file (ADR-006): a reading for every person, a message only for those who need one and only ever citing a signal, defaulting to a comment on the Notion task. Nothing is sent or published without Sergio copying it.
 - The `jobs` document shape used by the Raspberry Pi worker.
-- The Notion status map (`packages/core/src/notion-status.ts`): fifteen Notion labels collapse onto four internal states. The signal engine, the plan and the voice writer all depend on it.
+- The Notion status map: every registered source carries its own `statusMap` (ADR-008), built from the database's own groups by `defaultStatusMap()` and edited on screen. `NOTION_TASK_STATUS` in `packages/core/src/notion-status.ts` is the known default, pinned by a test as what "Tareas Software" resolves to. The signal engine, the plan and the voice writer all depend on the four internal states.
+- The scope of a person (`scopeFor` in `packages/core/src/visibility.ts`, ADR-008): the active role's sources plus app records, with signals recomputed from that subset. Documents are per person and role: `analyses/{date}_{uid}_{roleId}`, `plans/…`, `followups/…`.
 - The route paths (ADR-007): English, one folder per screen, `[date]` and `[id]` for dynamic segments.
 
 ## Design system
@@ -162,31 +172,41 @@ Non-negotiables:
 ## The engine, in one paragraph
 
 `POST /api/engine/daily` (bearer `ENGINE_LOCAL_TOKEN`) runs every company:
-`captureCompany()` reads it with the Admin SDK (a week of plans, active
-situations included) and computes signals; one `claude -p` call writes
-`analyses/{date}`; one per member with an account writes `plans/{date}_{uid}`;
-one per manager (`owner`/`admin`) writes `followups/{date}_{managerUid}` — a
-reading of everyone, messages only for whoever needs one, greeting first,
-guarded in code by `packages/core/src/followup.ts`. `/api/engine/ask` answers one
-question from the same context, scoped to the caller, and may return a
-proposed action the client confirms before writing (ADR-004); `/api/engine/replan`
-recomputes one person's plan from the Today screen; `/api/engine/selftest`
-(`?step=followup`) proves Claude answers without touching the database. The
-three load-bearing flags in `server/engine/claude.ts` are `--restricted`,
-`--tools ""` and a draft-07 JSON schema; the model is pinned by `ENGINE_MODEL`.
+`syncCompany()` reads every registered Notion source first (`server/notion/`);
+`captureCompany()` reads the company with the Admin SDK (a week of plans, active
+situations, roles and sources included); then, for every member with an
+account, `scopeOf()` narrows the company to the role they have on and
+recomputes signals from that, and one `claude -p` call writes both
+`analyses/{date}_{uid}_{roleId}` and `plans/{date}_{uid}_{roleId}`; one per
+manager (`owner`/`admin`) writes `followups/{date}_{uid}_{roleId}` — a reading
+of the people in that role's view, messages only for whoever needs one,
+greeting first, guarded in code by `packages/core/src/followup.ts`. Other roles
+are generated on demand when the person switches to them (`/api/engine/replan`
+and `/api/engine/followup` take a `roleId`). `/api/engine/ask` answers one
+question from the same scoped context and may return a proposed action the
+client confirms before writing (ADR-004); `/api/notion/inspect` reads a
+database's schema for the Integrations screen and `/api/notion/sync` runs the
+sync now; `/api/engine/selftest` (`?step=followup`) proves Claude answers
+without touching the database. The three load-bearing flags in
+`server/engine/claude.ts` are `--restricted`, `--tools ""` and a draft-07 JSON
+schema; the model is pinned by `ENGINE_MODEL`.
 
 ## Testing
 
-- `packages/core` uses vitest: signals, visibility, follow-up guardrails, health shares, people matching, Notion mapping. Every new signal or guard ships with a test.
+- `packages/core` uses vitest: signals, visibility and scope by role, follow-up guardrails, health shares, people matching, Notion mapping (`notion-map.test.ts` runs `suggestMapping` and `pageToTask` against ADITUM's recorded schemas in `notion-schemas.fixture.ts`). Every new signal or guard ships with a test.
 - Golden cases for the engine belong in `packages/core` alongside the signal tests: a company snapshot in, an expected plan shape out.
-- Firestore rules have emulator tests in `packages/core/src/rules.test.ts` (Java 21+). The two that matter most: nobody reads another company, and nobody reads a private project they are not a member of; then situations stay with admins and a follow-up stays with its manager.
+- Firestore rules have emulator tests in `packages/core/src/rules.test.ts` (Java 21+). The ones that matter most: nobody reads another company, nobody reads a private project they are not a member of, and nobody reads a Notion record whose source is not on their active role; then situations stay with admins and a follow-up stays with its manager.
 
 ## Current state
 
-Firestore is wired: `apps/web/lib/store.tsx` holds live listeners and every
-mutation is a write, and the engine has run end to end against ADITUM from a
-laptop. The first company is created empty; `packages/core/src/fixtures.ts` feeds
-only the tests and the engine selftest. The Pi is not mounted yet
-(`docs/pi-setup.md`), the Notion sync does not exist, and until it does the
-"has not moved" signals have nothing to read. Work lands on `v1.0` at the
-moment; `main` and `production` are behind it.
+Firestore is wired: `apps/web/lib/store.tsx` holds live listeners (one per
+Notion source the active role reads) and every mutation is a write. The Pi runs
+`production` behind Tailscale. The first company is created empty with one role,
+"General"; `packages/core/src/fixtures.ts` feeds only the tests and the engine
+selftest. The Notion sync exists (ADR-008) but has not run against ADITUM yet:
+it needs `NOTION_TOKEN` in the Pi's env, the databases shared with the
+integration and registered from *Integraciones*, and roles that read them.
+Until the first sync the "has not moved" signals have nothing to read. Rules
+and indexes changed with ADR-008 and must be deployed together with the code
+that issues the new queries. Work lands on `v1.0` at the moment; `main` and
+`production` are behind it.

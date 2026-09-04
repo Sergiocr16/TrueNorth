@@ -139,3 +139,58 @@ export function adminBucket() {
   if (!name) throw new Error('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is not set');
   return getStorage(init()).bucket(name);
 }
+
+/* ------------------------------------------------------------------ */
+/* Who is calling                                                      */
+/* ------------------------------------------------------------------ */
+
+export type CallerAccess = 'owner' | 'admin' | 'member';
+
+export type Caller =
+  | {
+      ok: true;
+      /** Null when the call came from the local timer with the shared token. */
+      uid: string | null;
+      access: CallerAccess | null;
+      /** The member document, when there is a person behind the call. */
+      member: Record<string, unknown> | null;
+    }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Authorises a route call, one of two ways: a signed-in person, proven by
+ * their Firebase ID token and then checked against the company's member
+ * documents with the Admin SDK (the rules do not apply to admin reads, so the
+ * check is explicit); or, when allowed, the local shared secret the Pi's
+ * timers send. `admin` requires an owner or admin membership.
+ */
+export async function authorizeCaller(
+  request: Request,
+  companyId: string | null,
+  options: { admin?: boolean; allowLocalToken?: boolean } = {},
+): Promise<Caller> {
+  const provided = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
+  if (!provided) return { ok: false, status: 401, error: 'unauthorized' };
+
+  const local = process.env.ENGINE_LOCAL_TOKEN;
+  if (options.allowLocalToken && local && provided === local) {
+    return { ok: true, uid: null, access: null, member: null };
+  }
+
+  let uid: string;
+  try {
+    uid = (await adminAuth().verifyIdToken(provided)).uid;
+  } catch {
+    return { ok: false, status: 401, error: 'invalid token' };
+  }
+  if (!companyId) return { ok: false, status: 400, error: 'companyId required' };
+
+  const snap = await adminDb().collection('companies').doc(companyId).collection('members').doc(uid).get();
+  if (!snap.exists) return { ok: false, status: 403, error: 'forbidden' };
+  const member = snap.data() ?? {};
+  const access = (member.access as CallerAccess | undefined) ?? 'member';
+  if (options.admin && access === 'member') {
+    return { ok: false, status: 403, error: 'admin only' };
+  }
+  return { ok: true, uid, access, member };
+}
