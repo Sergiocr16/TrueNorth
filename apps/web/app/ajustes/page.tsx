@@ -3,9 +3,10 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useState } from 'react';
-import type { Locale, ThemePreference } from '@truenorth/core';
+import type { AccentPreference, Locale, ThemePreference } from '@truenorth/core';
+import { ACCENTS } from '@truenorth/core';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
-import { Avatar, Card, SectionLabel, StatusPill } from '../../components/ui';
+import { Avatar, Card, SectionLabel } from '../../components/ui';
 import { formatShortDate } from '../../lib/i18n/dictionary';
 import {
   DestructiveRow,
@@ -33,7 +34,10 @@ export default function SettingsPage() {
   const themeOptions: { value: ThemePreference; label: string }[] = [
     { value: 'system', label: t.settings.themeSystem },
     { value: 'light', label: t.settings.themeLight },
+    { value: 'warm', label: t.settings.themeWarm },
     { value: 'dark', label: t.settings.themeDark },
+    { value: 'midnight', label: t.settings.themeMidnight },
+    { value: 'ambar', label: t.settings.themeAmber },
   ];
 
   const localeOptions: { value: Locale; label: string }[] = [
@@ -136,6 +140,7 @@ export default function SettingsPage() {
           options={themeOptions}
           onChange={prefs.setTheme}
         />
+        <AccentField value={prefs.accent} onChange={prefs.setAccent} />
         <ToggleField
           label={t.settings.reduceTransparency}
           description={t.settings.reduceTransparencyHint}
@@ -221,8 +226,18 @@ function EngineCard() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[17px] font-semibold text-[var(--ink)]">{engine.hostname}</span>
         <span className="tn-tabular text-[13px] text-[var(--ter)]">v{engine.version}</span>
-        <span className="ml-auto">
-          <StatusPill status={failed ? 'late' : 'on_track'} />
+        {/* Not a health pill: the engine has no "in progress" state to show.
+            The heartbeat is written after a run, so this can only ever say how
+            the last one ended. */}
+        <span
+          className="ml-auto rounded-full px-2.5 py-1 text-[13px] font-semibold"
+          style={
+            failed
+              ? { background: 'var(--red-bg)', color: 'var(--red)' }
+              : { background: 'var(--green-bg)', color: 'var(--green)' }
+          }
+        >
+          {failed ? t.settings.engineFailed : t.settings.engineOk}
         </span>
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[15px]">
@@ -235,6 +250,14 @@ function EngineCard() {
           <>
             <dt className="text-[var(--sec)]">{t.nav.today}</dt>
             <dd className="tn-tabular text-[var(--ink)]">{t.settings.enginePlans(run.plansOk, run.plansFailed)}</dd>
+            {run.messages !== undefined ? (
+              <>
+                <dt className="text-[var(--sec)]">{t.team.followUp}</dt>
+                <dd className="tn-tabular text-[var(--ink)]">
+                  {t.settings.engineMessages(run.messages)}
+                </dd>
+              </>
+            ) : null}
             <dt className="text-[var(--sec)]">{t.settings.engineCost}</dt>
             <dd className="tn-tabular text-[var(--ink)]">${run.costUsd.toFixed(2)}</dd>
           </>
@@ -246,5 +269,55 @@ function EngineCard() {
         </p>
       ) : null}
     </Card>
+  );
+}
+
+/** Swatches show the real colour of each accent, not a name for it. */
+const ACCENT_SWATCH: Record<AccentPreference, string> = {
+  azul: '#2e47c9',
+  violeta: '#6d3fd4',
+  naranja: '#c2410c',
+  rosa: '#be185d',
+  grafito: '#3b4252',
+};
+
+function AccentField({
+  value,
+  onChange,
+}: {
+  value: AccentPreference;
+  onChange: (accent: AccentPreference) => void;
+}) {
+  const { t } = usePreferences();
+  return (
+    <div className="tn-hairline flex min-h-[52px] items-center justify-between gap-3 px-4 py-2.5">
+      <span className="text-[17px] text-[var(--ink)]">{t.settings.accent}</span>
+      <div className="flex items-center gap-2" role="radiogroup" aria-label={t.settings.accent}>
+        {ACCENTS.map((accent) => {
+          const selected = accent === value;
+          return (
+            <button
+              key={accent}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={t.settings.accents[accent]}
+              title={t.settings.accents[accent]}
+              onClick={() => onChange(accent)}
+              className="tn-press flex h-9 w-9 items-center justify-center rounded-full"
+              style={{
+                boxShadow: selected ? `0 0 0 2px var(--surface), 0 0 0 4px ${ACCENT_SWATCH[accent]}` : 'none',
+              }}
+            >
+              <span
+                className="h-6 w-6 rounded-full"
+                style={{ background: ACCENT_SWATCH[accent] }}
+                aria-hidden
+              />
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

@@ -35,3 +35,32 @@ export function visibleSignals(signals: Signal[], projects: Project[], userId: s
     (s) => !s.projectId || allowed.has(s.projectId),
   );
 }
+
+/**
+ * Signals about each person, grouped, for a manager who is reading the team.
+ *
+ * `visibleSignals` answers "what concerns me?"; this answers "what may I see
+ * about everybody else?". The difference matters: a signal about a private
+ * project the manager is not on must not reach them, even when it is about
+ * somebody they manage. The engine runs with admin credentials, so this is the
+ * only thing standing between a private project and a follow-up message that
+ * quotes it.
+ */
+export function teamSignals(
+  signals: Signal[],
+  projects: Project[],
+  managerUid: string,
+): Map<string, Signal[]> {
+  const allowed = new Set(visibleProjects(projects, managerUid).map((p) => p.id));
+  const byUser = new Map<string, Signal[]>();
+
+  for (const signal of signals) {
+    if (signal.projectId && !allowed.has(signal.projectId)) continue;
+    const concerned = signal.userIds?.length ? signal.userIds : signal.userId ? [signal.userId] : [];
+    for (const userId of concerned) {
+      byUser.set(userId, [...(byUser.get(userId) ?? []), signal]);
+    }
+  }
+
+  return byUser;
+}

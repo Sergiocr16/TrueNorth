@@ -38,8 +38,11 @@ const themeBootstrap = `
     var raw = localStorage.getItem('truenorth.preferences');
     if (!raw) return;
     var p = JSON.parse(raw);
-    if (p.theme === 'light' || p.theme === 'dark') {
+    if (['light', 'warm', 'dark', 'midnight', 'ambar'].indexOf(p.theme) !== -1) {
       document.documentElement.setAttribute('data-theme', p.theme);
+    }
+    if (['violeta', 'naranja', 'rosa', 'grafito'].indexOf(p.accent) !== -1) {
+      document.documentElement.setAttribute('data-accent', p.accent);
     }
     if (p.reduceTransparency) {
       document.documentElement.setAttribute('data-reduce-transparency', 'true');

@@ -6,10 +6,11 @@ import type {
   Objective,
   Project,
   Signal,
+  Situation,
   Task,
   User,
 } from '@truenorth/core';
-import { expectedProgressPct, progressGap } from '@truenorth/core';
+import { expectedProgressPct, idleDays, progressGap } from '@truenorth/core';
 
 /**
  * The prompts. Two of them, both in the same shape: a short system prompt that
@@ -42,6 +43,20 @@ Rules you must follow:
 - Estimated minutes are realistic; a plan should fit in a working day alongside meetings.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
 
+export const FOLLOWUP_SYSTEM = `You read the team on behalf of one manager. You produce two things: a short reading of how every person is doing against what is expected of them, and — only for the people who need one today — a message the manager can copy and send.
+
+Rules you must follow:
+- Answer in Spanish (Costa Rica). Write each message in the manager's own voice, addressed to the person ("¿cómo vas con…?", "necesito que…"): warm, direct, no corporate filler, no emojis.
+- Every person you were given gets exactly one reading, with their userId copied verbatim.
+- A message goes only to somebody the data says needs one today. Silence is a valid answer and the reading is where you explain it; never invent a reason to write.
+- Every message cites at least one signal id from that person's list. A message with nothing real behind it is not written.
+- When the signal is about one task, the message belongs on that task: set target to "comentario" and taskId to that task's id. Reserve "directo" for what spans several tasks, or is about the person rather than the work.
+- When somebody is ahead, or has just delivered, the message that fits is recognition. A day where everyone gets a telling-off is a misreading, not a hard day.
+- Never ask somebody carrying a workload signal to take on more; suggest moving work instead.
+- A situation changes how you ask, never what you reveal. If it is marked discreet, do not mention it, allude to it, or hint that you know: soften the ask and say nothing about why.
+- If the same thing was already raised on three recent days, set escalate and propose a conversation instead of another message.
+- Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
+
 export interface CompanyContext {
   company: Company;
   objectives: Objective[];
@@ -51,6 +66,17 @@ export interface CompanyContext {
   signals: Signal[];
   today: Date;
   todayIso: string;
+}
+
+/** One person as the follow-up sees them: role, signals, context, history. */
+export interface FollowUpSubject {
+  member: CompanyContext['members'][number];
+  /** Only signals the manager is allowed to see. */
+  signals: Signal[];
+  /** Active notes about this person. Discreet ones change the tone, not the text. */
+  situations: Situation[];
+  /** What was suggested about them recently, and what the manager did with it. */
+  recent: { date: string; tone: string; ask: string; outcome: string }[];
 }
 
 function fmtObjective(objective: Objective, today: Date): string {
@@ -70,9 +96,27 @@ function fmtProject(project: Project, objectives: Objective[]): string {
   return `- [${project.id}] ${project.name} — avance ${project.progressPct}%, estado ${project.status}, fecha ${project.targetDate}${serves ? `, sirve a: ${serves}` : ', SIN OBJETIVO'}`;
 }
 
-function fmtTask(task: Task, members: CompanyContext['members']): string {
-  const owner = members.find((m) => m.id === task.assigneeUserId)?.displayName ?? 'sin responsable';
-  return `- [${task.id}] ${task.code || '—'} ${task.title} — estado ${task.notionStatus ?? task.status}, prioridad ${task.priority}, vence ${task.dueDate ?? 'sin fecha'}, responsable ${owner}${task.dependsOn.length ? `, depende de ${task.dependsOn.join(', ')}` : ''}`;
+function fmtTask(task: Task, members: CompanyContext['members'], today?: Date): string {
+  const nameOf = (id: string | null) => members.find((m) => m.id === id)?.displayName;
+  const responsible = (task.assigneeUserIds ?? [])
+    .map((id) => nameOf(id))
+    .filter(Boolean)
+    .join(', ');
+
+  // Activity is what makes "this has not moved" sayable. Absent stamps are left
+  // out rather than guessed at: a task we have never seen move is not stalled.
+  const idle = today ? idleDays(task, today) : null;
+  const activity: string[] = [];
+  if (idle !== null) activity.push(`sin moverse hace ${idle} días`);
+  if (task.lastCommentAt) {
+    const author = nameOf(task.lastCommentBy ?? null) ?? 'alguien';
+    const last = task.comments?.[task.comments.length - 1];
+    activity.push(
+      `último comentario de ${author} el ${task.lastCommentAt.slice(0, 10)}${last ? `: "${last.text}"` : ''}`,
+    );
+  }
+
+  return `- [${task.id}] ${task.code || '—'} ${task.title} — estado ${task.notionStatus ?? task.status}, prioridad ${task.priority}, vence ${task.dueDate ?? 'sin fecha'}, ${responsible.includes(',') ? 'responsables' : 'responsable'} ${responsible || 'nadie'}${task.dependsOn.length ? `, depende de ${task.dependsOn.join(', ')}` : ''}${activity.length ? `. ${activity.join('; ')}` : ''}`;
 }
 
 function fmtSignal(signal: Signal): string {
@@ -97,7 +141,7 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${openTasks.length})
-${openTasks.map((t) => fmtTask(t, members)).join('\n') || '(ninguna)'}
+${openTasks.map((t) => fmtTask(t, members, today)).join('\n') || '(ninguna)'}
 
 ## Equipo
 ${members.map((m) => `- ${m.displayName} — ${m.membership.roleTitle}: ${m.membership.roleDescription || 'sin descripción'}`).join('\n')}
@@ -117,7 +161,7 @@ export function planPrompt(
   yesterday: { headline: string; done: string[]; skipped: string[] } | null,
 ): string {
   const { company, objectives, projects, tasks, today, todayIso } = ctx;
-  const mine = tasks.filter((t) => t.assigneeUserId === member.id && t.status !== 'done');
+  const mine = tasks.filter((t) => t.assigneeUserIds.includes(member.id) && t.status !== 'done');
   const myProjects = projects.filter(
     (p) => p.ownerUserId === member.id || p.memberUserIds.includes(member.id),
   );
@@ -140,7 +184,7 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${myProjects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Sus tareas abiertas (${mine.length})
-${mine.map((t) => fmtTask(t, ctx.members)).join('\n') || '(ninguna)'}
+${mine.map((t) => fmtTask(t, ctx.members, today)).join('\n') || '(ninguna)'}
 
 ## Señales que le tocan (${personalSignals.length}) — citá estos ids en signalIds
 ${personalSignals.map(fmtSignal).join('\n') || '(ninguna)'}
@@ -156,4 +200,77 @@ Continuá lo que quedó abierto si sigue importando; no repitas lo hecho.`
 }
 
 Escribí su plan: un titular con la prioridad de hoy, el porqué ligado a un objetivo (objectiveId), de tres a cinco acciones con su porqué, minutos estimados, y qué pasa si no se hace hoy.`;
+}
+
+/**
+ * The team follow-up. One call per manager per day.
+ *
+ * One call for the whole team rather than one per person, because deciding who
+ * to write to is half the judgement: the task is stuck, and whether that is the
+ * developer's problem or the lead's is only visible with everyone side by side.
+ */
+export function followUpPrompt(
+  ctx: CompanyContext,
+  manager: CompanyContext['members'][number],
+  team: FollowUpSubject[],
+  briefing: string,
+): string {
+  const { company, objectives, tasks, today, todayIso } = ctx;
+
+  const person = (subject: FollowUpSubject): string => {
+    const { member, signals, situations, recent } = subject;
+    const open = tasks.filter((t) => t.assigneeUserIds.includes(member.id) && t.status !== 'done');
+
+    return `### ${member.displayName} — userId: ${member.id}
+Rol: ${member.membership.roleTitle}. ${member.membership.roleDescription || 'Sin descripción.'}
+${member.membership.commsTone ? `Tono con el que se le habla: ${member.membership.commsTone}.` : ''}
+
+Lo que ${manager.displayName} espera de esta persona, en sus palabras:
+${member.membership.expectations?.trim() || '(nadie lo ha escrito todavía)'}
+
+Situación:
+${
+  situations
+    .map(
+      (s) =>
+        `- ${s.discreet ? 'RESERVADO, NO LO MENCIONES NI LO INSINUÉS' : 'Se puede mencionar'} — ${s.kind}: ${s.note}${s.endsAt ? ` (hasta ${s.endsAt})` : ''}`,
+    )
+    .join('\n') || '- (ninguna registrada)'
+}
+
+Sus tareas abiertas (${open.length}):
+${open.map((t) => fmtTask(t, ctx.members, today)).join('\n') || '- (ninguna)'}
+
+Señales sobre esta persona (${signals.length}) — solo podés citar estos ids:
+${signals.map(fmtSignal).join('\n') || '- (ninguna)'}
+
+Lo que ya se le dijo:
+${
+  recent
+    .map((r) => `- ${r.date} (${r.tone}, ${r.outcome}): ${r.ask}`)
+    .join('\n') || '- (nada en los últimos días)'
+}`;
+  };
+
+  return `# Seguimiento del equipo de ${company.name} — ${todayIso}
+
+Escribís para ${manager.displayName} (${manager.membership.roleTitle}), que es quien va a leer esto y quien va a mandar los mensajes.
+
+## Meta global
+${company.northStar}
+Fecha objetivo: ${company.northStarDeadline}
+
+## Briefing de hoy
+${briefing}
+
+## Objetivos
+${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
+
+## El equipo
+
+${team.map(person).join('\n\n')}
+
+Para cada persona escribí su lectura: compará lo que ${manager.displayName} espera de ella con lo que realmente pasó en sus tareas (estados que se movieron o no, comentarios respondidos o no, fechas), decí en qué estado la ubicás, y qué le recomendás a ${manager.displayName} hacer al respecto. La expectativa es el criterio; las señales y las tareas son la evidencia.
+
+Después, solo para quienes hoy lo ameritan, escribí el mensaje que ${manager.displayName} les debería mandar: dónde va (comentario en la tarea o mensaje directo), con qué tono, el texto listo para copiar, qué está pidiendo exactamente, y por qué se lo manda.`;
 }

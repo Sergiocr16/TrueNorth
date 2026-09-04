@@ -5,10 +5,19 @@ import {
   dailyPlanSchema,
   fixtures,
   signalsForUser,
+  teamFollowUpSchema,
+  teamSignals,
   todayIso,
 } from '@truenorth/core';
 import { askClaude } from '../../../../server/engine/claude';
-import { PLAN_SYSTEM, planPrompt, type CompanyContext } from '../../../../server/engine/prompts';
+import {
+  FOLLOWUP_SYSTEM,
+  PLAN_SYSTEM,
+  followUpPrompt,
+  planPrompt,
+  type CompanyContext,
+  type FollowUpSubject,
+} from '../../../../server/engine/prompts';
 
 /**
  * Proves the engine can reach Claude Code from inside this process, using the
@@ -29,6 +38,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
+  // `?step=followup` exercises the team follow-up instead of the plan. Both run
+  // on fixtures and touch no database, so this proves the schema and the prompt
+  // without spending a call on real people.
+  const step = new URL(request.url).searchParams.get('step') ?? 'plan';
   const company = fixtures.companies[0]!;
   const members = fixtures.users.flatMap((u) => {
     const membership = fixtures.memberships.find(
@@ -59,6 +72,33 @@ export async function GET(request: Request) {
 
   const started = Date.now();
   try {
+    if (step === 'followup') {
+      const manager = members.find((m) => m.membership.access !== 'member') ?? member;
+      const byUser = teamSignals(ctx.signals, ctx.projects, manager.id);
+      const team: FollowUpSubject[] = members.map((subject) => ({
+        member: subject,
+        signals: byUser.get(subject.id) ?? [],
+        situations: [],
+        recent: [],
+      }));
+
+      const answer = await askClaude(
+        followUpPrompt(ctx, manager, team, 'Prueba del motor: sin briefing de empresa.'),
+        teamFollowUpSchema,
+        { system: FOLLOWUP_SYSTEM },
+      );
+      return NextResponse.json({
+        ok: true,
+        step,
+        manager: manager.displayName,
+        team: team.map((s) => ({ name: s.member.displayName, signals: s.signals.length })),
+        durationMs: Date.now() - started,
+        usage: answer.usage,
+        modelUsage: answer.modelUsage,
+        followUp: answer.value,
+      });
+    }
+
     const answer = await askClaude(
       planPrompt(ctx, member, personal, 'Prueba del motor: sin briefing de empresa.', null),
       dailyPlanSchema,
@@ -66,6 +106,7 @@ export async function GET(request: Request) {
     );
     return NextResponse.json({
       ok: true,
+      step,
       member: member.displayName,
       signals: personal.length,
       durationMs: Date.now() - started,

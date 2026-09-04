@@ -171,8 +171,9 @@ Deliberately not yet:
 ## Server credentials (the Admin SDK)
 
 The browser uses the public web config, which ships in the bundle by design.
-The engine is different: it writes plans and analyses that no client may write,
-so it runs with a service-account key that bypasses the security rules. That
+The engine is different: it writes plans, analyses and team follow-ups that no
+client may write, so it runs with a service-account key that bypasses the
+security rules. That
 key is a secret. It never goes in the repo, in `.env.local` as a literal, or
 into a chat window — only its **path** is configuration.
 

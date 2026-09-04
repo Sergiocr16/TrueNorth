@@ -1,20 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
 import type { DailyPlan } from '@truenorth/core';
 import { DetailHeader, ROUTES, Screen } from '../../../components/shell';
 import { Card, EmptyState, SectionLabel } from '../../../components/ui';
-import { BriefingIcon, Chevron, ChevronLeft } from '../../../components/icons';
+import { BriefingIcon, Chevron } from '../../../components/icons';
+import { PlanCalendar } from '../../../components/plan-calendar';
 import { formatShortDate } from '../../../lib/i18n/dictionary';
 import { usePreferences } from '../../../lib/preferences';
 import { useRiskCount, useStore } from '../../../lib/store';
-
-const toDate = (iso: string) => new Date(`${iso}T00:00:00`);
-const toIso = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-    date.getDate(),
-  ).padStart(2, '0')}`;
 
 /**
  * The record of past days.
@@ -28,44 +22,8 @@ export default function BriefingHistoryPage() {
   const { t, locale } = usePreferences();
   const store = useStore();
   const riskCount = useRiskCount();
-  const { planHistory, analyses, today } = store;
-
-  const [monthOffset, setMonthOffset] = useState(0);
-
-  const cursor = useMemo(() => {
-    const base = new Date(today);
-    base.setDate(1);
-    base.setMonth(base.getMonth() + monthOffset);
-    return base;
-  }, [today, monthOffset]);
-
-  const byDate = useMemo(() => {
-    const map = new Map<string, DailyPlan>();
-    for (const plan of planHistory) map.set(plan.date, plan);
-    return map;
-  }, [planHistory]);
-
-  const analysisDates = useMemo(
-    () => new Set(analyses.map((a) => a.date)),
-    [analyses],
-  );
-
-  const cells = useMemo(() => buildMonth(cursor), [cursor]);
-
-  const es = locale === 'es';
-  const monthLabel = new Intl.DateTimeFormat(es ? 'es-CR' : 'en-US', {
-    month: 'long',
-    year: 'numeric',
-  }).format(cursor);
-
-  // Weekday initials starting on Monday, which is how a work week reads.
-  const weekdays = useMemo(() => {
-    const format = new Intl.DateTimeFormat(es ? 'es-CR' : 'en-US', { weekday: 'narrow' });
-    return Array.from({ length: 7 }, (_, index) => {
-      const day = new Date(2026, 0, 5 + index); // 5 Jan 2026 is a Monday.
-      return format.format(day);
-    });
-  }, [es]);
+  const { planHistory, analyses } = store;
+  const analysisDates = new Set(analyses.map((a) => a.date));
 
   const done = (plan: DailyPlan) =>
     Object.values(plan.feedback ?? {}).filter((verdict) => verdict === 'done').length;
@@ -92,118 +50,7 @@ export default function BriefingHistoryPage() {
       ) : (
         <>
           <Card className="mx-4 mt-4 p-4">
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setMonthOffset((n) => n - 1)}
-                aria-label={es ? 'Mes anterior' : 'Previous month'}
-                className="tn-press flex h-9 w-9 items-center justify-center rounded-full text-[var(--sec)]"
-              >
-                <ChevronLeft size={14} />
-              </button>
-              <span className="text-[17px] font-semibold capitalize text-[var(--ink)]">
-                {monthLabel}
-              </span>
-              <button
-                type="button"
-                onClick={() => setMonthOffset((n) => Math.min(0, n + 1))}
-                disabled={monthOffset >= 0}
-                aria-label={es ? 'Mes siguiente' : 'Next month'}
-                className="tn-press flex h-9 w-9 items-center justify-center rounded-full text-[var(--sec)] disabled:opacity-30"
-              >
-                <span className="rotate-180">
-                  <ChevronLeft size={14} />
-                </span>
-              </button>
-            </div>
-
-            <div className="mt-3 grid grid-cols-7 gap-1">
-              {weekdays.map((label, index) => (
-                <div
-                  key={index}
-                  className="pb-1 text-center text-[11px] font-semibold uppercase text-[var(--ter)]"
-                >
-                  {label}
-                </div>
-              ))}
-
-              {cells.map((cell, index) => {
-                if (!cell) return <div key={`blank-${index}`} />;
-                const iso = toIso(cell);
-                const plan = byDate.get(iso);
-                const isToday = iso === toIso(today);
-                const total = plan?.items.length ?? 0;
-                const completed = plan ? done(plan) : 0;
-                const ratio = total > 0 ? completed / total : 0;
-
-                const body = (
-                  <>
-                    <span
-                      className="tn-tabular text-[13px]"
-                      style={{
-                        fontWeight: isToday ? 700 : 500,
-                        color: plan ? 'var(--ink)' : 'var(--ter)',
-                      }}
-                    >
-                      {cell.getDate()}
-                    </span>
-                    {plan ? (
-                      // A dot per item, filled for the ones marked done: the
-                      // shape carries the information, not just a colour.
-                      <span className="mt-1 flex gap-[3px]" aria-hidden>
-                        {plan.items.map((_, itemIndex) => (
-                          <span
-                            key={itemIndex}
-                            className="h-[5px] w-[5px] rounded-full"
-                            style={{
-                              background:
-                                plan.feedback?.[itemIndex] === 'done'
-                                  ? 'var(--green)'
-                                  : 'var(--chip-bg)',
-                              outline:
-                                plan.feedback?.[itemIndex] === 'done'
-                                  ? 'none'
-                                  : '1px solid var(--hair)',
-                            }}
-                          />
-                        ))}
-                      </span>
-                    ) : null}
-                  </>
-                );
-
-                const className =
-                  'flex aspect-square flex-col items-center justify-center rounded-xl';
-                const style = {
-                  background: plan
-                    ? ratio === 1
-                      ? 'var(--green-bg)'
-                      : 'var(--surface)'
-                    : 'transparent',
-                  border: isToday ? '1.5px solid var(--accent)' : '1px solid var(--hair)',
-                };
-
-                return plan ? (
-                  <Link
-                    key={iso}
-                    href={`${ROUTES.briefing}/${iso}`}
-                    aria-label={`${formatShortDate(iso, locale)} · ${completed}/${total}`}
-                    className={`${className} tn-press`}
-                    style={style}
-                  >
-                    {body}
-                  </Link>
-                ) : (
-                  <div key={iso} className={className} style={{ ...style, opacity: 0.5 }}>
-                    {body}
-                  </div>
-                );
-              })}
-            </div>
-
-            <p className="mt-3 text-[12px] leading-snug text-[var(--faint)]">
-              {t.briefing.calendarLegend}
-            </p>
+            <PlanCalendar />
           </Card>
 
           <div className="mx-4 mt-4">
@@ -250,20 +97,4 @@ export default function BriefingHistoryPage() {
       )}
     </Screen>
   );
-}
-
-/** Month grid padded so the first day lands on the right weekday, Monday-first. */
-function buildMonth(cursor: Date): (Date | null)[] {
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth();
-  const first = new Date(year, month, 1);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  // getDay() is Sunday-first; shift so Monday is column zero.
-  const lead = (first.getDay() + 6) % 7;
-
-  const cells: (Date | null)[] = Array.from({ length: lead }, () => null);
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    cells.push(new Date(year, month, day));
-  }
-  return cells;
 }

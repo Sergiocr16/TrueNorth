@@ -45,6 +45,7 @@ const TAB_ITEMS = [
   { href: ROUTES.briefing, key: 'briefing', Icon: BriefingIcon },
   { href: ROUTES.projects, key: 'projects', Icon: ProjectIcon },
   { href: ROUTES.risks, key: 'risks', Icon: RiskIcon },
+  { href: ROUTES.reports, key: 'reports', Icon: ReportIcon },
   { href: ROUTES.settings, key: 'more', Icon: MoreIcon },
 ] as const;
 
@@ -52,13 +53,20 @@ export function TabBar({ riskCount }: { riskCount?: number }) {
   const pathname = usePathname();
   const { t } = usePreferences();
 
+  // A floating capsule rather than a bar across the bottom: the page shows
+  // through the glass on both sides, and the active destination sits in its
+  // own lighter pill. Icons only, so every label goes to aria-label; the
+  // glyphs are the same ones the sidebar pairs with words.
   return (
     <nav
-      className="tn-glass fixed inset-x-0 bottom-0 z-30 px-2.5 pb-[max(env(safe-area-inset-bottom),26px)] pt-2.5 lg:hidden"
-      style={{ borderTop: '0.5px solid var(--hair)' }}
+      className="fixed inset-x-0 z-30 flex justify-center px-4 lg:hidden"
+      style={{ bottom: 'max(env(safe-area-inset-bottom), 14px)' }}
       aria-label={t.nav.today}
     >
-      <div className="relative flex">
+      <div
+        className="tn-glass tn-glass-strong tn-glass-clear flex items-center gap-1 rounded-full p-1.5"
+        style={{ border: '0.5px solid var(--fab-border)', boxShadow: '0 8px 30px rgba(0,0,0,.22)' }}
+      >
         {TAB_ITEMS.map(({ href, key, Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           const label = t.nav[key as keyof typeof t.nav] as string;
@@ -66,27 +74,24 @@ export function TabBar({ riskCount }: { riskCount?: number }) {
             <Link
               key={key}
               href={href}
+              aria-label={label}
+              title={label}
               aria-current={active ? 'page' : undefined}
-              className="flex min-h-11 flex-1 flex-col items-center gap-[3px] pt-0.5"
-              style={{ color: active ? 'var(--accent)' : 'var(--ter)' }}
+              className="tn-press relative flex h-[52px] w-[52px] items-center justify-center rounded-full transition-colors"
+              style={{
+                background: active ? 'var(--accent-bg)' : 'transparent',
+                color: active ? 'var(--accent)' : 'var(--sec)',
+              }}
             >
-              <span className="relative">
-                <Icon size={24} />
-                {key === 'risks' && riskCount ? (
-                  <span
-                    className="tn-tabular absolute -right-2.5 -top-1 rounded-full px-1.5 text-[10px] font-bold"
-                    style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
-                  >
-                    {riskCount}
-                  </span>
-                ) : null}
-              </span>
-              <span
-                className="text-[10px]"
-                style={{ fontWeight: active ? 600 : 500, color: active ? 'var(--accent)' : 'var(--faint)' }}
-              >
-                {label}
-              </span>
+              <Icon size={26} strokeWidth={active ? 2 : 1.7} />
+              {key === 'risks' && riskCount ? (
+                <span
+                  className="tn-tabular absolute right-2.5 top-2 rounded-full px-1.5 text-[10px] font-bold"
+                  style={{ background: 'var(--red)', color: '#fff' }}
+                >
+                  {riskCount}
+                </span>
+              ) : null}
             </Link>
           );
         })}
@@ -253,7 +258,7 @@ export function Screen({
     <AuthGate>
     <div className="tn-ground relative flex min-h-dvh">
       <Sidebar riskCount={riskCount} />
-      <main className="tn-scroll relative min-w-0 flex-1 pb-[104px] pt-[max(env(safe-area-inset-top),18px)] lg:pb-10 lg:pt-6">
+      <main className="tn-scroll relative min-w-0 flex-1 overflow-x-clip pb-[104px] pt-[max(env(safe-area-inset-top),18px)] lg:pb-10 lg:pt-6">
         <div className={wide ? 'mx-auto w-full max-w-[1180px]' : 'mx-auto w-full max-w-[720px]'}>
           {children}
         </div>

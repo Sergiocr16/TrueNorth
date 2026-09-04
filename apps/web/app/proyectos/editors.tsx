@@ -315,14 +315,12 @@ export function TaskEditor({
           value={draft.dueDate}
           onChange={(dueDate) => setDraft({ ...draft, dueDate })}
         />
-        <SelectField
+        <ChipSelectField
           label={t.objectives.owner}
-          value={draft.assigneeUserId ?? ''}
-          options={[
-            { value: '', label: t.projects.unassigned },
-            ...store.users.map((user) => ({ value: user.id, label: user.displayName })),
-          ]}
-          onChange={(value) => setDraft({ ...draft, assigneeUserId: value || null })}
+          options={store.users.map((user) => ({ value: user.id, label: user.displayName }))}
+          selected={draft.assigneeUserIds}
+          onChange={(assigneeUserIds) => setDraft({ ...draft, assigneeUserIds })}
+          emptyHint={t.projects.unassigned}
           isLast
         />
       </FieldGroup>

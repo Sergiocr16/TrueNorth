@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Project, Signal, Task } from './types';
-import { visibleProjects, visibleSignals, visibleTasks } from './visibility';
+import { teamSignals, visibleProjects, visibleSignals, visibleTasks } from './visibility';
 
 const project = (
   id: string,
@@ -22,7 +22,7 @@ const project = (
   source: 'app',
 });
 
-const task = (id: string, projectId: string | null, assigneeUserId: string | null): Task => ({
+const task = (id: string, projectId: string | null, assignee: string | null): Task => ({
   id,
   companyId: 'c',
   projectId,
@@ -31,7 +31,7 @@ const task = (id: string, projectId: string | null, assigneeUserId: string | nul
   status: 'todo',
   priority: 'medium',
   dueDate: null,
-  assigneeUserId,
+  assigneeUserIds: assignee ? [assignee] : [],
   dependsOn: [],
   source: 'app',
 });
@@ -104,5 +104,47 @@ describe('visibleSignals', () => {
       'gap:o1',
       'overdue:t4',
     ]);
+  });
+});
+
+describe('teamSignals', () => {
+  // A manager reading their team still cannot see inside a private project they
+  // are not on. The engine runs with admin credentials, so this filter is the
+  // only thing between a hidden project and a follow-up message quoting it.
+  it('hides a signal from a private project the manager is not on', () => {
+    const projects = [
+      project('p_open', 'company', []),
+      project('p_secret', 'private', ['bob']),
+    ];
+    const signals: Signal[] = [
+      { id: 's_open', kind: 'overdue_task', severity: 'warning', summary: { es: '', en: '' }, projectId: 'p_open', userId: 'bob' },
+      { id: 's_secret', kind: 'overdue_task', severity: 'warning', summary: { es: '', en: '' }, projectId: 'p_secret', userId: 'bob' },
+    ];
+
+    const forAlice = teamSignals(signals, projects, 'alice');
+    expect(forAlice.get('bob')?.map((s) => s.id)).toEqual(['s_open']);
+
+    const forBob = teamSignals(signals, projects, 'bob');
+    expect(forBob.get('bob')?.map((s) => s.id)).toEqual(['s_open', 's_secret']);
+  });
+
+  it('groups by the person the signal is about', () => {
+    const projects = [project('p_open', 'company', [])];
+    const signals: Signal[] = [
+      { id: 's1', kind: 'workload', severity: 'info', summary: { es: '', en: '' }, userId: 'bob' },
+      { id: 's2', kind: 'workload', severity: 'info', summary: { es: '', en: '' }, userId: 'carla' },
+      { id: 's3', kind: 'silent_owner', severity: 'warning', summary: { es: '', en: '' }, userId: 'bob' },
+    ];
+    const grouped = teamSignals(signals, projects, 'alice');
+    expect([...grouped.keys()].sort()).toEqual(['bob', 'carla']);
+    expect(grouped.get('bob')).toHaveLength(2);
+  });
+
+  // Company-wide signals belong to the analysis, not to anybody's follow-up.
+  it('drops signals that are about nobody in particular', () => {
+    const signals: Signal[] = [
+      { id: 's_gap', kind: 'progress_gap', severity: 'warning', summary: { es: '', en: '' }, objectiveId: 'o1' },
+    ];
+    expect(teamSignals(signals, [], 'alice').size).toBe(0);
   });
 });

@@ -159,7 +159,9 @@ service cloud.firestore {
                       || (request.auth.uid == memberUid
                           && changedOnly(['roleTitle', 'roleDescription']));
         // Three ways a member document comes into being:
-        //   - an admin adds somebody,
+        //   - an admin adds somebody — including a person with no account at
+        //     all, under a synthetic id (`p_…`) that matches no uid and so
+        //     grants nothing; they are on the team to be followed up with,
         //   - the founder who just created the company adds themselves, which
         //     no admin could do because being an admin needs this document,
         //   - an invited person redeems their invitation.
@@ -201,6 +203,14 @@ service cloud.firestore {
         allow read, write: if isMember(companyId);
       }
 
+      // What is going on with a person that the numbers do not show. These are
+      // private notes about identifiable people, written so the follow-up can
+      // be kind rather than mechanical, and the person they describe is not
+      // meant to read them — so admins only, not every member.
+      match /situations/{situationId} {
+        allow read, write: if isAdmin(companyId);
+      }
+
       // The Notion connection holds only the Secret Manager name, never a
       // token, but it still stays with the admins.
       match /integrations/{provider} {
@@ -233,6 +243,19 @@ service cloud.firestore {
         allow create: if isMember(companyId)
                       && request.resource.data.uid == request.auth.uid;
         allow delete: if false;
+      }
+
+      // The team follow-up: one document per manager per day, written by the
+      // engine. A manager reads only their own — the readings quote signals
+      // about other people, and the messages were written for them to send.
+      // All they may write back is what they did with each one.
+      match /followups/{followUpId} {
+        allow read: if isMember(companyId)
+                    && resource.data.managerUid == request.auth.uid;
+        allow update: if isMember(companyId)
+                      && resource.data.managerUid == request.auth.uid
+                      && changedOnly(['outcome', 'sentText']);
+        allow create, delete: if false;
       }
 
       // Dictated updates: a person creates and edits their own until it is

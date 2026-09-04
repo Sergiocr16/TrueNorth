@@ -40,6 +40,51 @@ export const companyAnalysisSchema = z.object({
   perspectives: z.array(perspectiveSchema).length(5),
 });
 
+/* ------------------------------------------------------------------ */
+/* Team follow-up                                                      */
+/* ------------------------------------------------------------------ */
+
+/** One person, read against what is expected of them. Produced for everybody. */
+export const teamReadingSchema = z.object({
+  userId: z.string(),
+  standing: z.enum(['adelantado', 'en_curso', 'atrasado', 'trabado']),
+  /** Two or three sentences on how they are doing. */
+  reading: z.string().min(20).max(600),
+  /** What the manager should do about it. */
+  recommendation: z.string().min(10).max(400),
+  /** May be empty: somebody on track has nothing to cite. */
+  signalIds: z.array(z.string()),
+});
+
+/**
+ * One suggested message. Produced only for the people who need one today.
+ *
+ * `target` is flat rather than a discriminated union because the model fills
+ * this in through a JSON schema, and a flat enum plus an optional id is far
+ * harder to get wrong than a tagged union. The pair is checked in code, where
+ * the task id also has to resolve to a task the manager may actually see.
+ */
+export const followUpSchema = z.object({
+  userId: z.string(),
+  /** 'comentario' puts it on the Notion task named by `taskId`. */
+  target: z.enum(['directo', 'comentario']),
+  taskId: z.string().optional(),
+  tone: z.enum(['reconocimiento', 'seguimiento', 'ajuste', 'apoyo', 'decision']),
+  /** Ready to copy: Costa Rican Spanish, second person, no filler. */
+  message: z.string().min(20).max(700),
+  /** Why it is being sent. The manager reads this; the person never does. */
+  why: z.string().min(3).max(280),
+  ask: z.string().max(200),
+  /** A message always rests on a signal. A reading may not; this must. */
+  signalIds: z.array(z.string()).min(1),
+  escalate: z.boolean().default(false),
+});
+
+export const teamFollowUpSchema = z.object({
+  readings: z.array(teamReadingSchema).max(20),
+  messages: z.array(followUpSchema).max(10),
+});
+
 export const interpretedChangeSchema = z.object({
   taskCode: z.string().optional(),
   taskId: z.string().optional(),
@@ -58,5 +103,8 @@ export const voiceInterpretationSchema = z.object({
 });
 
 export type DailyPlanOutput = z.infer<typeof dailyPlanSchema>;
+export type TeamReadingOutput = z.infer<typeof teamReadingSchema>;
+export type FollowUpOutput = z.infer<typeof followUpSchema>;
+export type TeamFollowUpOutput = z.infer<typeof teamFollowUpSchema>;
 export type CompanyAnalysisOutput = z.infer<typeof companyAnalysisSchema>;
 export type VoiceInterpretationOutput = z.infer<typeof voiceInterpretationSchema>;

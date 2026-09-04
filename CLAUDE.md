@@ -84,7 +84,9 @@ Never commit or push either branch unless Sergio asks.
 - **Never commit or push unless Sergio asks.** Leave changes in the working tree.
 - **No secrets in the repo.** Firebase service accounts, Notion tokens and the Anthropic key live in Secret Manager or in an untracked `.env.local`.
 - **Every new collection ships with a security rule and a rule test.** The engine runs with the Admin SDK and bypasses rules, so the same visibility is re-applied in `packages/core/src/visibility.ts` before any prompt is built, with its own tests.
-- **All real business data is editable in the app.** North star, objectives, indicators, projects, tasks, roles and risks are all created and edited by the user. Anything you add to the domain needs an editing path too.
+- **All real business data is editable in the app.** North star, objectives, indicators, projects, tasks, roles, expectations, situations and risks are all created and edited by the user. Anything you add to the domain needs an editing path too.
+- **Notes about people are private, and stay that way.** `companies/{cid}/situations` is admin-only in the rules, a `discreet` note never reaches the text of a message, and the engine drops any message that quotes one verbatim. Do not widen that read rule without an ADR.
+- **A Notion task always shows its name and links to its page.** Never render only the code: `TAR-966` identifies a task to whoever already knows it and to nobody else. `TaskLine` in `components/ui.tsx` is the one place that decides how a task looks.
 - Prefer editing an existing file over adding one. Keep components small and typed.
 
 ## Access model
@@ -101,6 +103,10 @@ Three sentences, enforced in `firestore.rules`:
 3. **Members are trusted peers.** They create their own projects and decide who
    else to share a project or the company with. Nobody grants access above their
    own level.
+4. **Being on the team and having access are separate.** An admin may add a
+   person to the team with no account at all: a `members/{p_…}` document whose
+   synthetic id matches no uid, so it grants nothing. They exist to be followed
+   up with. Sharing the app with them later is the invitation flow, unchanged.
 
 `founders()` in the rules lists who may create a company from scratch. Keep it
 short. `FOUNDERS` in `lib/store.tsx` mirrors it only to choose which screen to
@@ -117,7 +123,7 @@ Tailscale. See ADR-005, which supersedes the queue-and-worker design.
 | --- | --- | --- |
 | **Browser / PWA** | the phone or laptop, on Tailscale | Reads and writes Firestore directly with the client SDK. Never holds a Notion token. |
 | **Next.js server** | the Pi, systemd, port 3000 | Serves the app. Route handlers under `app/api/` run the engine, sync Notion both ways, transcribe voice with Whisper on the same machine, send push. Uses the Admin SDK. |
-| **Engine** | `apps/web/server/engine`, in-process | Computes signals in code, then invokes `claude -p` as a child process for the analysis, the plans and voice interpretation. |
+| **Engine** | `apps/web/server/engine`, in-process | Computes signals in code, then invokes `claude -p` as a child process for the analysis, the plans, the team follow-up (one call per manager) and voice interpretation. |
 | **Timer** | systemd timer on the Pi | Calls the engine over localhost at 02:00. |
 | **Firebase** | Google Cloud | Auth, Firestore, Storage, Cloud Messaging. No Functions, no App Hosting. |
 
@@ -127,6 +133,7 @@ generated; the data is safe in Firebase. That trade was made deliberately.
 ## Contracts that need an ADR to change
 
 - The daily plan schema (`packages/core/src/schemas.ts`): three to five items, each citing a signal, plus the consequence sentence.
+- The team follow-up schema in the same file (ADR-006): a reading for every person, a message only for those who need one and only ever citing a signal, defaulting to a comment on the Notion task. Nothing is sent or published without Sergio copying it.
 - The `jobs` document shape used by the Raspberry Pi worker.
 - The Notion status map (`packages/core/src/notion-status.ts`): fifteen Notion labels collapse onto four internal states. The signal engine, the plan and the voice writer all depend on it.
 - The route paths, which are Spanish and user-visible.
@@ -138,7 +145,7 @@ The visual direction is "as if Apple designed it, with a touch of glass, readabl
 Non-negotiables:
 
 - **Glass is for chrome only** — tab bar, sidebar, sheet headers, the mic button. Body text never sits on a blurred background. Sheets use `.tn-sheet-surface`, which is near-opaque and does not rely on blur for contrast.
-- **Both themes are first-class.** Light is the base `:root`; dark redefines only the tokens, once under `prefers-color-scheme` guarded by `:not([data-theme='light'])` and once under `[data-theme='dark']`. Never define a colour only inside a dark block.
+- **Both schemes are first-class.** Light is the base `:root`; dark redefines only the tokens, once under `prefers-color-scheme` guarded by `:not([data-theme])` — the system preference governs only the unstamped root; a stamped theme is one attribute selector and a chain of `:not()` guards would out-specify it — and once under `[data-theme='dark'], [data-theme='midnight'], [data-theme='ambar']`. Warm, midnight and amber are tints on top of those two, never a third scheme. Accents (`data-accent`) redefine only `--accent` and `--accent-bg`, with a light and a dark value each; green is not an accent because it already means "done". Never define a colour only inside a dark block.
 - **Custom CSS lives in `@layer base` or `@layer components`.** Unlayered CSS beats every Tailwind utility, which silently breaks layout — this already cost us a bug where the tab bar dropped back into the flow.
 - Body text 17px, touch targets 44pt, tabular numerals for anything that lines up in a column, status encoded in shape as well as colour.
 - Mobile first. When phone and desktop conflict, the phone wins.

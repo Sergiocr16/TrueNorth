@@ -320,6 +320,110 @@ describe('plans', () => {
   });
 });
 
+describe('people without an account', () => {
+  beforeEach(async () => {
+    await seedCompany();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await ctx.firestore().doc('companies/c1/members/u_peer').set({ access: 'member' });
+    });
+  });
+
+  // A team member with no account is a member document under a made-up id.
+  // Admins may create one; nobody can sign in as it, because no uid matches.
+  it('lets an admin add somebody who does not use the app', async () => {
+    await assertSucceeds(
+      as('u_owner', FOUNDER)
+        .doc('companies/c1/members/p_abc123')
+        .set({ displayName: 'Marco', roleTitle: 'Desarrollo', access: 'member', hasAccount: false }),
+    );
+  });
+
+  it('refuses a plain member adding people', async () => {
+    await assertFails(
+      as('u_peer', 'marco@aditumcr.com')
+        .doc('companies/c1/members/p_abc123')
+        .set({ displayName: 'Marco', roleTitle: 'Desarrollo', access: 'member', hasAccount: false }),
+    );
+  });
+});
+
+describe('situations', () => {
+  beforeEach(async () => {
+    await seedCompany();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await db.doc('companies/c1/members/u_peer').set({ access: 'member' });
+      await db.doc('companies/c1/situations/s1').set({
+        userId: 'u_peer',
+        kind: 'personal',
+        note: 'Semana difícil en la casa',
+        discreet: true,
+      });
+    });
+  });
+
+  // The whole feature rests on this one: a note about somebody must not be
+  // readable by their peers, and least of all by them.
+  it('keeps a private note away from ordinary members', async () => {
+    await assertFails(
+      as('u_peer', 'marco@aditumcr.com').doc('companies/c1/situations/s1').get(),
+    );
+    await assertSucceeds(as('u_owner', FOUNDER).doc('companies/c1/situations/s1').get());
+  });
+
+  it('refuses a member writing one', async () => {
+    await assertFails(
+      as('u_peer', 'marco@aditumcr.com')
+        .doc('companies/c1/situations/s2')
+        .set({ userId: 'u_owner', kind: 'desempeno', note: 'x', discreet: false }),
+    );
+  });
+});
+
+describe('follow-ups', () => {
+  beforeEach(async () => {
+    await seedCompany();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await db.doc('companies/c1/members/u_admin').set({ access: 'admin' });
+      await db.doc('companies/c1/followups/d_u_owner').set({
+        managerUid: 'u_owner',
+        messages: [],
+        outcome: {},
+        sentText: {},
+      });
+    });
+  });
+
+  it('keeps one manager out of another manager’s follow-up', async () => {
+    await assertFails(
+      as('u_admin', 'lucia@aditumcr.com').doc('companies/c1/followups/d_u_owner').get(),
+    );
+    await assertSucceeds(as('u_owner', FOUNDER).doc('companies/c1/followups/d_u_owner').get());
+  });
+
+  it('records what was sent but never rewrites the suggestion', async () => {
+    const db = as('u_owner', FOUNDER);
+    await assertSucceeds(
+      db.doc('companies/c1/followups/d_u_owner').update({
+        outcome: { u_peer: 'sent' },
+        sentText: { u_peer: 'Lo que realmente mandé' },
+      }),
+    );
+    await assertFails(
+      db.doc('companies/c1/followups/d_u_owner').update({ messages: [{ userId: 'u_peer' }] }),
+    );
+  });
+
+  it('refuses a client creating one at all: the engine writes these', async () => {
+    await assertFails(
+      as('u_owner', FOUNDER)
+        .doc('companies/c1/followups/d2_u_owner')
+        .set({ managerUid: 'u_owner', messages: [] }),
+    );
+  });
+});
+
 describe('engine plumbing', () => {
   it('keeps the job queue away from clients entirely', async () => {
     const db = as('u_owner', FOUNDER);

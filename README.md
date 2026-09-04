@@ -174,8 +174,8 @@ Firebase ID token.
 
 | Route | Who calls it | What it does |
 |---|---|---|
-| `GET /api/engine/selftest` | you, after installing | Builds a plan from the sample company by calling `claude -p`. No database. |
-| `POST /api/engine/daily` | the systemd timer at 02:00 | Every company: signals, one analysis, one plan per member, heartbeat. `?company=<id>` limits it to one, `?date=YYYY-MM-DD` overrides today. |
+| `GET /api/engine/selftest` | you, after installing | Builds a plan from the sample company by calling `claude -p`. No database. `?step=followup` runs the team follow-up instead. |
+| `POST /api/engine/daily` | the systemd timer at 02:00 | Every company: signals, one analysis, one plan per member, one team follow-up per manager, heartbeat. `?company=<id>` limits it to one, `?date=YYYY-MM-DD` overrides today. |
 | `POST /api/engine/replan` | the *Recalcular mi plan* button | Recomputes the caller's plan for today, reusing the day's analysis. |
 
 One more route handler exists for the same reason — a write the browser is not
@@ -189,6 +189,10 @@ write, `GOOGLE_APPLICATION_CREDENTIALS` in `apps/web/.env.local`, then:
 
 ```bash
 curl -s -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" http://localhost:3210/api/engine/selftest | jq .plan
+
+# The team follow-up: a reading for everybody, a message only for those who need one.
+curl -s -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" \
+  'http://localhost:3210/api/engine/selftest?step=followup' | jq .followUp
 ```
 
 Claude Code is invoked with `--json-schema` built from the Zod contracts in

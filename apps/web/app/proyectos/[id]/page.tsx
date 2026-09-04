@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { Task, TaskStatus } from '@truenorth/core';
-import { expectedProgressPct, isOverdue } from '@truenorth/core';
+import { expectedProgressPct } from '@truenorth/core';
 import { DetailHeader, ROUTES, Screen } from '../../../components/shell';
 import {
   Banner,
@@ -13,7 +13,7 @@ import {
   SectionLabel,
   SourceBadge,
   StatusPill,
-  TaskStatusPill,
+  TaskLine,
   TextButton,
 } from '../../../components/ui';
 import { AddRow } from '../../../components/form';
@@ -159,49 +159,26 @@ export default function ProjectDetailPage() {
                 {t.taskStatus[group]}
               </div>,
               ...rows.map((task) => {
-                const assignee = store.users.find((u) => u.id === task.assigneeUserId);
-                const overdue = isOverdue(task, store.today);
                 const blockers = task.dependsOn
                   .map((id) => store.tasks.find((other) => other.id === id))
                   .filter((other): other is Task => Boolean(other) && other!.status !== 'done');
                 return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    onClick={() => {
-                      setIsNewTask(false);
-                      setTaskDraft(task);
-                    }}
-                    className="tn-hairline tn-press flex w-full items-start gap-3 px-4 py-3 text-left"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
-                        {task.code ? (
-                          <span className="text-[13px] font-bold text-[var(--accent)]">
-                            {task.code}
-                          </span>
-                        ) : null}
-                        <span className="min-w-0 flex-1 text-[17px] font-semibold leading-snug text-[var(--ink)]">
-                          {task.title}
-                        </span>
+                  <div key={task.id}>
+                    <TaskLine
+                      task={task}
+                      users={store.users}
+                      today={store.today}
+                      onOpen={() => {
+                        setIsNewTask(false);
+                        setTaskDraft(task);
+                      }}
+                    />
+                    {blockers.length > 0 ? (
+                      <div className="px-4 pb-2 text-[13px] text-[var(--amber)]">
+                        {t.projects.blockedBy}: {blockers.map((b) => b.code).join(', ')}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-[var(--ter)]">
-                        <TaskStatusPill status={task.status} label={task.notionStatus} />
-                        <span className="tn-tabular" style={overdue ? { color: 'var(--red)', fontWeight: 600 } : undefined}>
-                          {task.dueDate ? formatShortDate(task.dueDate, locale) : t.projects.noDue}
-                        </span>
-                        <span>{assignee?.displayName ?? t.projects.unassigned}</span>
-                      </div>
-                      {blockers.length > 0 ? (
-                        <div className="mt-1 text-[13px] text-[var(--amber)]">
-                          {t.projects.blockedBy}: {blockers.map((b) => b.code).join(', ')}
-                        </div>
-                      ) : null}
-                    </div>
-                    <span className="mt-1 text-[var(--ter)]">
-                      <Chevron />
-                    </span>
-                  </button>
+                    ) : null}
+                  </div>
                 );
               }),
             ];

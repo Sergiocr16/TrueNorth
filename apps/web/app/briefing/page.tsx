@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import type { PerspectiveKey } from '@truenorth/core';
-import { fixtures } from '@truenorth/core';
+import type { PerspectiveKey, Standing } from '@truenorth/core';
+import { fixtures, todayIso } from '@truenorth/core';
 import Link from 'next/link';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
-import { Card, SectionLabel, Segmented, TextButton } from '../../components/ui';
-import { Chevron, WarningTriangle } from '../../components/icons';
+import { Avatar, Card, SectionLabel, Segmented, TextButton } from '../../components/ui';
+import { WarningTriangle } from '../../components/icons';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
 
@@ -21,10 +21,13 @@ export default function BriefingPage() {
   const store = useStore();
   const [lens, setLens] = useState<PerspectiveKey>('cto');
 
-  // The engine has not been built yet, so today's analysis is still the
-  // worked example. It is replaced by companies/{cid}/analyses/{date} the day
-  // the Raspberry Pi worker starts writing.
-  const analysis = fixtures.todaysAnalysis;
+  // The engine writes companies/{cid}/analyses/{date}. Until it has run for the
+  // first time in this company there is nothing to read, and the worked example
+  // stands in so the screen still shows what a briefing looks like.
+  const analysis =
+    store.analyses.find((candidate) => candidate.date === todayIso()) ??
+    store.analyses[0] ??
+    fixtures.todaysAnalysis;
   const generatedTime = new Date(analysis.generatedAt).toLocaleTimeString(
     locale === 'es' ? 'es-CR' : 'en-US',
     { hour: '2-digit', minute: '2-digit', hour12: false },
@@ -43,24 +46,6 @@ export default function BriefingPage() {
         title={t.briefing.title}
         subtitle={`${store.company.name} · ${t.briefing.generatedAt(generatedTime)}`}
       />
-
-      <div className="mx-4 mt-3">
-        <Link href={`${ROUTES.briefing}/historial`}>
-          <Card className="tn-press flex items-center gap-3 p-4">
-            <span className="min-w-0 flex-1">
-              <span className="block text-[17px] font-semibold text-[var(--ink)]">
-                {t.briefing.history}
-              </span>
-              <span className="block text-[15px] text-[var(--sec)]">
-                {t.briefing.historyHint}
-              </span>
-            </span>
-            <span className="text-[var(--ter)]">
-              <Chevron />
-            </span>
-          </Card>
-        </Link>
-      </div>
 
       <div className="mx-4 mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-5">
         <div>
@@ -120,6 +105,8 @@ export default function BriefingPage() {
             ))}
           </Card>
 
+          <TeamReadings />
+
           <div className="mt-4">
             <SectionLabel>{t.briefing.decisions}</SectionLabel>
             <Card className="overflow-hidden">
@@ -142,5 +129,73 @@ export default function BriefingPage() {
         </div>
       </div>
     </Screen>
+  );
+}
+
+const STANDING_STYLE: Record<Standing, { bg: string; fg: string }> = {
+  adelantado: { bg: 'var(--green-bg)', fg: 'var(--green)' },
+  en_curso: { bg: 'var(--chip-bg)', fg: 'var(--sec)' },
+  atrasado: { bg: 'var(--amber-bg)', fg: 'var(--amber)' },
+  trabado: { bg: 'var(--red-bg)', fg: 'var(--red)' },
+};
+
+/**
+ * How the team is doing, one line each.
+ *
+ * The same readings the Team screen shows in full, compressed to a glance and
+ * placed next to the risks — because "who is stuck" is a reading of the company,
+ * not a separate report. Only managers have a follow-up document to read, so for
+ * everybody else this section is simply not there.
+ */
+function TeamReadings() {
+  const { t } = usePreferences();
+  const store = useStore();
+  const readings = store.followUp?.readings ?? [];
+  if (readings.length === 0) return null;
+
+  return (
+    <div className="mt-4">
+      <SectionLabel
+        action={
+          <Link href={ROUTES.team} className="text-[15px] font-semibold text-[var(--accent)]">
+            {t.team.title}
+          </Link>
+        }
+      >
+        {t.team.reading}
+      </SectionLabel>
+      <Card className="overflow-hidden">
+        {readings.map((reading, index) => {
+          const user = store.users.find((candidate) => candidate.id === reading.userId);
+          const style = STANDING_STYLE[reading.standing];
+          return (
+            <div
+              key={reading.userId}
+              className={`flex items-start gap-3 px-4 py-3 ${
+                index === readings.length - 1 ? '' : 'tn-hairline'
+              }`}
+            >
+              <Avatar initials={user?.initials ?? '—'} size={28} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[15px] font-semibold text-[var(--ink)]">
+                    {user?.displayName ?? reading.userId}
+                  </span>
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[12px] font-semibold"
+                    style={{ background: style.bg, color: style.fg }}
+                  >
+                    {t.team.standing[reading.standing]}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[13px] leading-snug text-[var(--sec)]">
+                  {reading.recommendation}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+    </div>
   );
 }

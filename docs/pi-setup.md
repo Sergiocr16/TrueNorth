@@ -254,6 +254,10 @@ problem (not signed in, binary not on the service PATH) from a Firestore one:
 ```bash
 source /etc/truenorth/env
 curl -s -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" http://localhost:3000/api/engine/selftest | jq .plan.headline
+
+# The team follow-up runs on the same sample data:
+curl -s -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" \
+  'http://localhost:3000/api/engine/selftest?step=followup' | jq '.followUp.messages[].ask'
 ```
 
 The second is the real thing, for one company, today. It is what the timer
@@ -264,9 +268,15 @@ curl -s -X POST -H "Authorization: Bearer $ENGINE_LOCAL_TOKEN" "http://localhost
 ```
 
 Afterwards *Ajustes → Motor* in the app shows the heartbeat: host, last run,
-plans written, and the error if one failed. A full run for a company of four
-takes two to three minutes; each plan is one `claude -p` call of thirty to
-forty seconds, and they run one after another on purpose.
+plans written, messages suggested, and the error if one failed. A full run for a
+company of four takes three to four minutes: one analysis, one plan per person,
+and one team follow-up per manager, each a `claude -p` call of forty to sixty
+seconds, run one after another on purpose.
+
+The follow-up is the expensive step — about $0.15 a call on ADITUM's data,
+roughly what the rest of the run costs together — because it reads the whole
+team at once. That is deliberate: deciding who to write to needs everybody side
+by side. See ADR-006.
 
 If the selftest fails with `could not start claude`, the service PATH does not
 include the binary: set `CLAUDE_BIN=/home/truenorth/.local/bin/claude` in

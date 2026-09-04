@@ -9,7 +9,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { Locale, ThemePreference } from '@truenorth/core';
+import type { AccentPreference, Locale, ThemePreference } from '@truenorth/core';
+import { ACCENTS, THEMES } from '@truenorth/core';
 import { getDictionary, type Dictionary } from './i18n/dictionary';
 
 /**
@@ -23,12 +24,14 @@ const STORAGE_KEY = 'truenorth.preferences';
 interface Preferences {
   locale: Locale;
   theme: ThemePreference;
+  accent: AccentPreference;
   reduceTransparency: boolean;
 }
 
 const DEFAULTS: Preferences = {
   locale: 'es',
   theme: 'system',
+  accent: 'azul',
   reduceTransparency: false,
 };
 
@@ -36,6 +39,7 @@ interface PreferencesValue extends Preferences {
   t: Dictionary;
   setLocale: (locale: Locale) => void;
   setTheme: (theme: ThemePreference) => void;
+  setAccent: (accent: AccentPreference) => void;
   setReduceTransparency: (value: boolean) => void;
 }
 
@@ -48,10 +52,12 @@ function read(): Preferences {
     const parsed = JSON.parse(raw) as Partial<Preferences>;
     return {
       locale: parsed.locale === 'en' ? 'en' : 'es',
-      theme:
-        parsed.theme === 'light' || parsed.theme === 'dark' || parsed.theme === 'system'
-          ? parsed.theme
-          : 'system',
+      theme: THEMES.includes(parsed.theme as ThemePreference)
+        ? (parsed.theme as ThemePreference)
+        : 'system',
+      accent: ACCENTS.includes(parsed.accent as AccentPreference)
+        ? (parsed.accent as AccentPreference)
+        : 'azul',
       reduceTransparency: Boolean(parsed.reduceTransparency),
     };
   } catch {
@@ -79,9 +85,12 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     if (prefs.theme === 'system') root.removeAttribute('data-theme');
     else root.setAttribute('data-theme', prefs.theme);
+    // Blue is the base token set, so the default accent leaves no stamp.
+    if (prefs.accent === 'azul') root.removeAttribute('data-accent');
+    else root.setAttribute('data-accent', prefs.accent);
     root.setAttribute('data-reduce-transparency', String(prefs.reduceTransparency));
     root.lang = prefs.locale;
-  }, [prefs.theme, prefs.reduceTransparency, prefs.locale]);
+  }, [prefs.theme, prefs.accent, prefs.reduceTransparency, prefs.locale]);
 
   const update = useCallback((patch: Partial<Preferences>) => {
     setPrefs((current) => {
@@ -97,6 +106,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       t: getDictionary(prefs.locale),
       setLocale: (locale) => update({ locale }),
       setTheme: (theme) => update({ theme }),
+      setAccent: (accent) => update({ accent }),
       setReduceTransparency: (reduceTransparency) => update({ reduceTransparency }),
     }),
     [prefs, update],

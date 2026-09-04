@@ -40,7 +40,7 @@ export default function ReportsPage() {
 
   const workload = useMemo(() => {
     const rows = users.map((user) => {
-      const own = tasks.filter((task) => task.assigneeUserId === user.id && task.status !== 'done');
+      const own = tasks.filter((task) => task.assigneeUserIds.includes(user.id) && task.status !== 'done');
       return {
         name: user.displayName.split(' ')[0] ?? user.displayName,
         open: own.length,

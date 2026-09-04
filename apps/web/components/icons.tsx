@@ -199,6 +199,15 @@ export function ClockIcon({ size = 12, strokeWidth = 1.4 }: IconProps) {
   );
 }
 
+export function CalendarIcon({ size = 20, strokeWidth = 1.7 }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <rect x="3.5" y="5" width="17" height="15" rx="3" stroke="currentColor" strokeWidth={strokeWidth} />
+      <path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function WarningTriangle({ size = 16, strokeWidth = 1.6 }: IconProps) {
   return (
     <svg width={size} height={(size * 15) / 16} viewBox="0 0 16 15" fill="none" aria-hidden>

@@ -37,6 +37,9 @@ import {
   type DailyPlan,
   type Indicator,
   type Membership,
+  type FollowUpOutcome,
+  type Situation,
+  type TeamFollowUp,
   type Objective,
   type PlanItemVerdict,
   type Project,
@@ -111,6 +114,12 @@ interface MemberDoc {
   roleTitle: string;
   roleDescription: string;
   access: Membership['access'];
+  /** Absent means true: an account. False is a person on the team without one. */
+  hasAccount?: boolean;
+  /** Absent on every document written before expectations existed. */
+  expectations?: string;
+  notionUserId?: string;
+  commsTone?: Membership['commsTone'];
 }
 
 /** One row in the company switcher, from the mirror under the user. */
@@ -152,6 +161,10 @@ interface StoreValue {
   projects: Project[];
   tasks: Task[];
   risks: Risk[];
+  /** Private notes about people. Empty for anybody who is not an admin. */
+  situations: Situation[];
+  /** Today's team follow-up for me, if I am a manager and the engine has run. */
+  followUp: TeamFollowUp | null;
   plan: DailyPlan;
   /** My own daily plans, newest first, for the briefing calendar. */
   planHistory: DailyPlan[];
@@ -177,10 +190,19 @@ interface StoreValue {
   upsertTask: (task: Task) => void;
   deleteTask: (id: string) => void;
 
-  updateMembership: (userId: string, patch: Partial<Membership>) => void;
+  updateMembership: (userId: string, patch: Partial<Membership> & { displayName?: string }) => void;
+  /** Adds somebody to the team who does not use the app. Admins only. */
+  addPerson: (person: { displayName: string; roleTitle: string; roleDescription: string; expectations: string }) => void;
+  /** Removes a person without an account. Accounts are removed by revoking access, not here. */
+  removePerson: (memberId: string) => void;
 
   upsertRisk: (risk: Risk) => void;
   deleteRisk: (id: string) => void;
+
+  upsertSituation: (situation: Situation) => void;
+  deleteSituation: (id: string) => void;
+  /** Records what I did with a suggested message, and what I actually sent. */
+  markFollowUp: (messageId: string, outcome: FollowUpOutcome, sentText?: string) => void;
 
   setPlanFeedback: (index: number, verdict: PlanItemVerdict | null) => void;
   markPlanStale: (stale: boolean) => void;
@@ -252,6 +274,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [ownProjects, setOwnProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
+  const [situations, setSituations] = useState<Situation[]>([]);
+  const [followUp, setFollowUp] = useState<TeamFollowUp | null>(null);
   const [plan, setPlan] = useState<DailyPlan | null>(null);
   const [planHistory, setPlanHistory] = useState<DailyPlan[]>([]);
   const [analyses, setAnalyses] = useState<CompanyAnalysis[]>([]);
@@ -417,6 +441,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setAnalyses(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as CompanyAnalysis)),
         () => setAnalyses([]),
       ),
+      // Both of these are admin-only reads. A plain member's listener is
+      // refused, which is the correct answer, so it empties rather than shouts.
+      onSnapshot(
+        collection(base, 'situations'),
+        (snap) =>
+          setSituations(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Situation)),
+        () => setSituations([]),
+      ),
+      onSnapshot(
+        doc(base, 'followups', `${TODAY}_${uid}`),
+        (snap) =>
+          setFollowUp(snap.exists() ? ({ id: snap.id, ...snap.data() } as TeamFollowUp) : null),
+        () => setFollowUp(null),
+      ),
       onSnapshot(
         doc(base, 'plans', `${TODAY}_${uid}`),
         (snap) => setPlan(snap.exists() ? ({ id: snap.id, ...snap.data() } as DailyPlan) : null),
@@ -509,20 +547,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     // 3. The starting data. Now `isMember(cid)` succeeds, so this can be one
     //    batch and either all of it lands or none of it does.
+    //
+    //    The founder takes the first seat on the sample team; everybody else is
+    //    seeded as a person without an account, under their fixture id. Those
+    //    ids match no Firebase uid, so they grant nothing — but they keep every
+    //    task, project and comment pointing at the right person, which is what
+    //    the follow-up needs to have anything to say.
     const batch = writeBatch(db);
-    const remap = (id: string | null) => (id === fixtures.users[0]!.id ? uid : null);
+    const remap = (id: string | null) => (id === fixtures.users[0]!.id ? uid : id);
+    const remapAll = (ids: string[]) =>
+      [...new Set(ids.map((id) => remap(id)).filter((id): id is string => Boolean(id)))];
+
+    for (const person of fixtures.users.slice(1)) {
+      const membership = fixtures.memberships.find((m) => m.userId === person.id);
+      batch.set(doc(base, 'members', person.id), {
+        displayName: person.displayName,
+        email: '',
+        initials: person.initials,
+        roleTitle: membership?.roleTitle ?? '',
+        roleDescription: membership?.roleDescription ?? '',
+        access: 'member',
+        hasAccount: false,
+        expectations: membership?.expectations ?? '',
+      });
+    }
 
     for (const objective of fixtures.objectives) {
       const { id, ...rest } = objective;
-      batch.set(doc(base, 'objectives', id), { ...rest, companyId: cid, ownerUserId: uid });
+      batch.set(doc(base, 'objectives', id), {
+        ...rest,
+        companyId: cid,
+        ownerUserId: remap(objective.ownerUserId) ?? uid,
+      });
     }
     for (const project of fixtures.projects) {
       const { id, ...rest } = project;
       batch.set(doc(base, 'projects', id), {
         ...rest,
         companyId: cid,
-        ownerUserId: uid,
-        memberUserIds: [uid],
+        ownerUserId: remap(project.ownerUserId) ?? uid,
+        memberUserIds: remapAll(project.memberUserIds),
       });
     }
     for (const task of fixtures.tasks) {
@@ -530,12 +594,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       batch.set(doc(base, 'tasks', id), {
         ...rest,
         companyId: cid,
-        assigneeUserId: remap(task.assigneeUserId),
+        assigneeUserIds: remapAll(task.assigneeUserIds),
+        lastCommentBy: task.lastCommentBy ? remap(task.lastCommentBy) : null,
+        comments: (task.comments ?? []).map((c) => ({
+          ...c,
+          authorUserId: c.authorUserId ? remap(c.authorUserId) : null,
+        })),
       });
     }
     for (const risk of fixtures.risks) {
       const { id, ...rest } = risk;
-      batch.set(doc(base, 'risks', id), { ...rest, companyId: cid, ownerUserId: uid });
+      batch.set(doc(base, 'risks', id), {
+        ...rest,
+        companyId: cid,
+        ownerUserId: remap(risk.ownerUserId) ?? uid,
+      });
     }
 
     // Until the engine runs, seed today's plan so the app is usable end to end.
@@ -621,6 +694,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       roleTitle: m.roleTitle,
       roleDescription: m.roleDescription,
       access: m.access,
+      hasAccount: m.hasAccount ?? true,
+      expectations: typeof m.expectations === 'string' ? m.expectations : '',
+      notionUserId: m.notionUserId,
+      commsTone: m.commsTone,
     })) as Membership[];
 
     const currentUser: User =
@@ -645,6 +722,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         roleTitle: '',
         roleDescription: '',
         access: 'member',
+        hasAccount: true,
+        expectations: '',
       } satisfies Membership);
 
     const signals = computeSignals({ today, objectives, projects, tasks, users });
@@ -666,6 +745,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       projects,
       tasks,
       risks,
+      situations,
+      followUp,
       plan: currentPlan,
       planHistory,
       analyses,
@@ -789,6 +870,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               ? { roleDescription: patch.roleDescription }
               : {}),
             ...(patch.access !== undefined ? { access: patch.access } : {}),
+            ...(patch.expectations !== undefined ? { expectations: patch.expectations } : {}),
+            ...(patch.notionUserId !== undefined ? { notionUserId: patch.notionUserId } : {}),
+            ...(patch.commsTone !== undefined ? { commsTone: patch.commsTone } : {}),
+            ...(patch.displayName !== undefined
+              ? { displayName: patch.displayName, initials: initialsFrom(patch.displayName) }
+              : {}),
           }),
         ),
 
@@ -799,6 +886,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }),
 
       deleteRisk: (id) => write((db, cid) => deleteDoc(doc(db, 'companies', cid, 'risks', id))),
+
+      // A synthetic id, so it can never collide with a Firebase uid: the rules
+      // grant access only when the document id equals request.auth.uid.
+      addPerson: (person) =>
+        write((db, cid) =>
+          setDoc(doc(db, 'companies', cid, 'members', newId('p')), {
+            displayName: person.displayName,
+            email: '',
+            initials: initialsFrom(person.displayName),
+            roleTitle: person.roleTitle,
+            roleDescription: person.roleDescription,
+            access: 'member',
+            hasAccount: false,
+            expectations: person.expectations,
+          }),
+        ),
+      removePerson: (memberId) =>
+        write((db, cid) => deleteDoc(doc(db, 'companies', cid, 'members', memberId))),
+
+      upsertSituation: (situation) =>
+        write((db, cid) => {
+          const { id, ...rest } = situation;
+          return setDoc(doc(db, 'companies', cid, 'situations', id), { ...rest, companyId: cid });
+        }),
+      deleteSituation: (id) =>
+        write((db, cid) => deleteDoc(doc(db, 'companies', cid, 'situations', id))),
+
+      // The engine wrote the suggestion; this is the only part of it a person
+      // may touch, and the rules allow exactly these two fields.
+      markFollowUp: (messageId, outcome, sentText) =>
+        write((db, cid) => {
+          if (!followUp) return Promise.resolve();
+          return updateDoc(doc(db, 'companies', cid, 'followups', followUp.id), {
+            outcome: { ...followUp.outcome, [messageId]: outcome },
+            sentText:
+              sentText === undefined
+                ? followUp.sentText
+                : { ...followUp.sentText, [messageId]: sentText },
+          });
+        }),
 
       setPlanFeedback: (index, verdict) =>
         write((db, cid) => {
@@ -940,6 +1067,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setOwnProjects([]);
         setTasks([]);
         setRisks([]);
+        setSituations([]);
+        setFollowUp(null);
         setPlan(null);
         try {
           window.localStorage.setItem(COMPANY_KEY, nextId);
@@ -1025,6 +1154,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         for (const project of projects) batch.delete(doc(base, 'projects', project.id));
         for (const task of tasks) batch.delete(doc(base, 'tasks', task.id));
         for (const risk of risks) batch.delete(doc(base, 'risks', risk.id));
+        for (const situation of situations) batch.delete(doc(base, 'situations', situation.id));
+        // The sample people go too; accounts stay, they are not sample data.
+        for (const m of memberships) {
+          if (!m.hasAccount) batch.delete(doc(base, 'members', m.userId));
+        }
         await batch.commit();
         try {
           window.localStorage.removeItem(COMPANY_KEY);
@@ -1047,6 +1181,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     projects,
     tasks,
     risks,
+    situations,
+    followUp,
     plan,
     planHistory,
     analyses,
@@ -1113,6 +1249,22 @@ export function makeProject(companyId: string, ownerUserId: string): Project {
   };
 }
 
+export function makeSituation(companyId: string, userId: string, createdBy: string): Situation {
+  return {
+    id: newId('s'),
+    companyId,
+    userId,
+    kind: 'personal',
+    note: '',
+    // Discreet by default: a note about somebody is private until its author
+    // decides otherwise, not the other way round.
+    discreet: true,
+    startsAt: TODAY,
+    endsAt: null,
+    createdBy,
+  };
+}
+
 export function makeTask(companyId: string, projectId: string | null): Task {
   return {
     id: newId('t'),
@@ -1123,7 +1275,7 @@ export function makeTask(companyId: string, projectId: string | null): Task {
     status: 'todo',
     priority: 'medium',
     dueDate: null,
-    assigneeUserId: null,
+    assigneeUserIds: [],
     dependsOn: [],
     source: 'app',
   };
