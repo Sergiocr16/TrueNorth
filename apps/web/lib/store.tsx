@@ -28,7 +28,6 @@ import {
 import {
   atMidnight,
   computeSignals,
-  fixtures,
   shiftIso,
   todayIso,
   healthFrom,
@@ -83,10 +82,6 @@ const TODAY = todayIso();
  * The sample data is written against a frozen date. When it is seeded, its
  * relative dates are shifted so "yesterday" in the fixture is yesterday here.
  */
-const SEED_SHIFT_DAYS = Math.round(
-  (atMidnight(TODAY).getTime() - atMidnight(fixtures.TODAY).getTime()) / 86_400_000,
-);
-
 /**
  * Adds today's value to a history, replacing any entry already recorded today.
  * Kept short: a year of daily edits is 365 small objects, well inside a
@@ -555,147 +550,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!uid || !user) return;
     const { db } = firebase();
     const cid = newId('c');
-    const seed = fixtures.companies[0]!;
     const base = doc(db, 'companies', cid);
 
-    // Order matters, and it cannot be a single batch. Rules are evaluated
-    // against the database as it is *now*, so a batched write cannot depend on
-    // another document created in the same batch: `isCreator` would not find
-    // the company, and `isMember` would not find the member document. Hence
-    // three steps, each one making the next one legal.
-
-    // 1. The company. `createdBy` is what later lets this person add
-    //    themselves as the first member, which no admin could do because
-    //    being an admin requires the very document being created.
+    // An empty company, on purpose. Nothing here is sample data: objectives,
+    // projects and people arrive from the app or from Notion, and a screen
+    // with nothing in it says so rather than showing work that never existed.
+    // The fixtures stay in packages/core for tests and the engine selftest.
+    //
+    // 1. The company. `isCreator(cid)` lets this person add themselves next.
     await setDoc(base, {
       createdBy: uid,
       createdAt: serverTimestamp(),
-      name: seed.name,
-      slug: seed.slug,
-      northStar: seed.northStar,
-      northStarDeadline: seed.northStarDeadline,
-      plans: seed.plans,
+      name: 'ADITUM',
+      slug: 'aditum',
+      northStar: '',
+      northStarDeadline: '',
+      plans: { m3: '', m6: '', m12: '' },
     });
 
-    // 2. Their own membership. Now `isCreator(cid)` can read the company.
+    // 2. Their own membership, so `isMember(cid)` holds from here on.
     const displayName = user.displayName ?? user.email?.split('@')[0] ?? 'Sin nombre';
     await setDoc(doc(base, 'members', uid), {
       displayName,
       email: user.email ?? '',
       initials: initialsFrom(displayName),
-      roleTitle: fixtures.memberships[0]!.roleTitle,
-      roleDescription: fixtures.memberships[0]!.roleDescription,
+      roleTitle: '',
+      roleDescription: '',
       access: 'owner',
+      hasAccount: true,
+      expectations: '',
     });
 
-    // 3. The starting data. Now `isMember(cid)` succeeds, so this can be one
-    //    batch and either all of it lands or none of it does.
-    //
-    //    The founder takes the first seat on the sample team; everybody else is
-    //    seeded as a person without an account, under their fixture id. Those
-    //    ids match no Firebase uid, so they grant nothing — but they keep every
-    //    task, project and comment pointing at the right person, which is what
-    //    the follow-up needs to have anything to say.
-    const batch = writeBatch(db);
-    const remap = (id: string | null) => (id === fixtures.users[0]!.id ? uid : id);
-    const remapAll = (ids: string[]) =>
-      [...new Set(ids.map((id) => remap(id)).filter((id): id is string => Boolean(id)))];
-
-    for (const person of fixtures.users.slice(1)) {
-      const membership = fixtures.memberships.find((m) => m.userId === person.id);
-      batch.set(doc(base, 'members', person.id), {
-        displayName: person.displayName,
-        email: '',
-        initials: person.initials,
-        roleTitle: membership?.roleTitle ?? '',
-        roleDescription: membership?.roleDescription ?? '',
-        access: 'member',
-        hasAccount: false,
-        expectations: membership?.expectations ?? '',
-      });
-    }
-
-    for (const objective of fixtures.objectives) {
-      const { id, ...rest } = objective;
-      batch.set(doc(base, 'objectives', id), {
-        ...rest,
-        companyId: cid,
-        ownerUserId: remap(objective.ownerUserId) ?? uid,
-      });
-    }
-    for (const project of fixtures.projects) {
-      const { id, ...rest } = project;
-      batch.set(doc(base, 'projects', id), {
-        ...rest,
-        companyId: cid,
-        ownerUserId: remap(project.ownerUserId) ?? uid,
-        memberUserIds: remapAll(project.memberUserIds),
-      });
-    }
-    for (const task of fixtures.tasks) {
-      const { id, ...rest } = task;
-      batch.set(doc(base, 'tasks', id), {
-        ...rest,
-        companyId: cid,
-        assigneeUserIds: remapAll(task.assigneeUserIds),
-        lastCommentBy: task.lastCommentBy ? remap(task.lastCommentBy) : null,
-        comments: (task.comments ?? []).map((c) => ({
-          ...c,
-          authorUserId: c.authorUserId ? remap(c.authorUserId) : null,
-        })),
-      });
-    }
-    for (const risk of fixtures.risks) {
-      const { id, ...rest } = risk;
-      batch.set(doc(base, 'risks', id), {
-        ...rest,
-        companyId: cid,
-        ownerUserId: remap(risk.ownerUserId) ?? uid,
-      });
-    }
-
-    // Until the engine runs, seed today's plan so the app is usable end to end.
-    const seedPlan = fixtures.todaysPlan;
-    batch.set(doc(base, 'plans', `${TODAY}_${uid}`), {
-      companyId: cid,
-      uid,
-      userId: uid,
-      date: TODAY,
-      headline: seedPlan.headline,
-      why: seedPlan.why,
-      items: seedPlan.items,
-      consequenceIfNotDone: seedPlan.consequenceIfNotDone,
-      deliveredAt: seedPlan.deliveredAt,
-      stale: false,
-      feedback: {},
-    });
-
-    // A short run of past days, so the briefing calendar is not empty on the
-    // first launch. Sample data, like the rest of the seed.
-    for (const past of fixtures.pastPlans) {
-      const date = shiftIso(past.date, SEED_SHIFT_DAYS);
-      batch.set(doc(base, 'plans', `${date}_${uid}`), {
-        companyId: cid,
-        uid,
-        userId: uid,
-        date,
-        headline: past.headline,
-        why: past.why,
-        items: past.items.map((item) => ({ ...item, signalIds: item.signalIds })),
-        consequenceIfNotDone: past.consequenceIfNotDone,
-        deliveredAt: `${date}T06:30:00-06:00`,
-        stale: false,
-        feedback: past.feedback,
-      });
-    }
-
-    await batch.commit();
-
-    // 4. The mirror that makes this company findable on the next sign-in. A
+    // 3. The mirror that makes this company findable on the next sign-in. A
     //    trigger takes this over once Cloud Functions exist.
     await setDoc(doc(db, 'users', uid, 'memberships', cid), {
-      companyName: seed.name,
-      roleTitle: fixtures.memberships[0]!.roleTitle,
+      companyName: 'ADITUM',
+      roleTitle: '',
       access: 'owner',
     });
 

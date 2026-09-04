@@ -75,10 +75,11 @@ pnpm install
 pnpm dev            # http://localhost:3000
 ```
 
-The first company is seeded with ADITUM's objectives, projects, tasks and team
-— the team as people without accounts, so follow-up has somebody to talk about
-from day one — and everything is editable. Data lives in Firestore; **Settings
-→ Reset sample data** puts the sample back.
+The first sign-in as a founder creates an empty company: no objectives, no
+projects, no people. Everything arrives from the app or from Notion, and a
+screen with nothing in it says so. ADITUM's sample data stays in
+`packages/core/src/fixtures.ts` for the tests and the engine selftest only.
+**Settings → Empty the company** wipes a company back to that state.
 
 To try it on a phone before the Pi exists, put `tailscale serve` in front of
 the dev server and authorize the laptop's tailnet name in Firebase Auth
