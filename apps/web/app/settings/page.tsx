@@ -196,7 +196,7 @@ export default function SettingsPage() {
           <button
             type="button"
             onClick={() => {
-              void auth.signOut().then(() => router.replace('/entrar'));
+              void auth.signOut().then(() => router.replace('/sign-in'));
             }}
             className="tn-press flex min-h-[52px] w-full items-center justify-center px-4 text-[17px] font-semibold text-[var(--accent)]"
           >

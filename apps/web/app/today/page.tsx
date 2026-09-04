@@ -121,7 +121,7 @@ export default function TodayPage() {
           <PlanCalendar onPick={() => setCalendarOpen(false)} />
         </div>
         <Link
-          href={`${ROUTES.briefing}/historial`}
+          href={`${ROUTES.briefing}/history`}
           onClick={() => setCalendarOpen(false)}
           className="mt-4 self-start text-[15px] font-semibold text-[var(--accent)]"
         >

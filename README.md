@@ -12,7 +12,7 @@ TrueNorth connects a company's north-star goal to its objectives, projects, task
 
 A personal project by **Sergio Castro**. Its first workspace is ADITUM, a condominium-management software company in Costa Rica whose goal is to lead that market by December 2027, which is where the sample data comes from.
 
-The screens are in Spanish (Costa Rica) with English available; the code is in English.
+The screens are in Spanish (Costa Rica) with English available; the code, and every URL, is in English.
 
 ### What a plan looks like
 
@@ -99,18 +99,18 @@ npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/cor
 
 | Route | What it does |
 | --- | --- |
-| `/entrar`, `/elegir-empresa` | Sign in, then pick the company and see your role in it |
-| `/hoy` | The day as a compass — the needle swings north as the plan gets done — the plan, per-item feedback, recalculate, the calendar of past days |
+| `/sign-in`, `/choose-company` | Sign in, then pick the company and see your role in it |
+| `/today` | The day as a compass — the needle swings north as the plan gets done — the plan, per-item feedback, recalculate, the calendar of past days |
 | `/briefing` | Three numbers, the executive summary folded, ranked risks, decisions, five perspectives, how the team is doing |
-| `/empresa` | North star, target date, 3/6/12-month plans, overall status |
-| `/objetivos` | Objectives with indicators and the expected-vs-actual gap |
-| `/proyectos` | Projects with a health strip and filters; each with objectives, tasks by status, dependencies |
-| `/equipo` | Who is on the team, with or without an account: role, responsibility, what you expect of them |
-| `/seguimiento` | Managers only: how each person is doing, private situations, and today's messages — greeting first, ready to copy |
-| `/asistente` | The chief of staff as a conversation: ask about the day, by text or voice, and confirm what it proposes — a situation, a message to copy, a follow-up marked sent, an expectation |
-| `/riesgos` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
-| `/integraciones` | Notion connection, authorised sources, property and status mapping |
-| `/ajustes` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
+| `/company` | North star, target date, 3/6/12-month plans, overall status |
+| `/objectives` | Objectives with indicators and the expected-vs-actual gap |
+| `/projects` | Projects with a health strip and filters; each with objectives, tasks by status, dependencies |
+| `/team` | Who is on the team, with or without an account: role, responsibility, what you expect of them |
+| `/follow-up` | Managers only: how each person is doing, private situations, and today's messages — greeting first, ready to copy |
+| `/assistant` | The chief of staff as a conversation: ask about the day, by text or voice, and confirm what it proposes — a situation, a message to copy, a follow-up marked sent, an expectation |
+| `/risks` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
+| `/integrations` | Notion connection, authorised sources, property and status mapping |
+| `/settings` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
 
 Every main screen carries a small compass in its corner: that screen's health
 as a share computed in `packages/core/src/health.ts` — south nothing right,
@@ -140,7 +140,7 @@ Writes go back to Notion when a dictated update is confirmed. Notion always wins
 
 ## The assistant
 
-`/asistente` is the chief of staff as a conversation. One question, one
+`/assistant` is the chief of staff as a conversation. One question, one
 `claude -p` call (Sonnet by default — `ASK_MODEL` changes it — about ten
 seconds and three cents) over the same context the morning run had, cut down
 to what the person may see. Answers cite signals like a plan does. Voice is

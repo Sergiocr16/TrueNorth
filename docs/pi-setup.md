@@ -234,7 +234,7 @@ The `PATH` line is what lets the server find `claude` when it spawns it.
 sudo systemctl daemon-reload
 sudo systemctl enable --now truenorth
 sudo systemctl status truenorth
-curl -s http://localhost:3000/entrar | head -c 200
+curl -s http://localhost:3000/sign-in | head -c 200
 ```
 
 ## 7. HTTPS through Tailscale

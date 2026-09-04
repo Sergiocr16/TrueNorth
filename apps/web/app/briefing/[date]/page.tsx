@@ -15,13 +15,13 @@ import { useRiskCount, useStore } from '../../../lib/store';
  * actually marked done, and the company analysis if the engine produced one.
  */
 export default function BriefingDayPage() {
-  const params = useParams<{ fecha: string }>();
+  const params = useParams<{ date: string }>();
   const { t, locale } = usePreferences();
   const store = useStore();
   const riskCount = useRiskCount();
   const [lens, setLens] = useState<PerspectiveKey>('cto');
 
-  const date = params.fecha;
+  const date = params.date;
   const plan = useMemo(
     () => store.planHistory.find((p) => p.date === date),
     [store.planHistory, date],
@@ -36,7 +36,7 @@ export default function BriefingDayPage() {
   if (!plan && !analysis) {
     return (
       <Screen riskCount={riskCount}>
-        <DetailHeader title={t.briefing.history} backHref={`${ROUTES.briefing}/historial`} />
+        <DetailHeader title={t.briefing.history} backHref={`${ROUTES.briefing}/history`} />
         <Card className="mx-4 mt-4 p-4 text-[15px] leading-snug text-[var(--sec)]">
           {es
             ? 'No hay nada registrado ese día.'
@@ -59,7 +59,7 @@ export default function BriefingDayPage() {
 
   return (
     <Screen riskCount={riskCount}>
-      <DetailHeader title={t.briefing.history} backHref={`${ROUTES.briefing}/historial`} />
+      <DetailHeader title={t.briefing.history} backHref={`${ROUTES.briefing}/history`} />
 
       <div className="mx-4 mt-2">
         <h1 className="text-[28px] font-bold capitalize leading-tight tracking-[-0.2px] text-[var(--ink)]">

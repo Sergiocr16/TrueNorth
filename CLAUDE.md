@@ -20,7 +20,7 @@ Consequences you must preserve:
 
 ```
 apps/web/            Next.js 16 App Router, PWA, served from the Raspberry Pi
-  app/               routes (Spanish paths), one folder per screen
+  app/               routes (English paths, ADR-007), one folder per screen
   app/api/           route handlers: engine (daily, replan, selftest), company logo
   server/            admin.ts (Admin SDK) and engine/ (capture, prompts, run,
                      claude) — never imported by the browser
@@ -145,7 +145,7 @@ generated; the data is safe in Firebase. That trade was made deliberately.
 - The team follow-up schema in the same file (ADR-006): a reading for every person, a message only for those who need one and only ever citing a signal, defaulting to a comment on the Notion task. Nothing is sent or published without Sergio copying it.
 - The `jobs` document shape used by the Raspberry Pi worker.
 - The Notion status map (`packages/core/src/notion-status.ts`): fifteen Notion labels collapse onto four internal states. The signal engine, the plan and the voice writer all depend on it.
-- The route paths, which are Spanish and user-visible.
+- The route paths (ADR-007): English, one folder per screen, `[date]` and `[id]` for dynamic segments.
 
 ## Design system
 

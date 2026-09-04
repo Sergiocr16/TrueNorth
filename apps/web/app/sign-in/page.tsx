@@ -26,7 +26,7 @@ export default function SignInPage() {
 
   // A confirmed account moves on; an unconfirmed one stays here.
   useEffect(() => {
-    if (auth.user && auth.user.emailVerified) router.replace('/elegir-empresa');
+    if (auth.user && auth.user.emailVerified) router.replace('/choose-company');
   }, [auth.user, router]);
 
   const es = locale === 'es';

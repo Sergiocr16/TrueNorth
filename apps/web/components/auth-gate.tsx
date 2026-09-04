@@ -22,7 +22,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth.loading && !auth.user) router.replace('/entrar');
+    if (!auth.loading && !auth.user) router.replace('/sign-in');
   }, [auth.loading, auth.user, router]);
 
   if (!auth.configured) {
@@ -46,7 +46,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // The rules require a verified address before an invitation can be redeemed,
   // so an unconfirmed account is sent back to finish that first.
   if (!auth.user.emailVerified) {
-    router.replace('/entrar');
+    router.replace('/sign-in');
     return <Splash />;
   }
 

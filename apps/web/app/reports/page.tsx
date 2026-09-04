@@ -119,7 +119,7 @@ export default function ReportsPage() {
           </div>
 
           <div className="mt-3 lg:col-span-2">
-            <Link href={`${ROUTES.reports}/semanal`}>
+            <Link href={`${ROUTES.reports}/weekly`}>
               <Card className="tn-press flex items-center gap-3 p-4">
                 <span className="min-w-0 flex-1">
                   <span className="block text-[17px] font-semibold text-[var(--ink)]">

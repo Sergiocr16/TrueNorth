@@ -75,7 +75,7 @@ export async function POST(request: Request) {
           ref: planRef,
           title: 'Tu plan de hoy',
           body: String(plan.data()?.headline ?? ''),
-          url: '/hoy',
+          url: '/today',
           tag: `plan-${date}`,
         });
       }
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
             ref: followRef,
             title: 'Seguimiento de hoy',
             body: pending === 1 ? '1 mensaje por enviar' : `${pending} mensajes por enviar`,
-            url: '/seguimiento',
+            url: '/follow-up',
             tag: `followup-${date}`,
           });
         }

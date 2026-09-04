@@ -26,13 +26,13 @@ messaging.onBackgroundMessage((payload) => {
     icon: '/icons/192',
     badge: '/icons/192m',
     tag: data.tag || 'truenorth',
-    data: { url: data.url || '/hoy' },
+    data: { url: data.url || '/today' },
   });
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/hoy';
+  const url = (event.notification.data && event.notification.data.url) || '/today';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const client of list) {

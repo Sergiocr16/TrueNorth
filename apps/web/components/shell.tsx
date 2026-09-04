@@ -25,18 +25,18 @@ import {
 } from './icons';
 
 export const ROUTES = {
-  today: '/hoy',
+  today: '/today',
   briefing: '/briefing',
-  company: '/empresa',
-  objectives: '/objetivos',
-  projects: '/proyectos',
-  team: '/equipo',
-  followUps: '/seguimiento',
-  ask: '/asistente',
-  risks: '/riesgos',
-  reports: '/reportes',
-  integrations: '/integraciones',
-  settings: '/ajustes',
+  company: '/company',
+  objectives: '/objectives',
+  projects: '/projects',
+  team: '/team',
+  followUps: '/follow-up',
+  ask: '/assistant',
+  risks: '/risks',
+  reports: '/reports',
+  integrations: '/integrations',
+  settings: '/settings',
 } as const;
 
 /* ------------------------------------------------------------------ */
