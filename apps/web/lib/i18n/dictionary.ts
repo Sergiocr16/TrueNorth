@@ -173,6 +173,8 @@ export const dictionary = {
       openInNotion: 'Abrir en Notion',
       involved: 'También en esta tarea',
       idle: (days: number) => `sin moverse hace ${days} ${days === 1 ? 'día' : 'días'}`,
+      progress: (days: number) =>
+        days === 0 ? 'avance del responsable hoy' : `avance del responsable hace ${days} ${days === 1 ? 'día' : 'días'}`,
       neverMoved: 'sin registro de movimiento',
       lastComment: (author: string, date: string) => `último comentario de ${author}, ${date}`,
       noComments: 'sin comentarios',
@@ -748,6 +750,8 @@ export const dictionary = {
       openInNotion: 'Open in Notion',
       involved: 'Also on this task',
       idle: (days: number) => `untouched for ${days} ${days === 1 ? 'day' : 'days'}`,
+      progress: (days: number) =>
+        days === 0 ? 'owner moved it today' : `owner moved it ${days} ${days === 1 ? 'day' : 'days'} ago`,
       neverMoved: 'no movement on record',
       lastComment: (author: string, date: string) => `last comment by ${author}, ${date}`,
       noComments: 'no comments',

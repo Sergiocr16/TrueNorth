@@ -2,7 +2,7 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import type { HealthStatus, Task, TaskStatus, User } from '@truenorth/core';
-import { idleDays, isOverdue, notionUrl } from '@truenorth/core';
+import { idleDays, isOverdue, notionUrl, progressDays } from '@truenorth/core';
 import { usePreferences, useT } from '../lib/preferences';
 import { useStore } from '../lib/store';
 import { formatShortDate } from '../lib/i18n/dictionary';
@@ -229,10 +229,14 @@ export function TaskLine({
   const others = responsible.slice(1);
 
   const overdue = today ? isOverdue(task, today) : false;
+  // The owner's own progress when we can tell it apart, anybody's activity
+  // otherwise — the same two clocks the engine reads.
+  const progress = today ? progressDays(task, today) : null;
   const idle = today ? idleDays(task, today) : null;
 
   const activity: string[] = [];
-  if (idle !== null) activity.push(t.task.idle(idle));
+  if (progress !== null) activity.push(t.task.progress(progress));
+  else if (idle !== null) activity.push(t.task.idle(idle));
   if (task.lastCommentAt) {
     const author = users.find((u) => u.id === task.lastCommentBy)?.displayName ?? '—';
     activity.push(t.task.lastComment(author, formatShortDate(task.lastCommentAt.slice(0, 10), locale)));

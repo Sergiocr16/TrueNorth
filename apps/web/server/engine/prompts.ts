@@ -12,7 +12,7 @@ import type {
   Task,
   User,
 } from '@truenorth/core';
-import { expectedProgressPct, idleDays, pickableTasks, progressGap } from '@truenorth/core';
+import { expectedProgressPct, idleDays, pickableTasks, progressDays, progressGap } from '@truenorth/core';
 
 /**
  * The prompts. Two of them, both in the same shape: a short system prompt that
@@ -43,6 +43,7 @@ Rules you must follow:
 - The briefing is one paragraph from this role's point of view, then the three risks that weigh most on it and the decisions it is waiting on. The five perspectives are five lenses on the same reading, two or three sentences each.
 - The plan is three to five concrete actions, each with the reason it matters today and each citing at least one signal id from the list. An action without a real signal behind it does not go in.
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's. Never ask somebody carrying a workload signal to take on more.
+- Late is not the same as stuck. An overdue signal says whether the owner moved the task recently — a status change, an edit, a comment of theirs. If they did, the work is advancing: the action is to close it or fix its date, not to chase. Stuck is past its date with no word from the owner; somebody else's comment on it is a question, not progress.
 - When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
 - Be honest in "consequenceIfNotDone": a concrete, plausible cost, not a threat. Estimated minutes are realistic; a plan fits in a working day alongside meetings.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
@@ -69,6 +70,7 @@ Rules you must follow:
 - A message goes only to somebody the data says needs one today. Silence is a valid answer and the reading is where you explain it; never invent a reason to write.
 - Every message cites at least one signal id from that person's list. A message with nothing real behind it is not written.
 - When the signal is about one task, the message belongs on that task: set target to "comentario" and taskId to that task's id. Reserve "directo" for what spans several tasks, or is about the person rather than the work.
+- Late is not the same as stuck. An overdue signal says whether the owner moved the task recently — a status change, an edit, a comment of theirs — and each task lists its owner's last advance. If they moved it, the work is advancing: acknowledge it and ask only for a date, never chase it as silence. Stuck is past its date with no word from the owner; somebody else's comment on it is a question waiting, not progress.
 - When somebody is ahead, or has just delivered, the message that fits is recognition. A day where everyone gets a telling-off is a misreading, not a hard day.
 - Never ask somebody carrying a workload signal to take on more; suggest moving work instead.
 - A situation changes how you ask, never what you reveal. If it is marked discreet, do not mention it, allude to it, or hint that you know: soften the ask and say nothing about why.
@@ -205,9 +207,14 @@ function fmtTask(
 
   // Activity is what makes "this has not moved" sayable. Absent stamps are left
   // out rather than guessed at: a task we have never seen move is not stalled.
+  // Two clocks: anybody's activity, and the owner's own progress — a status
+  // change, an edit, or a comment of theirs. A late task whose owner wrote on
+  // it yesterday is moving; one where only others have asked is not.
   const idle = today ? idleDays(task, today) : null;
+  const progress = today ? progressDays(task, today) : null;
   const activity: string[] = [];
-  if (idle !== null) activity.push(`sin moverse hace ${idle} días`);
+  if (progress !== null) activity.push(`último avance del responsable hace ${progress} días`);
+  if (idle !== null && idle !== progress) activity.push(`última actividad de cualquiera hace ${idle} días`);
   if (task.lastCommentAt) {
     const author = nameOf(task.lastCommentBy ?? null) ?? 'alguien';
     const last = task.comments?.[task.comments.length - 1];
