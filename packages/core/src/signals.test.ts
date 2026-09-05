@@ -232,6 +232,59 @@ describe('computeSignals', () => {
     expect(signals.find((s) => s.kind === 'overdue_task')?.taskId).toBe('t2');
   });
 
+  // Late is not stuck. The overdue signal says whether the owner has moved
+  // the task lately, so the model can tell "ask for a date" from "chase".
+  it('says whether an overdue task is still moving, judged by its owner', () => {
+    const comment = (authorUserId: string, createdAt: string) => ({
+      id: `c-${authorUserId}`,
+      authorUserId,
+      authorName: authorUserId,
+      createdAt,
+      text: 'avance',
+    });
+    const signals = computeSignals({
+      today: TODAY,
+      objectives: [objective()],
+      projects: [project()],
+      tasks: [
+        // The owner wrote on it yesterday: late but moving.
+        task({
+          id: 'moving',
+          dueDate: '2026-08-20',
+          status: 'in_progress',
+          statusChangedAt: '2026-07-01T00:00:00Z',
+          comments: [comment('u1', '2026-09-02T10:00:00Z')],
+          lastCommentAt: '2026-09-02T10:00:00Z',
+          lastCommentBy: 'u1',
+        }),
+        // Only somebody else asked about it: a question, not progress.
+        task({
+          id: 'silent',
+          dueDate: '2026-08-20',
+          status: 'in_progress',
+          statusChangedAt: '2026-07-01T00:00:00Z',
+          comments: [comment('u2', '2026-09-02T10:00:00Z')],
+          lastCommentAt: '2026-09-02T10:00:00Z',
+          lastCommentBy: 'u2',
+        }),
+        // Nothing known about its movement at all: no claim either way.
+        task({ id: 'unknown', dueDate: '2026-08-20', status: 'in_progress' }),
+      ],
+      users,
+    });
+    const moving = signals.find((s) => s.id === 'overdue:moving');
+    expect(moving?.summary.es).toContain('pero el responsable la movió hace 1 día');
+    expect(moving?.data).toMatchObject({ days: 14, progressDays: 1, moving: 1 });
+
+    const silent = signals.find((s) => s.id === 'overdue:silent');
+    expect(silent?.summary.es).toContain('sin avance del responsable hace 64 días');
+    expect(silent?.data).toMatchObject({ progressDays: 64, moving: 0 });
+
+    const unknown = signals.find((s) => s.id === 'overdue:unknown');
+    expect(unknown?.summary.es).toBe('Task (TAR-001) lleva 14 días vencida');
+    expect(unknown?.data).toEqual({ days: 14 });
+  });
+
   it('flags unassigned work in flight, and undated tasks', () => {
     const signals = computeSignals({
       today: TODAY,

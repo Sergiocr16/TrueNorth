@@ -120,6 +120,37 @@ export function idleDays(task: Task, today: Date): number | null {
   return at ? daysSince(at, today) : null;
 }
 
+/**
+ * When the task last showed progress *from its owner*, as opposed to any
+ * activity at all. A status change and an edit to the page count; so does a
+ * comment, but only one written by somebody responsible for the task —
+ * somebody else's comment is a question, not an advance. This is what tells
+ * "late but moving" from "late and silent": a task past its date whose owner
+ * wrote on it yesterday is not the same problem as one nobody has touched.
+ */
+export function lastProgressAt(task: Task): string | null {
+  const who = new Set(owners(task));
+  const ownComments = (task.comments ?? [])
+    .filter((c) => c.authorUserId && who.has(c.authorUserId))
+    .map((c) => c.createdAt);
+  // The stored comments are the last few; the summary stamp covers the case
+  // where the owner's word is the latest one and the list was not kept.
+  if (task.lastCommentAt && task.lastCommentBy && who.has(task.lastCommentBy)) {
+    ownComments.push(task.lastCommentAt);
+  }
+  const stamps = [task.statusChangedAt, task.updatedAt, task.notionLastEditedAt, ...ownComments].filter(
+    (value): value is string => Boolean(value),
+  );
+  if (stamps.length === 0) return null;
+  return stamps.reduce((latest, value) => (value > latest ? value : latest));
+}
+
+/** Days since the owner last showed progress, or null when we cannot tell. */
+export function progressDays(task: Task, today: Date): number | null {
+  const at = lastProgressAt(task);
+  return at ? daysSince(at, today) : null;
+}
+
 /** Everyone responsible for a task. Notion allows several; so do we. */
 export function owners(task: Task): string[] {
   return task.assigneeUserIds ?? [];
@@ -214,19 +245,38 @@ export function computeSignals(ctx: SignalContext): Signal[] {
 
     if (isOverdue(task, today)) {
       const days = daysBetween(toDate(task.dueDate!), today);
+      // Late is not the same as stuck. The date says late; whether the owner
+      // has moved it since says whether to chase or to ask for a new date.
+      const progress = progressDays(task, today);
+      const moving = progress !== null && progress <= STALE_TASK_DAYS;
+      const clause =
+        progress === null
+          ? { es: '', en: '' }
+          : moving
+            ? {
+                es: `, pero el responsable la movió hace ${progress} ${progress === 1 ? 'día' : 'días'}`,
+                en: `, but its owner moved it ${progress} ${progress === 1 ? 'day' : 'days'} ago`,
+              }
+            : {
+                es: ` y sin avance del responsable hace ${progress} días`,
+                en: ` with no progress from its owner in ${progress} days`,
+              };
       signals.push({
         id: `overdue:${task.id}`,
         kind: 'overdue_task',
         severity: days > 7 ? 'critical' : 'warning',
         summary: {
-          es: `${taskName(task)} lleva ${days} ${days === 1 ? 'día' : 'días'} vencida`,
-          en: `${taskName(task)} is ${days} ${days === 1 ? 'day' : 'days'} overdue`,
+          es: `${taskName(task)} lleva ${days} ${days === 1 ? 'día' : 'días'} vencida${clause.es}`,
+          en: `${taskName(task)} is ${days} ${days === 1 ? 'day' : 'days'} overdue${clause.en}`,
         },
         taskId: task.id,
         projectId: task.projectId ?? undefined,
         userId: owners(task)[0],
         userIds: owners(task),
-        data: { days },
+        data: {
+          days,
+          ...(progress !== null ? { progressDays: progress, moving: moving ? 1 : 0 } : {}),
+        },
       });
     }
 
