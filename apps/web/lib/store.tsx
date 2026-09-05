@@ -124,6 +124,7 @@ interface MemberDoc {
   access: Membership['access'];
   /** Absent means true: an account. False is a person on the team without one. */
   hasAccount?: boolean;
+  disabled?: boolean;
   /** Absent on every document written before expectations existed. */
   expectations?: string;
   notionUserId?: string;
@@ -293,6 +294,11 @@ interface StoreValue {
     /** A member without an account this account is for. */
     personId?: string,
   ) => Promise<InviteResult>;
+  /** Founders only: switch an account off or on, hand it a new password, or delete it. */
+  manageAccount: (
+    uid: string,
+    action: 'disable' | 'enable' | 'resetPassword' | 'delete',
+  ) => Promise<{ password?: string; email?: string; disabled?: boolean; deleted?: boolean }>;
   resetToSeed: () => Promise<void>;
   /** Owner only: deletes the open company and everything under it, then leaves it. */
   deleteCompany: () => Promise<void>;
@@ -855,6 +861,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       activeRoleId: m.activeRoleId ?? null,
       access: m.access,
       hasAccount: m.hasAccount ?? true,
+      disabled: m.disabled ?? false,
       expectations: typeof m.expectations === 'string' ? m.expectations : '',
       notionUserId: m.notionUserId,
       commsTone: m.commsTone,
@@ -1443,6 +1450,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setPendingInvite(null);
         setCompanyId(cid);
         setNeedsBootstrap(false);
+      },
+
+      manageAccount: async (targetUid, action) => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const response = await fetch('/api/members/account', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId, uid: targetUid, action }),
+        });
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          password?: string;
+          email?: string;
+          disabled?: boolean;
+          deleted?: boolean;
+        };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body;
       },
 
       inviteMember: async (inviteEmail, roleIds, access, personId) => {

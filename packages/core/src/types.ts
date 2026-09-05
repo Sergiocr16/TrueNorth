@@ -119,6 +119,8 @@ export interface Membership {
    * it exists so they can be followed up on. Sharing access is a separate act.
    */
   hasAccount: boolean;
+  /** True while the account is switched off: it cannot sign in, but the person stays on the team. */
+  disabled?: boolean;
   /**
    * What is expected of this person, in the manager's own words.
    *
