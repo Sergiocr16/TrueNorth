@@ -105,12 +105,12 @@ npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/cor
 | `/briefing` | Three numbers, the executive summary folded, ranked risks, decisions, five perspectives, how the team is doing |
 | `/company` | North star, target date, 3/6/12-month plans, overall status |
 | `/objectives` | Objectives with indicators and the expected-vs-actual gap |
-| `/projects` | Projects with a health strip and filters; each with objectives, tasks by status, dependencies |
-| `/team` | The company's roles (each reading its Notion databases) and who holds which; people with or without an account, their responsibility, what you expect of them |
+| `/projects` | Projects in flight grouped by health, worst first, the completed ones folded away; each with objectives, tasks by status, dependencies |
+| `/team` | The company's roles (each reading its Notion databases, whole or only what is assigned to the person) and who holds which; people with or without an account, their responsibility, what you expect of them |
 | `/follow-up` | Managers only: how each person is doing, private situations, and today's messages — greeting first, ready to copy |
 | `/assistant` | The chief of staff as a conversation: ask about the day, by text or voice, and confirm what it proposes — a situation, a message to copy, a follow-up marked sent, an expectation |
 | `/risks` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
-| `/integrations` | Notion: register a database by pasting its link, check the suggested mapping and status table, sync now |
+| `/integrations` | Notion: pick databases from the list the integration can see, check the suggested mapping and status table, sync now |
 | `/settings` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
 
 Every main screen carries a small compass in its corner: that screen's health
@@ -129,6 +129,11 @@ vocabulary. What a
 person sees of Notion is decided by the **role** they have on (ADR-008): a role
 reads a set of sources, a person holds several roles and switches between
 them, and the engine computes each person's day from that role's view only.
+Since ADR-009 a role reads each source either whole or only through the
+person's own assignments — the CTO sees all of *Tareas Software*, a developer
+only their tasks in it and the whole backlog — and when somebody has nothing
+of their own left, the plan offers unowned work from the sources the role sees
+whole, never from one it sees only through assignments.
 
 ADITUM's sources, as of September 2026:
 
@@ -137,18 +142,28 @@ ADITUM's sources, as of September 2026:
 - **Test de Pruebas** — the QA table; its status is a plain select, so its map is checked by hand.
 - **Proyectos** — name, owner, status, dates, completion rollup. Registered as a source of kind *projects* so tasks land in their project.
 
-The sync (`apps/web/server/notion/`) runs before the daily engine and on demand
-from the screen; it reads what changed since the last run, and everything once
-a week. Pinned to the 2025-09-03 API version, the one with data sources.
+The sync (`apps/web/server/notion/`) runs before the daily engine, on demand
+from the screen, and on the Pi every two hours on weekdays; it reads every page
+id on every run (an archived page is simply not returned), maps only what
+changed, and everything once a week. Two exceptions: a *projects* source is
+mapped whole every run, because its completion is a rollup that does not edit
+the page; and a task source is remapped whole whenever the set of projects it
+can link to changed, so tasks find a projects table registered after them.
+Pinned to the 2025-09-03 API version, the one with data sources.
 
 A task can have several people responsible, as in Notion. Each Notion person
 is matched to a team member **by name** (`matchPerson()` in
 `packages/core/src/people.ts`: accent- and case-insensitive, refuses to guess
 between two people who both fit); one with no match becomes a new person on
 the team, so the team populates itself from Notion. Notion does not expose
-status history, so the sync stamps `statusChangedAt` itself whenever a status
-differs from the stored one — the "has not moved" signals only tell the truth
-from the first sync onward.
+status history, so the sync derives `statusChangedAt`: whenever a status
+differs from the stored one it stamps the page's last edit time — the change
+happened at or before it — never the sync's own clock. From that, every task
+carries two clocks: anybody's activity (`idleDays`) and the owner's own
+progress (`progressDays`: a status change, an edit, or a comment written by
+somebody responsible). The overdue signal says whether the task is still
+moving, and the plan and the follow-up treat "late but moving" and "late and
+silent" as the different problems they are.
 
 Every Notion status collapses onto one of four internal states through the source's own map, started from Notion's groups: *Depende de otra TAR* becomes *blocked*; *Finalizada* and *Archivadas* become *done*. `NOTION_TASK_STATUS` in `packages/core/src/notion-status.ts` is the known default for "Tareas Software" and is pinned by a test. Changing the four states requires an ADR.
 
@@ -198,9 +213,9 @@ sudo truenorth-deploy           # git pull, pnpm install, next build, restart
 
 The full runbook for the Pi is `docs/pi-setup.md`.
 
-Not yet built: voice, and writing back to Notion. The Notion sync exists and
-waits for `NOTION_TOKEN` on the Pi and the first databases registered from the
-app.
+Not yet built: voice, and writing back to Notion. The Notion sync runs
+against ADITUM since 2026-09-05 with four sources registered: Tareas
+Software, Backlog Software, Gestor de lanzamientos and Proyectos.
 
 ## The Raspberry Pi
 
