@@ -428,10 +428,16 @@ export function pageToTask(
 
   const dependsOn = relations(prop(page, map.parent)).map(notionDocId);
 
+  // Notion keeps no status history, so the clock is derived: kept while the
+  // label is the one stored, restamped when it differs. The stamp is the
+  // page's own last edit, never "now": a status change is an edit, so it
+  // happened at or before that time, and stamping the sync's clock instead
+  // made every task look freshly moved on the day it was first seen.
+  const edited = page.last_edited_time ?? ctx.now;
   const statusChangedAt =
     previous && previous.notionStatus === (statusLabel ?? undefined)
-      ? (previous.statusChangedAt ?? ctx.now)
-      : ctx.now;
+      ? (previous.statusChangedAt ?? edited)
+      : edited;
 
   const task: Task = {
     id: notionDocId(page.id),
