@@ -189,8 +189,8 @@ export default function SettingsPage() {
         </div>
         <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">
           {locale === 'es'
-            ? 'Borra objetivos, proyectos, tareas y riesgos, y vuelve a cargar los datos iniciales.'
-            : 'Deletes objectives, projects, tasks and risks, then loads the starting data again.'}
+            ? 'Borra roles, bases de Notion, objetivos, proyectos y tareas creados en la app, riesgos, situaciones y personas sin cuenta. La empresa y las cuentas quedan; los roles se vuelven a asignar.'
+            : 'Deletes roles, Notion databases, app-created objectives, projects and tasks, risks, situations and people without an account. The company and the accounts stay; roles are assigned again.'}
         </p>
       </div>
 
