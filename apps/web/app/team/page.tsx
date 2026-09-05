@@ -41,6 +41,7 @@ export default function TeamPage() {
   const [editingPerson, setEditingPerson] = useState<Membership | null>(null);
   const [addingPerson, setAddingPerson] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [managing, setManaging] = useState<Membership | null>(null);
 
   const { memberships, users, tasks, today, plan, roles, sources } = store;
   const isManager = store.currentMembership.access !== 'member';
@@ -233,24 +234,45 @@ export default function TeamPage() {
                   .map((id) => roles.find((r) => r.id === id)?.name)
                   .filter(Boolean)
                   .join(' · ');
-                return (
-                  <div
-                    key={membership.userId}
-                    className={`flex items-center gap-3 px-4 py-3 ${index === accounts.length - 1 ? '' : 'tn-hairline'}`}
-                  >
+                const body = (
+                  <>
                     <Avatar initials={user?.initials ?? '—'} size={36} />
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="text-[17px] font-semibold text-[var(--ink)]">
                           {user?.displayName ?? membership.userId}
                         </span>
                         <span className="text-[13px] text-[var(--ter)]">{t.team.access[membership.access]}</span>
+                        {membership.disabled ? (
+                          <span
+                            className="rounded-full px-2 py-0.5 text-[12px] font-semibold"
+                            style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
+                          >
+                            {t.team.accountDisabled}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-0.5 break-all text-[13px] text-[var(--ter)]">
                         {user?.email ?? ''}
                         {held ? ` · ${held}` : ''}
                       </div>
                     </div>
+                  </>
+                );
+                const rowClass = `flex w-full items-center gap-3 px-4 py-3 text-left ${index === accounts.length - 1 ? '' : 'tn-hairline'}`;
+                // The founder manages accounts; everybody else only reads the list.
+                return store.canFound && membership.userId !== store.currentUser.id ? (
+                  <button
+                    key={membership.userId}
+                    type="button"
+                    onClick={() => setManaging(membership)}
+                    className={`tn-press ${rowClass}`}
+                  >
+                    {body}
+                  </button>
+                ) : (
+                  <div key={membership.userId} className={rowClass}>
+                    {body}
                   </div>
                 );
               })
@@ -264,6 +286,8 @@ export default function TeamPage() {
       ) : null}
 
       {inviting ? <InviteSheet onClose={() => setInviting(false)} /> : null}
+
+      {managing ? <AccountSheet membership={managing} onClose={() => setManaging(null)} /> : null}
 
       {addingRole ? (
         <RoleSheet
@@ -650,6 +674,146 @@ function PersonEditor({
  * Firebase account when the address has none and hands back a one-time
  * password, which is shown here and nowhere else.
  */
+/* ------------------------------------------------------------------ */
+/* One account: switch it off, hand it a new key, or end it            */
+/* ------------------------------------------------------------------ */
+
+function AccountSheet({ membership, onClose }: { membership: Membership; onClose: () => void }) {
+  const { t } = usePreferences();
+  const store = useStore();
+  const user = store.users.find((u) => u.id === membership.userId);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [password, setPassword] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [armed, arm, disarm] = useConfirm();
+  const [armedReset, armReset, disarmReset] = useConfirm();
+
+  const run = (action: 'disable' | 'enable' | 'resetPassword' | 'delete') => {
+    if (busy) return;
+    setBusy(true);
+    setFailed(null);
+    store
+      .manageAccount(membership.userId, action)
+      .then((result) => {
+        if (action === 'resetPassword') setPassword(result.password ?? null);
+        else onClose();
+      })
+      .catch((cause: unknown) => setFailed(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setBusy(false));
+  };
+
+  if (password) {
+    const credentials = `${user?.email ?? ''}\n${password}`.trim();
+    return (
+      <EditSheet open title={t.team.credentialsTitle} onCancel={onClose} cancelLabel={t.common.close}>
+        <div className="px-4 py-6">
+          <p className="text-[17px] leading-snug text-[var(--ink)]">{t.team.passwordReset}</p>
+          <Card className="mt-4 overflow-hidden">
+            <div className="tn-hairline px-4 py-3">
+              <div className="text-[13px] font-semibold uppercase tracking-[0.6px] text-[var(--ter)]">
+                {t.team.credentialsEmail}
+              </div>
+              <p className="mt-1 break-all text-[17px] text-[var(--ink)]">{user?.email ?? ''}</p>
+            </div>
+            <div className="px-4 py-3">
+              <div className="text-[13px] font-semibold uppercase tracking-[0.6px] text-[var(--ter)]">
+                {t.team.credentialsPassword}
+              </div>
+              <p className="tn-tabular mt-1 font-mono text-[22px] font-semibold tracking-[1px] text-[var(--ink)]">
+                {password}
+              </p>
+            </div>
+          </Card>
+          <div className="mt-4">
+            <PrimaryButton
+              onClick={() => {
+                void navigator.clipboard?.writeText(credentials).catch(() => undefined);
+                setCopied(true);
+              }}
+            >
+              {copied ? t.team.credentialsCopied : t.team.credentialsCopy}
+            </PrimaryButton>
+          </div>
+          <div className="mt-4">
+            <Banner tone="warning">{t.team.credentialsOnce}</Banner>
+          </div>
+        </div>
+      </EditSheet>
+    );
+  }
+
+  return (
+    <EditSheet open title={user?.displayName ?? membership.userId} onCancel={onClose} cancelLabel={t.common.close}>
+      {failed ? (
+        <div className="mx-4 mt-4">
+          <Banner tone="error">{failed}</Banner>
+        </div>
+      ) : null}
+
+      <FieldGroup footer={t.team.accountHint}>
+        <div className="tn-hairline px-4 py-3">
+          <div className="text-[13px] font-semibold text-[var(--ter)]">{t.team.credentialsEmail}</div>
+          <p className="mt-0.5 break-all text-[17px] text-[var(--ink)]">{user?.email ?? ''}</p>
+        </div>
+        <div className="px-4 py-3">
+          <div className="text-[13px] font-semibold text-[var(--ter)]">{t.team.accountState}</div>
+          <p className="mt-0.5 text-[17px] text-[var(--ink)]">
+            {membership.disabled ? t.team.accountDisabled : t.team.accountEnabled}
+          </p>
+        </div>
+      </FieldGroup>
+
+      <div className="mt-6">
+        <div className="tn-card mx-4 overflow-hidden">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (armedReset) {
+                disarmReset();
+                run('resetPassword');
+              } else {
+                armReset();
+              }
+            }}
+            className="tn-press tn-hairline flex min-h-[48px] w-full items-center px-4 text-[17px] font-semibold text-[var(--accent)]"
+          >
+            {armedReset ? t.team.resetPasswordConfirm : t.team.resetPassword}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => run(membership.disabled ? 'enable' : 'disable')}
+            className="tn-press flex min-h-[48px] w-full items-center px-4 text-[17px] font-semibold text-[var(--accent)]"
+          >
+            {membership.disabled ? t.team.enableAccount : t.team.disableAccount}
+          </button>
+        </div>
+        <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">{t.team.disableHint}</p>
+      </div>
+
+      <div className="mt-6">
+        <div className="tn-card mx-4 overflow-hidden">
+          <DestructiveRow
+            label={busy ? t.team.working : armed ? t.team.deleteAccountConfirm : t.team.deleteAccount}
+            onClick={() => {
+              if (busy) return;
+              if (armed) {
+                disarm();
+                run('delete');
+              } else {
+                arm();
+              }
+            }}
+          />
+        </div>
+        <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">{t.team.deleteAccountHint}</p>
+      </div>
+    </EditSheet>
+  );
+}
+
 function InviteSheet({ onClose }: { onClose: () => void }) {
   const { t, locale } = usePreferences();
   const store = useStore();

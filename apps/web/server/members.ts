@@ -42,7 +42,7 @@ function initialsFrom(name: string): string {
   return (first[0] + (words[1]?.[0] ?? '')).toUpperCase();
 }
 
-async function repoint(db: Firestore, companyId: string, from: string, to: string): Promise<number> {
+export async function repoint(db: Firestore, companyId: string, from: string, to: string): Promise<number> {
   const base = db.collection('companies').doc(companyId);
   let moved = 0;
   for (const reference of REFERENCES) {
@@ -150,4 +150,59 @@ export async function linkAccountToCompany(
   });
 
   return { merged: Boolean(placeholder), repointed };
+}
+
+/** How many records in the company still name this person. */
+async function referencesTo(db: Firestore, companyId: string, id: string): Promise<number> {
+  const base = db.collection('companies').doc(companyId);
+  let total = 0;
+  for (const reference of REFERENCES) {
+    const snap = await base
+      .collection(reference.collection)
+      .where(reference.field, reference.array ? 'array-contains' : '==', id)
+      .count()
+      .get();
+    total += snap.data().count;
+  }
+  return total;
+}
+
+export interface DetachResult {
+  /** True when the person stayed on the team under a new id; false when nothing named them and they simply left. */
+  kept: boolean;
+  repointed: number;
+}
+
+/**
+ * The reverse of linking: the account goes, the person may stay.
+ *
+ * A member document is named after the uid, so deleting the account has to
+ * rename it. If anything in the company still names this person — tasks,
+ * projects, a situation — they become a member without an account under a
+ * synthetic id, references repointed, so the follow-up does not lose them.
+ * If nothing does, the document is simply removed: there was no person
+ * behind the account worth keeping.
+ */
+export async function detachAccountFromCompany(companyId: string, uid: string): Promise<DetachResult> {
+  const db = adminDb();
+  const base = db.collection('companies').doc(companyId);
+  const current = await base.collection('members').doc(uid).get();
+  if (!current.exists) return { kept: false, repointed: 0 };
+
+  const references = await referencesTo(db, companyId, uid);
+  let repointed = 0;
+  let kept = false;
+  if (references > 0) {
+    const personId = `p_${uid}`;
+    const data = current.data() ?? {};
+    await base
+      .collection('members')
+      .doc(personId)
+      .set({ ...data, hasAccount: false, disabled: false, access: 'member', activeRoleId: null });
+    repointed = await repoint(db, companyId, uid, personId);
+    kept = true;
+  }
+  await current.ref.delete();
+  await db.collection('users').doc(uid).collection('memberships').doc(companyId).delete().catch(() => undefined);
+  return { kept, repointed };
 }
