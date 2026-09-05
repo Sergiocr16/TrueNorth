@@ -140,6 +140,19 @@ export function isDueToday(task: Task, today: Date): boolean {
  * filtered out by the caller: this runs with admin credentials and does not
  * enforce visibility itself.
  */
+/**
+ * How a task is named in a summary: what it is, then its code. A summary is
+ * read on the Risks screen and quoted in a follow-up, and a code alone names
+ * a task only to whoever already knows it (CLAUDE.md: never render only the
+ * code). Falls back to whichever of the two exists.
+ */
+function taskName(task: Pick<Task, 'code' | 'title'>): string {
+  const title = task.title.trim();
+  const code = task.code.trim();
+  if (title && code) return `${title} (${code})`;
+  return title || code || 'una tarea';
+}
+
 export function computeSignals(ctx: SignalContext): Signal[] {
   const { today, objectives, projects, tasks, users } = ctx;
   const signals: Signal[] = [];
@@ -206,8 +219,8 @@ export function computeSignals(ctx: SignalContext): Signal[] {
         kind: 'overdue_task',
         severity: days > 7 ? 'critical' : 'warning',
         summary: {
-          es: `${task.code} lleva ${days} ${days === 1 ? 'día' : 'días'} vencida`,
-          en: `${task.code} is ${days} ${days === 1 ? 'day' : 'days'} overdue`,
+          es: `${taskName(task)} lleva ${days} ${days === 1 ? 'día' : 'días'} vencida`,
+          en: `${taskName(task)} is ${days} ${days === 1 ? 'day' : 'days'} overdue`,
         },
         taskId: task.id,
         projectId: task.projectId ?? undefined,
@@ -223,8 +236,8 @@ export function computeSignals(ctx: SignalContext): Signal[] {
         kind: 'due_today',
         severity: 'warning',
         summary: {
-          es: `${task.code} vence hoy`,
-          en: `${task.code} is due today`,
+          es: `${taskName(task)} vence hoy`,
+          en: `${taskName(task)} is due today`,
         },
         taskId: task.id,
         projectId: task.projectId ?? undefined,
@@ -245,9 +258,9 @@ export function computeSignals(ctx: SignalContext): Signal[] {
           severity: 'warning',
           summary: {
             es: names
-              ? `${task.code} está bloqueada por ${names}`
-              : `${task.code} está bloqueada`,
-            en: names ? `${task.code} is blocked by ${names}` : `${task.code} is blocked`,
+              ? `${taskName(task)} está bloqueada por ${names}`
+              : `${taskName(task)} está bloqueada`,
+            en: names ? `${taskName(task)} is blocked by ${names}` : `${taskName(task)} is blocked`,
           },
           taskId: task.id,
           projectId: task.projectId ?? undefined,
@@ -266,8 +279,8 @@ export function computeSignals(ctx: SignalContext): Signal[] {
         kind: 'unassigned_task',
         severity: 'info',
         summary: {
-          es: `${task.code} no tiene responsable`,
-          en: `${task.code} has no owner`,
+          es: `${taskName(task)} no tiene responsable`,
+          en: `${taskName(task)} has no owner`,
         },
         taskId: task.id,
         projectId: task.projectId ?? undefined,
@@ -280,8 +293,8 @@ export function computeSignals(ctx: SignalContext): Signal[] {
         kind: 'undated_task',
         severity: 'info',
         summary: {
-          es: `${task.code} no tiene fecha límite`,
-          en: `${task.code} has no due date`,
+          es: `${taskName(task)} no tiene fecha límite`,
+          en: `${taskName(task)} has no due date`,
         },
         taskId: task.id,
         projectId: task.projectId ?? undefined,
@@ -340,8 +353,8 @@ export function computeSignals(ctx: SignalContext): Signal[] {
       kind: 'stale_task',
       severity: 'info',
       summary: {
-        es: `${task.code || task.title} lleva ${idle} días sin moverse ni recibir comentarios`,
-        en: `${task.code || task.title} has not moved or been commented on in ${idle} days`,
+        es: `${taskName(task)} lleva ${idle} días sin moverse ni recibir comentarios`,
+        en: `${taskName(task)} has not moved or been commented on in ${idle} days`,
       },
       taskId: task.id,
       projectId: task.projectId ?? undefined,
@@ -387,8 +400,8 @@ export function computeSignals(ctx: SignalContext): Signal[] {
       kind: 'comment_unanswered',
       severity: 'info',
       summary: {
-        es: `${author} comentó en ${task.code || task.title} hace ${idle} días y nadie respondió`,
-        en: `${author} commented on ${task.code || task.title} ${idle} days ago and nobody replied`,
+        es: `${author} comentó en ${taskName(task)} hace ${idle} días y nadie respondió`,
+        en: `${author} commented on ${taskName(task)} ${idle} days ago and nobody replied`,
       },
       taskId: task.id,
       projectId: task.projectId ?? undefined,

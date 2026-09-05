@@ -103,12 +103,10 @@ export default function RisksPage() {
   /** One short line of context under the summary, never the kind's code name. */
   const contextFor = (signal: Signal) => {
     const parts: string[] = [];
-    // The summary already opens with the code ("TAR-368 lleva 211 días
-    // vencida"), so the line under it carries the name instead: a code names a
-    // task to whoever already knows it, the title tells everybody else what it
-    // actually is.
+    // The summary already names the task ("Manejar diferencial cambiario
+    // (TAR-368) lleva 211 días vencida"), so the line under it carries only
+    // what the summary does not: the project, or the person.
     const task = tasks.find((candidate) => candidate.id === signal.taskId);
-    if (task) parts.push(task.title || task.code);
     const project = projects.find((candidate) => candidate.id === signal.projectId);
     if (project) parts.push(project.name);
     const person = users.find((candidate) => candidate.id === signal.userId);

@@ -61,9 +61,11 @@ Rules you must follow:
 export const FOLLOWUP_SYSTEM = `You read the team on behalf of one manager. You produce two things: a short reading of how every person is doing against what is expected of them, and — only for the people who need one today — a message the manager can copy and send.
 
 Rules you must follow:
-- Answer in Spanish (Costa Rica). Write each message in the manager's own voice, addressed to the person: warm and natural, the way a colleague writes, never a memo. No corporate filler, no emojis, no bullet points.
+- Answer in Spanish (Costa Rica). Write each message in the manager's own voice, addressed to the person: warm and natural, the way a colleague writes in a chat, never a memo. No corporate filler, no emojis, no bullet points.
+- Short. A message is two to four short sentences, sixty words at most, about one thing: what you noticed, what you are asking, and a warm close. If there are two things to say, say the important one; the reading is where the rest goes. Do not recount the person's whole board, do not list task numbers, dates or counts; at most one date and one number.
+- Name a task by what it is, never by its number alone: "la tarea del diferencial cambiario", "el gráfico contable". The code may follow the name once, in parentheses, and never stands in for it — "la 368" or "la cadena 851-856" tell the reader nothing.
 - Every message opens with a short greeting and the person's first name ("Hola Marco,"), so it can be pasted and sent exactly as it is. Close on a human note, not an order.
-- Every person you were given gets exactly one reading, with their userId copied verbatim.
+- Every person you were given gets exactly one reading, with their userId copied verbatim. The reading is two or three plain sentences; the recommendation is one sentence. Same rule on names: tasks by what they are, the code at most once.
 - A message goes only to somebody the data says needs one today. Silence is a valid answer and the reading is where you explain it; never invent a reason to write.
 - Every message cites at least one signal id from that person's list. A message with nothing real behind it is not written.
 - When the signal is about one task, the message belongs on that task: set target to "comentario" and taskId to that task's id. Reserve "directo" for what spans several tasks, or is about the person rather than the work.
@@ -434,9 +436,9 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 
 ${team.map(person).join('\n\n')}
 
-Para cada persona escribí su lectura: compará lo que ${manager.displayName} espera de ella con lo que realmente pasó en sus tareas (estados que se movieron o no, comentarios respondidos o no, fechas), decí en qué estado la ubicás, y qué le recomendás a ${manager.displayName} hacer al respecto. La expectativa es el criterio; las señales y las tareas son la evidencia.
+Para cada persona escribí su lectura en dos o tres frases: compará lo que ${manager.displayName} espera de ella con lo que realmente pasó en sus tareas, decí en qué estado la ubicás, y en una frase qué le recomendás a ${manager.displayName}. La expectativa es el criterio; las señales y las tareas son la evidencia. Nombrá las tareas por lo que son, no por su número.
 
-Después, solo para quienes hoy lo ameritan, escribí el mensaje que ${manager.displayName} les debería mandar: dónde va (comentario en la tarea o mensaje directo), con qué tono, el texto listo para copiar, qué está pidiendo exactamente, y por qué se lo manda.`;
+Después, solo para quienes hoy lo ameritan, escribí el mensaje que ${manager.displayName} les debería mandar: dónde va (comentario en la tarea o mensaje directo), con qué tono, el texto listo para copiar — corto, de una sola cosa, como se escribe en un chat —, qué está pidiendo exactamente, y por qué se lo manda.`;
 }
 
 export interface AskTurn {

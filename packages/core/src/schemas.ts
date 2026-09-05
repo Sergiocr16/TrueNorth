@@ -58,10 +58,10 @@ export const personalBriefingSchema = z.object({
 export const teamReadingSchema = z.object({
   userId: z.string(),
   standing: z.enum(['adelantado', 'en_curso', 'atrasado', 'trabado']),
-  /** Two or three sentences on how they are doing. */
-  reading: z.string().min(20).max(600),
-  /** What the manager should do about it. */
-  recommendation: z.string().min(10).max(400),
+  /** Two or three plain sentences on how they are doing. */
+  reading: z.string().min(20).max(380),
+  /** What the manager should do about it, in one sentence. */
+  recommendation: z.string().min(10).max(220),
   /** May be empty: somebody on track has nothing to cite. */
   signalIds: z.array(z.string()),
 });
@@ -80,11 +80,11 @@ export const followUpSchema = z.object({
   target: z.enum(['directo', 'comentario']),
   taskId: z.string().optional(),
   tone: z.enum(['reconocimiento', 'seguimiento', 'ajuste', 'apoyo', 'decision']),
-  /** Ready to copy: Costa Rican Spanish, second person, no filler. */
-  message: z.string().min(20).max(700),
-  /** Why it is being sent. The manager reads this; the person never does. */
-  why: z.string().min(3).max(280),
-  ask: z.string().max(200),
+  /** Ready to copy: Costa Rican Spanish, second person, two to four short sentences. */
+  message: z.string().min(20).max(420),
+  /** Why it is being sent, in one sentence. The manager reads this; the person never does. */
+  why: z.string().min(3).max(200),
+  ask: z.string().max(140),
   /** A message always rests on a signal. A reading may not; this must. */
   signalIds: z.array(z.string()).min(1),
   escalate: z.boolean().default(false),
