@@ -161,13 +161,19 @@ interface MemberRow {
   id: string;
   displayName: string;
   notionUserId?: string;
+  notionUserIds?: string[];
 }
 
 async function loadMembers(companyId: string): Promise<MemberRow[]> {
   const snap = await adminDb().collection('companies').doc(companyId).collection('members').get();
   return snap.docs.map((d) => {
-    const m = d.data() as { displayName?: string; notionUserId?: string };
-    return { id: d.id, displayName: m.displayName ?? '', notionUserId: m.notionUserId };
+    const m = d.data() as { displayName?: string; notionUserId?: string; notionUserIds?: string[] };
+    return {
+      id: d.id,
+      displayName: m.displayName ?? '',
+      notionUserId: m.notionUserId,
+      notionUserIds: Array.isArray(m.notionUserIds) ? m.notionUserIds : undefined,
+    };
   });
 }
 
@@ -238,6 +244,7 @@ function knownFrom(members: MemberRow[]): KnownPerson[] {
       hasAccount: false,
       expectations: '',
       notionUserId: m.notionUserId,
+      notionUserIds: m.notionUserIds,
     })),
   );
 }

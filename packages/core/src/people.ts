@@ -15,6 +15,13 @@ export interface KnownPerson {
   id: string;
   displayName: string;
   notionUserId?: string;
+  /** Further Notion identities of the same person; see `Membership.notionUserIds`. */
+  notionUserIds?: string[];
+}
+
+/** Every Notion id a known person answers to. */
+export function notionIdsOf(person: Pick<KnownPerson, 'notionUserId' | 'notionUserIds'>): string[] {
+  return [...new Set([person.notionUserId, ...(person.notionUserIds ?? [])].filter((id): id is string => Boolean(id)))];
 }
 
 /** Accents, case, spacing and honorifics out; the tokens that name somebody in. */
@@ -42,7 +49,7 @@ export function matchPerson(
   people: KnownPerson[],
 ): KnownPerson | null {
   if (notion.notionUserId) {
-    const byId = people.find((p) => p.notionUserId === notion.notionUserId);
+    const byId = people.find((p) => notionIdsOf(p).includes(notion.notionUserId as string));
     if (byId) return byId;
   }
 
@@ -64,9 +71,13 @@ export function matchPerson(
 
 /** The team as the matcher sees it, from what the store already holds. */
 export function knownPeople(users: User[], memberships: Membership[]): KnownPerson[] {
-  return users.map((u) => ({
-    id: u.id,
-    displayName: u.displayName,
-    notionUserId: memberships.find((m) => m.userId === u.id)?.notionUserId,
-  }));
+  return users.map((u) => {
+    const membership = memberships.find((m) => m.userId === u.id);
+    return {
+      id: u.id,
+      displayName: u.displayName,
+      notionUserId: membership?.notionUserId,
+      notionUserIds: membership?.notionUserIds,
+    };
+  });
 }
