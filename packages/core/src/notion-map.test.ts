@@ -8,6 +8,7 @@ import {
   pageToTask,
   parseNotionId,
   suggestMapping,
+  tableFromSearch,
   type NotionPage,
 } from './notion-map';
 import { backlogSoftware, proyectos, tareasSoftware, testDePruebas } from './notion-schemas.fixture';
@@ -31,6 +32,45 @@ describe('parseNotionId', () => {
   it('refuses anything that does not contain an id', () => {
     expect(parseNotionId('')).toBeNull();
     expect(parseNotionId('Tareas Software')).toBeNull();
+  });
+});
+
+describe('tableFromSearch', () => {
+  it('reads a data source, keeping the database above it', () => {
+    expect(
+      tableFromSearch({
+        object: 'data_source',
+        id: 'e0b0a979-7c1c-4b53-97fa-22ea36b428fc',
+        name: 'Tareas Software',
+        database_parent: { database_id: TAREAS_ID },
+      }),
+    ).toEqual({
+      databaseId: TAREAS_ID,
+      dataSourceId: 'e0b0a979-7c1c-4b53-97fa-22ea36b428fc',
+      title: 'Tareas Software',
+    });
+  });
+
+  it('reads a database, whose data source is not known yet', () => {
+    expect(
+      tableFromSearch({
+        object: 'database',
+        id: TAREAS_ID,
+        title: [{ plain_text: 'Tareas ' }, { plain_text: 'Software' }],
+        parent: { type: 'page_id', page_id: 'p1' },
+      }),
+    ).toEqual({ databaseId: TAREAS_ID, dataSourceId: null, title: 'Tareas Software' });
+  });
+
+  it('leaves out pages, deleted tables and anything without an id', () => {
+    expect(tableFromSearch({ object: 'page', id: 'x' })).toBeNull();
+    expect(tableFromSearch({ object: 'database', id: TAREAS_ID, in_trash: true })).toBeNull();
+    expect(tableFromSearch({ object: 'database', id: TAREAS_ID, archived: true })).toBeNull();
+    expect(tableFromSearch({ id: '' } as { id: string })).toBeNull();
+  });
+
+  it('names a table with no title rather than showing it blank', () => {
+    expect(tableFromSearch({ object: 'database', id: TAREAS_ID, title: [] })?.title).toBe('(sin nombre)');
   });
 });
 

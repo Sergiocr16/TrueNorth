@@ -411,9 +411,11 @@ include the binary: set `CLAUDE_BIN=/home/truenorth/.local/bin/claude` in
 ## 8b. First morning: what to do once, by hand
 
 1. Open the app on the phone, sign in, install it to the home screen.
-2. *Empresa* → the north star and its date. *Integraciones* → paste the link
-   of each Notion database (Tareas Software, the two backlogs, Test de Pruebas,
-   Proyectos), check the suggested mapping and the status table, save, then
+2. *Empresa* → the north star and its date. In Notion, share each database
+   with the integration (••• → Connections). *Integraciones* → *Agregar bases
+   de datos* lists everything the integration can see: search, tick Tareas
+   Software, the two backlogs, Test de Pruebas and Proyectos, add them, open
+   each one to check the suggested mapping and status table, then
    *Sincronizar ahora*. *Equipo* → rename the *General* role or add roles
    (CTO, Ventas…), tick the databases each reads, then add the people on the
    team (they need no account), give each their roles and write *Lo que espero*.
@@ -476,6 +478,7 @@ A release is then: merge `main` into `production`, push, and run
 | No reminder arrived | Is the timer running (`systemctl list-timers truenorth-notify.timer`)? Was the toggle turned on from the installed app? `curl … /api/push/hourly?hour=<h>` reports sent/skipped/dead per run. |
 | *Seguimiento* is empty for an admin | The engine has not run today, or the company has nobody on the team but you. Members with `access: member` never see it. |
 | The engine ran but every message repeats yesterday's | It should not: identical signals are dropped in code. Check `followups/{date}_{uid}_{roleId}` in Firestore for what was actually written. |
+| The picker lists no database | The database was never shared with the integration in Notion (••• → Connections). Sharing a parent page shares what is under it. |
 | *Integraciones* says the sync failed | `NOTION_TOKEN` missing in the env; the database not shared with the integration (••• → Connections in Notion); the integration lacking the read-comments or read-users capability; or Notion answering 429 — the client retries three times and gives up. The error text on the source says which. |
 | No Notion tasks on a screen that had them | Which role is on? A source is readable only while it is on the active role (*Equipo → Roles*). A listener for a source the role does not read is refused and empties quietly. |
 | "Insufficient permissions" everywhere after a deploy | Rules and code moved together in ADR-008: deploy `firestore:rules,firestore:indexes` (§5b) and `truenorth-deploy` in the same sitting. |

@@ -3,9 +3,11 @@ import 'server-only';
 import {
   parseNotionId,
   suggestMapping,
+  tableFromSearch,
   type NotionSchema,
   type NotionSchemaProperty,
   type NotionSourceKind,
+  type NotionTableSummary,
 } from '@truenorth/core';
 import { NotionClient, NotionError, type NotionDataSource } from './client';
 import type { InspectResult } from './types';
@@ -54,6 +56,22 @@ export function schemaFrom(dataSource: NotionDataSource): NotionSchema {
     },
   );
   return { title, properties };
+}
+
+/**
+ * Every table the integration can see, so the app can offer a list instead of
+ * asking somebody to paste a link. Sorted by name, duplicates removed: a
+ * database with several data sources shows each of them once.
+ */
+export async function listTables(): Promise<NotionTableSummary[]> {
+  const client = new NotionClient();
+  const found = await client.tables();
+  const byId = new Map<string, NotionTableSummary>();
+  for (const result of found) {
+    const table = tableFromSearch(result);
+    if (table) byId.set(table.dataSourceId ?? table.databaseId, table);
+  }
+  return [...byId.values()].sort((a, b) => a.title.localeCompare(b.title, 'es'));
 }
 
 export async function inspectDatabase(

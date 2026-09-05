@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { NotionComment, NotionPage, NotionUser } from '@truenorth/core';
+import type { NotionComment, NotionPage, NotionSearchResult, NotionUser } from '@truenorth/core';
 
 /**
  * A thin client for the Notion API. Plain `fetch`, no SDK: the handful of
@@ -165,6 +165,34 @@ export class NotionClient {
         `/comments?block_id=${pageId}&page_size=100${cursor ? `&start_cursor=${cursor}` : ''}`,
       ),
     );
+  }
+
+  /**
+   * Every table the integration can see. The 2025-09-03 version answers with
+   * data sources; an older workspace answers with databases, and the filter
+   * value it accepts differs, so the second shape is tried when the first is
+   * refused or comes back empty.
+   */
+  async tables(): Promise<NotionSearchResult[]> {
+    const search = (value: 'data_source' | 'database') =>
+      this.paginate<NotionSearchResult>((cursor) =>
+        this.request<Page<NotionSearchResult>>('/search', {
+          method: 'POST',
+          body: JSON.stringify({
+            filter: { property: 'object', value },
+            page_size: 100,
+            ...(cursor ? { start_cursor: cursor } : {}),
+          }),
+        }),
+      );
+
+    try {
+      const found = await search('data_source');
+      if (found.length > 0) return found;
+    } catch (cause) {
+      if (!(cause instanceof NotionError) || cause.status !== 400) throw cause;
+    }
+    return search('database');
   }
 
   /** Everybody in the workspace, so a comment author's id becomes a name. */

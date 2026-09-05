@@ -1,4 +1,9 @@
-import type { NotionSchema, NotionSourceKind, SuggestedSource } from '@truenorth/core';
+import type {
+  NotionSchema,
+  NotionSourceKind,
+  NotionTableSummary,
+  SuggestedSource,
+} from '@truenorth/core';
 
 /**
  * Shapes shared by the Notion routes and the store. Types only: this file is
@@ -15,6 +20,11 @@ export interface InspectResult {
   schema: NotionSchema;
   suggested: SuggestedSource;
   kind: NotionSourceKind;
+}
+
+/** What `POST /api/notion/databases` returns: everything the integration can see. */
+export interface TableListResult {
+  tables: NotionTableSummary[];
 }
 
 /** What one source's sync did, or why it did not. */
