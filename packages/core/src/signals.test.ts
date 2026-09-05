@@ -462,6 +462,24 @@ describe('unanswered comments', () => {
     expect(signal?.summary.es).toContain('nadie respondió');
   });
 
+  // A silent conversation is not late work: what marks a task as behind is its
+  // own state. `info` keeps it off the badge, out of *Avisos* and away from the
+  // health compass, all of which count everything above `info`.
+  it('does not count as a flag: an unanswered comment is not a delay', () => {
+    const signals = run({
+      tasks: [
+        task({
+          status: 'in_progress',
+          assigneeUserIds: ['u1'],
+          lastCommentAt: '2026-08-28T15:00:00-06:00',
+          lastCommentBy: 'u2',
+        }),
+      ],
+    });
+    expect(find(signals, 'comment_unanswered:t1')?.severity).toBe('info');
+    expect(signals.filter((s) => s.severity !== 'info')).toHaveLength(0);
+  });
+
   // The other direction is the one Sergio cares about: somebody asked for help
   // and the person leading the project never came back.
   it('puts it on whoever leads the project when the assignee asked', () => {

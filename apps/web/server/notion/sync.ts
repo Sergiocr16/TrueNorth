@@ -27,13 +27,16 @@ import type { SyncReport } from './types';
  * people, fetches the comments, and writes. Claude is nowhere near it
  * (ADR-004).
  *
- * Two facts shape the design. Notion keeps no status history, so the clock
+ * Three facts shape the design. Notion keeps no status history, so the clock
  * behind "this has not moved" is stamped here when a label differs from the
- * stored one. And a comment does not bump its page's `last_edited_time`, so
- * comments are refreshed on their own schedule rather than with the page.
+ * stored one. A comment does not bump its page's `last_edited_time`, so
+ * comments are refreshed on their own schedule rather than with the page. And
+ * a page that was archived or deleted is not returned by a query at all, so
+ * every run reads the whole source and treats absence as removal — only the
+ * writing is incremental.
  */
 
-/** A full read instead of an incremental one, at least this often. */
+/** Re-map and rewrite every page, not only the changed ones, at least this often. */
 const FULL_SYNC_EVERY_DAYS = 7;
 /** Overlap on the incremental window: Notion's timestamps are minute-grained. */
 const OVERLAP_MS = 5 * 60_000;
@@ -322,22 +325,32 @@ async function syncSource(
       source.mappingHash !== (source as { syncedMappingHash?: string }).syncedMappingHash;
     report.mode = full ? 'full' : 'incremental';
 
-    // 2. The pages. Incremental reads only what Notion says changed, with an
-    //    overlap for its minute-grained clock; upserts are idempotent.
+    // 2. The pages. Every run reads the whole source, with no filter on
+    //    `last_edited_time`.
+    //
+    //    That filter used to be the incremental path, and it cannot see a
+    //    removal: Notion does not return an archived or deleted page from a
+    //    data source query at all — not even flagged as one — so asking "what
+    //    changed since Tuesday" returns a list a removal can never appear in.
+    //    Somebody archived a task, the run reported zero pages, and the task
+    //    stayed on the board until the weekly full read noticed it was gone.
+    //    Reading the ids is the cheap half of a sync anyway: a hundred pages
+    //    per request, and what actually changed is still all that gets mapped,
+    //    written and asked for comments.
     const since = source.lastSyncAt
       ? new Date(new Date(source.lastSyncAt).getTime() - OVERLAP_MS).toISOString()
       : null;
     const pages = await ctx.client.queryAll(source.dataSourceId, {
-      ...(full || !since
-        ? {}
-        : { filter: { timestamp: 'last_edited_time', last_edited_time: { on_or_after: since } } }),
       sorts: [{ timestamp: 'last_edited_time', direction: 'ascending' }],
     });
     report.pages = pages.length;
 
     const writer = new Writer();
-    const live = pages.filter((p) => !p.archived && !p.in_trash);
-    const gone = pages.filter((p) => p.archived || p.in_trash);
+    // Whatever Notion still has. An archived page that some future API version
+    // does return is not one of them, and step 5 removes it either way.
+    const present = pages.filter((p) => !p.archived && !p.in_trash);
+    const live =
+      full || !since ? present : present.filter((page) => page.last_edited_time >= since);
 
     // 3. People first: a pass to find who Notion names that the team lacks,
     //    create them, and only then map for real so the batch's own new
@@ -416,37 +429,30 @@ async function syncSource(
       }
     }
 
-    // 5. Write. Archived pages go; in a full run, so does anything of this
-    //    source that Notion no longer returned.
-    const returned = new Set<string>();
+    // 5. Write what changed, then remove what Notion no longer has.
     for (const result of mapped) {
       if ('task' in result) {
         const { id, ...rest } = result.task;
-        returned.add(id);
         await writer.set(base.collection('tasks').doc(id), rest);
         ctx.store.tasks.set(id, result.task);
       } else {
         const { id, ...rest } = result.project;
-        returned.add(id);
         await writer.set(base.collection('projects').doc(id), rest);
         ctx.store.projects.set(id, result.project);
       }
     }
     const collection = source.kind === 'projects' ? 'projects' : 'tasks';
     const stored = source.kind === 'projects' ? ctx.store.projects : ctx.store.tasks;
-    for (const page of gone) {
-      const id = notionDocId(page.id);
-      if (stored.has(id)) {
-        await writer.delete(base.collection(collection).doc(id));
-        stored.delete(id);
-      }
-    }
-    if (full) {
-      for (const record of [...stored.values()]) {
-        if (record.sourceId === source.id && !returned.has(record.id)) {
-          await writer.delete(base.collection(collection).doc(record.id));
-          stored.delete(record.id);
-        }
+    // Archived, deleted, or moved out of this database — Notion draws no
+    // distinction a query can see, and neither do we: what it did not return
+    // is not there. Exact on every run now that every run reads the whole
+    // source, so a task archived at ten in the morning is gone by noon
+    // instead of by next week.
+    const alive = new Set(present.map((page) => notionDocId(page.id)));
+    for (const record of [...stored.values()]) {
+      if (record.sourceId === source.id && !alive.has(record.id)) {
+        await writer.delete(base.collection(collection).doc(record.id));
+        stored.delete(record.id);
       }
     }
 

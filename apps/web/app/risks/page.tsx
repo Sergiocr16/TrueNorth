@@ -3,9 +3,17 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import type { Risk, Signal } from '@truenorth/core';
-import { shareUnflagged } from '@truenorth/core';
+import { notionUrl, shareUnflagged } from '@truenorth/core';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
-import { Card, ChipButton, EmptyState, GlanceTile, SectionLabel, TextButton } from '../../components/ui';
+import {
+  Card,
+  ChipButton,
+  EmptyState,
+  GlanceTile,
+  SectionLabel,
+  SourceBadge,
+  TextButton,
+} from '../../components/ui';
 import {
   AddRow,
   DestructiveRow,
@@ -15,7 +23,7 @@ import {
   TextAreaField,
   useConfirm,
 } from '../../components/form';
-import { Chevron, RiskIcon } from '../../components/icons';
+import { Chevron, NotionMark, RiskIcon } from '../../components/icons';
 import { HealthCompass } from '../../components/day-compass';
 import { usePreferences } from '../../lib/preferences';
 import { makeRisk, useRiskCount, useStore } from '../../lib/store';
@@ -33,7 +41,7 @@ export default function RisksPage() {
   const [editing, setEditing] = useState<Risk | null>(null);
   const [isNew, setIsNew] = useState(false);
 
-  const { signals, risks, users, projects, tasks } = store;
+  const { signals, risks, users, projects, tasks, sources } = store;
   const [group, setGroup] = useState<GroupKey | 'all'>('all');
   const [showMinor, setShowMinor] = useState(false);
 
@@ -83,11 +91,24 @@ export default function RisksPage() {
           ? ROUTES.team
           : null;
 
+  /**
+   * The record a signal is about: its task, or the project when it names no
+   * task. Both carry the Notion source and the page id, which is what lets a
+   * row say which board it came from and open the thing itself.
+   */
+  const recordFor = (signal: Signal) =>
+    tasks.find((candidate) => candidate.id === signal.taskId) ??
+    projects.find((candidate) => candidate.id === signal.projectId);
+
   /** One short line of context under the summary, never the kind's code name. */
   const contextFor = (signal: Signal) => {
     const parts: string[] = [];
+    // The summary already opens with the code ("TAR-368 lleva 211 días
+    // vencida"), so the line under it carries the name instead: a code names a
+    // task to whoever already knows it, the title tells everybody else what it
+    // actually is.
     const task = tasks.find((candidate) => candidate.id === signal.taskId);
-    if (task?.code) parts.push(task.code);
+    if (task) parts.push(task.title || task.code);
     const project = projects.find((candidate) => candidate.id === signal.projectId);
     if (project) parts.push(project.name);
     const person = users.find((candidate) => candidate.id === signal.userId);
@@ -139,6 +160,11 @@ export default function RisksPage() {
             {g.items.map((signal, index) => {
               const href = hrefFor(signal);
               const context = contextFor(signal);
+              const record = recordFor(signal);
+              const board = record?.sourceId
+                ? sources.find((source) => source.id === record.sourceId)?.title
+                : undefined;
+              const notion = notionUrl(record?.notionPageId);
               const body = (
                 <>
                   <span
@@ -157,27 +183,51 @@ export default function RisksPage() {
                     <div className="text-[15px] leading-snug text-[var(--ink)]">
                       {signal.summary[locale]}
                     </div>
-                    {context ? (
-                      <div className="tn-tabular mt-0.5 text-[13px] text-[var(--ter)]">{context}</div>
+                    {context || board ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-[var(--ter)]">
+                        {context ? <span className="min-w-0">{context}</span> : null}
+                        {board ? <SourceBadge source="notion" title={board} /> : null}
+                      </div>
                     ) : null}
                   </div>
+                </>
+              );
+              return (
+                <div
+                  key={signal.id}
+                  className={`flex items-start gap-2 px-4 py-3 ${
+                    index === g.items.length - 1 ? '' : 'tn-hairline'
+                  }`}
+                >
                   {href ? (
-                    <span className="mt-1 text-[var(--ter)]">
+                    <Link href={href} className="tn-press flex min-w-0 flex-1 items-start gap-3">
+                      {body}
+                    </Link>
+                  ) : (
+                    <div className="flex min-w-0 flex-1 items-start gap-3">{body}</div>
+                  )}
+
+                  {/* Outside the row's link on purpose: a link inside a link is
+                      invalid, and these two go to different places — the app's
+                      screen for the record, and the record in Notion. */}
+                  {notion ? (
+                    <a
+                      href={notion}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={t.task.openInNotion}
+                      title={t.task.openInNotion}
+                      className="tn-press -my-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[var(--sec)]"
+                    >
+                      <NotionMark size={18} />
+                    </a>
+                  ) : null}
+
+                  {href ? (
+                    <span className="mt-1 shrink-0 text-[var(--ter)]">
                       <Chevron />
                     </span>
                   ) : null}
-                </>
-              );
-              const className = `flex items-start gap-3 px-4 py-3 ${
-                index === g.items.length - 1 ? '' : 'tn-hairline'
-              }`;
-              return href ? (
-                <Link key={signal.id} href={href} className={`${className} tn-press`}>
-                  {body}
-                </Link>
-              ) : (
-                <div key={signal.id} className={className}>
-                  {body}
                 </div>
               );
             })}
