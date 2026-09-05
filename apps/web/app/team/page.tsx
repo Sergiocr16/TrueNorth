@@ -33,7 +33,7 @@ import { makeRole, useRiskCount, useStore } from '../../lib/store';
  * follow-up screen, which is the manager's, not the team's.
  */
 export default function TeamPage() {
-  const { t, locale } = usePreferences();
+  const { t } = usePreferences();
   const store = useStore();
   const riskCount = useRiskCount();
   const [editingRole, setEditingRole] = useState<Role | null>(null);
@@ -44,6 +44,7 @@ export default function TeamPage() {
 
   const { memberships, users, tasks, today, plan, roles, sources } = store;
   const isManager = store.currentMembership.access !== 'member';
+  const accounts = memberships.filter((m) => m.hasAccount);
 
   return (
     <Screen riskCount={riskCount}>
@@ -217,16 +218,50 @@ export default function TeamPage() {
         </div>
       ) : null}
 
-      <div className="mx-4 mt-3">
-        <Card className="overflow-hidden">
-          <AddRow label={t.team.shareAccess} onClick={() => setInviting(true)} />
-        </Card>
-        <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">
-          {locale === 'es'
-            ? 'La persona necesita tener cuenta. Las cuentas las crea el administrador; vos decidís con quién compartís esta empresa.'
-            : 'The person needs an account. The administrator creates accounts; you decide who you share this company with.'}
-        </p>
-      </div>
+      {/* Accounts are a different list from the team: who may open the app,
+          as opposed to who does the work. Most of the team never signs in. */}
+      {isManager ? (
+        <div className="mx-4 mt-6">
+          <SectionLabel>{t.team.accounts}</SectionLabel>
+          <Card className="overflow-hidden">
+            {accounts.length === 0 ? (
+              <p className="px-4 py-3.5 text-[15px] leading-snug text-[var(--ter)]">{t.team.noAccounts}</p>
+            ) : (
+              accounts.map((membership, index) => {
+                const user = users.find((u) => u.id === membership.userId);
+                const held = membership.roleIds
+                  .map((id) => roles.find((r) => r.id === id)?.name)
+                  .filter(Boolean)
+                  .join(' · ');
+                return (
+                  <div
+                    key={membership.userId}
+                    className={`flex items-center gap-3 px-4 py-3 ${index === accounts.length - 1 ? '' : 'tn-hairline'}`}
+                  >
+                    <Avatar initials={user?.initials ?? '—'} size={36} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-[17px] font-semibold text-[var(--ink)]">
+                          {user?.displayName ?? membership.userId}
+                        </span>
+                        <span className="text-[13px] text-[var(--ter)]">{t.team.access[membership.access]}</span>
+                      </div>
+                      <div className="mt-0.5 break-all text-[13px] text-[var(--ter)]">
+                        {user?.email ?? ''}
+                        {held ? ` · ${held}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            {store.canFound ? <AddRow label={t.team.shareAccess} onClick={() => setInviting(true)} /> : null}
+          </Card>
+          <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">
+            {store.canFound ? t.team.accountsHint : t.team.accountsFounderOnly}
+          </p>
+        </div>
+      ) : null}
 
       {inviting ? <InviteSheet onClose={() => setInviting(false)} /> : null}
 
@@ -621,6 +656,18 @@ function InviteSheet({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState('');
   const [roleIds, setRoleIds] = useState<string[]>(store.roles[0] ? [store.roles[0].id] : []);
   const [access, setAccess] = useState<AccessLevel>('member');
+  // Who on the team this account is for. The sync creates people from Notion
+  // under the address Notion has, which is rarely the one the account gets,
+  // so the admin says it here and the person's tasks follow the account.
+  const [personId, setPersonId] = useState('');
+  const people = store.memberships.filter((m) => !m.hasAccount);
+  const personOptions = [
+    { value: '', label: t.team.newAccountPerson },
+    ...people.map((m) => ({
+      value: m.userId,
+      label: store.users.find((u) => u.id === m.userId)?.displayName ?? m.userId,
+    })),
+  ];
   const [sent, setSent] = useState<InviteResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -703,7 +750,7 @@ function InviteSheet({ onClose }: { onClose: () => void }) {
       onSave={() => {
         if (!valid) return;
         void store
-          .inviteMember(email, roleIds, access)
+          .inviteMember(email, roleIds, access, personId || undefined)
           .then(setSent)
           .catch((cause: unknown) =>
             setFailed(
@@ -724,13 +771,18 @@ function InviteSheet({ onClose }: { onClose: () => void }) {
         </div>
       ) : null}
 
-      <FieldGroup
-        footer={
-          es
-            ? 'Escribí el correo exacto de la cuenta. La invitación solo la puede canjear quien tenga ese correo confirmado.'
-            : 'Use the exact address of the account. Only the confirmed owner of that address can redeem it.'
-        }
-      >
+      <FieldGroup footer={t.team.linkPersonHint}>
+        <SelectField
+          label={t.team.linkPerson}
+          value={personId}
+          options={personOptions}
+          onChange={(next) => {
+            setPersonId(next);
+            // The person's roles come along unless the form already chose some.
+            const person = store.memberships.find((m) => m.userId === next);
+            if (person && person.roleIds.length > 0) setRoleIds(person.roleIds);
+          }}
+        />
         <TextField
           label={es ? 'Correo' : 'Email'}
           value={email}

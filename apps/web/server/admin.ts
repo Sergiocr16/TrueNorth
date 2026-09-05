@@ -151,6 +151,8 @@ export type Caller =
       ok: true;
       /** Null when the call came from the local timer with the shared token. */
       uid: string | null;
+      /** The signed-in address, lowercased; null for the local token. */
+      email: string | null;
       access: CallerAccess | null;
       /** The member document, when there is a person behind the call. */
       member: Record<string, unknown> | null;
@@ -174,12 +176,15 @@ export async function authorizeCaller(
 
   const local = process.env.ENGINE_LOCAL_TOKEN;
   if (options.allowLocalToken && local && provided === local) {
-    return { ok: true, uid: null, access: null, member: null };
+    return { ok: true, uid: null, email: null, access: null, member: null };
   }
 
   let uid: string;
+  let email: string | null;
   try {
-    uid = (await adminAuth().verifyIdToken(provided)).uid;
+    const decoded = await adminAuth().verifyIdToken(provided);
+    uid = decoded.uid;
+    email = decoded.email?.toLowerCase() ?? null;
   } catch {
     return { ok: false, status: 401, error: 'invalid token' };
   }
@@ -192,5 +197,5 @@ export async function authorizeCaller(
   if (options.admin && access === 'member') {
     return { ok: false, status: 403, error: 'admin only' };
   }
-  return { ok: true, uid, access, member };
+  return { ok: true, uid, email, access, member };
 }

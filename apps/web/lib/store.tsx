@@ -28,6 +28,7 @@ import {
 import {
   atMidnight,
   computeSignals,
+  isFounder,
   roleAssignedOnlyIds,
   roleSourceIds,
   shiftIso,
@@ -289,6 +290,8 @@ interface StoreValue {
     email: string,
     roleIds: string[],
     access: Membership['access'],
+    /** A member without an account this account is for. */
+    personId?: string,
   ) => Promise<InviteResult>;
   resetToSeed: () => Promise<void>;
   /** Owner only: deletes the open company and everything under it, then leaves it. */
@@ -312,7 +315,6 @@ interface StoreValue {
  * firestore.rules, which is where it is actually enforced; this copy only
  * decides which screen to show.
  */
-const FOUNDERS = ['sergio@aditumcr.com'];
 
 const StoreContext = createContext<StoreValue | null>(null);
 
@@ -907,7 +909,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return {
       ready,
       needsBootstrap,
-      canFound: FOUNDERS.includes((user?.email ?? '').toLowerCase()),
+      canFound: isFounder(user?.email),
       pendingInvite,
       companyList,
       error,
@@ -1443,7 +1445,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setNeedsBootstrap(false);
       },
 
-      inviteMember: async (inviteEmail, roleIds, access) => {
+      inviteMember: async (inviteEmail, roleIds, access, personId) => {
         if (!user || !companyId) throw new Error('not signed in');
         // The account and the invitation are one action on the server: the
         // Admin SDK is the only thing that can create a Firebase user, and an
@@ -1457,6 +1459,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             email: inviteEmail.trim().toLowerCase(),
             roleIds,
             access,
+            ...(personId ? { personId } : {}),
           }),
         });
         const body = (await response.json().catch(() => ({}))) as InviteResult & { error?: string };
