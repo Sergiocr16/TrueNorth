@@ -291,6 +291,8 @@ interface StoreValue {
     access: Membership['access'],
   ) => Promise<InviteResult>;
   resetToSeed: () => Promise<void>;
+  /** Owner only: deletes the open company and everything under it, then leaves it. */
+  deleteCompany: () => Promise<void>;
   /** Asks the engine on this server to recompute my plan for today, in a role (mine by default). */
   replan: (roleId?: string) => Promise<void>;
 
@@ -1506,6 +1508,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const body = (await response.json().catch(() => ({}))) as { error?: string };
           throw new Error(body.error ?? `HTTP ${response.status}`);
         }
+      },
+
+      deleteCompany: async () => {
+        if (!user || !companyId) throw new Error('not signed in');
+        // Half of what a company leaves behind is out of a client's reach —
+        // engine documents, other people's mirrors, the logo — so the server
+        // does it. Afterwards the page reloads clean: the memberships listener
+        // then opens the next company, or the empty state if there is none.
+        const token = await user.getIdToken();
+        const response = await fetch('/api/company/delete', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        try {
+          window.localStorage.removeItem(COMPANY_KEY);
+        } catch {
+          /* convenience only */
+        }
+        window.location.replace('/today');
       },
 
       resetToSeed: async () => {
