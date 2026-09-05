@@ -624,6 +624,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => roles.find((r) => r.id === activeRoleId) ?? null,
     [roles, activeRoleId],
   );
+
+  // Self-repair: the role I have on no longer exists (deleted, or wiped by a
+  // reset) while I hold one that does. Put that one on. The rule allows a
+  // person to switch only among their own roles, which this is. Acting only
+  // when a held role is known to exist means an empty, not-yet-loaded roles
+  // list never triggers it.
+  useEffect(() => {
+    if (!uid || !companyId || activeRole) return;
+    const mine = members[uid];
+    if (!mine) return;
+    const fallback = (mine.roleIds ?? []).find((id) => roles.some((r) => r.id === id));
+    if (!fallback) return;
+    const { db } = firebase();
+    void updateDoc(doc(db, 'companies', companyId, 'members', uid), { activeRoleId: fallback }).catch(
+      () => undefined,
+    );
+  }, [uid, companyId, activeRole, members, roles]);
   const activeSourceIds = useMemo(
     () => [...roleSourceIds(activeRole, sources)].sort(),
     [activeRole, sources],
@@ -1054,7 +1071,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateMembership: (userId, patch) =>
         write((db, cid) => {
           const current = members[userId];
-          const roleIds = patch.roleIds ?? current?.roleIds ?? [];
+          // Only roles that exist: an id left behind by a deleted role would
+          // otherwise survive every edit and could even stay "on".
+          const existing = new Set(roles.map((r) => r.id));
+          const roleIds = (patch.roleIds ?? current?.roleIds ?? []).filter((id) => existing.has(id));
           // The active role must stay one of theirs; if it was just taken
           // away, the first remaining one goes on.
           const active = current?.activeRoleId ?? null;
@@ -1580,18 +1600,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         for (const source of sources) batch.delete(doc(base, 'notionSources', source.id));
         for (const risk of risks) batch.delete(doc(base, 'risks', risk.id));
         for (const situation of situations) batch.delete(doc(base, 'situations', situation.id));
-        // The sample people go too; accounts stay, they are not sample data.
+        // The sample people go too; accounts stay, they are not sample data —
+        // but the roles they held are gone, so they hold none now. Leaving a
+        // deleted id on a member is what once left the owner "without a role"
+        // while holding the new one.
         for (const m of memberships) {
           if (!m.hasAccount) batch.delete(doc(base, 'members', m.userId));
+          else
+            batch.update(doc(base, 'members', m.userId), {
+              roleIds: [],
+              activeRoleId: null,
+              roleTitle: '',
+            });
         }
         await batch.commit();
-        try {
-          window.localStorage.removeItem(COMPANY_KEY);
-        } catch {
-          /* convenience only */
-        }
-        setCompanyId(null);
-        setNeedsBootstrap(true);
+        // The company stays open: it still exists, emptier. Sending the person
+        // to the bootstrap screen here made them create a second company.
       },
     };
   }, [
