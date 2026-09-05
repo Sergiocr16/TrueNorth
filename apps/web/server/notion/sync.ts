@@ -54,6 +54,22 @@ const FULL_SYNC_EVERY_DAYS = 7;
 function derivedValues(source: NotionSource): boolean {
   return source.kind === 'projects';
 }
+
+/**
+ * A fingerprint of the projects the sync knows, so a task table notices when
+ * they changed. A task's `projectId` is resolved against the projects that
+ * exist at mapping time; a task mapped before its projects table was
+ * registered — or before a project was added — points nowhere, and the
+ * incremental path never revisits it. Projects sources sync first
+ * (`loadSources`), so by the time a task table runs this is current.
+ */
+function projectsKey(store: Store): string {
+  const ids = [...store.projects.keys()].sort();
+  const text = ids.join(',');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  return `${ids.length}:${(hash >>> 0).toString(16)}`;
+}
 /** Overlap on the incremental window: Notion's timestamps are minute-grained. */
 const OVERLAP_MS = 5 * 60_000;
 /** Comment fetches per source per run. Beyond this, the rest waits a day. */
@@ -335,12 +351,15 @@ async function syncSource(
     //    mapping changed — an old mapping's records are wrong, not outdated —
     //    and always for a source whose values move without an edit.
     const lastFull = source.lastFullSyncAt ? new Date(source.lastFullSyncAt).getTime() : 0;
+    const stamped = source as { syncedMappingHash?: string; syncedProjectsKey?: string };
+    const projects = source.kind === 'projects' ? undefined : projectsKey(ctx.store);
     const full =
       ctx.full ||
       !source.lastSyncAt ||
       derivedValues(source) ||
       Date.now() - lastFull > FULL_SYNC_EVERY_DAYS * 86_400_000 ||
-      source.mappingHash !== (source as { syncedMappingHash?: string }).syncedMappingHash;
+      source.mappingHash !== stamped.syncedMappingHash ||
+      (projects !== undefined && projects !== stamped.syncedProjectsKey);
     report.mode = full ? 'full' : 'incremental';
 
     // 2. The pages. Every run reads the whole source, with no filter on
@@ -486,6 +505,7 @@ async function syncSource(
       ...(full ? { lastFullSyncAt: startedIso } : {}),
       lastSyncError: null,
       syncedMappingHash: source.mappingHash,
+      ...(projects !== undefined ? { syncedProjectsKey: projects } : {}),
       counts: { pages: pagesTotal, open, unmatchedPeople: unmatched.length - report.peopleCreated },
     });
     await writer.flush();
