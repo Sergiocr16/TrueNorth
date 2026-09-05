@@ -120,10 +120,12 @@ north nothing wrong.
 ## Notion
 
 For ADITUM, Notion is the source of truth for projects and tasks. A database
-is registered as a *source* from *Integraciones* — paste its link, the server
-reads its schema and suggests which property is the title, the status, the
-people, the date, the code — and every source keeps its own mapping and its
-own status table, because ADITUM's databases do not share a vocabulary. What a
+is registered as a *source* from *Integraciones*: the screen lists every
+database the integration can see, with a search box, and several are added at
+once. The server reads each schema and suggests which property is the title,
+the status, the people, the date, the code; every source then keeps its own
+mapping and its own status table, because ADITUM's databases do not share a
+vocabulary. What a
 person sees of Notion is decided by the **role** they have on (ADR-008): a role
 reads a set of sources, a person holds several roles and switches between
 them, and the engine computes each person's day from that role's view only.

@@ -316,7 +316,20 @@ export const dictionary = {
       noSources: 'Todavía no hay bases registradas.',
       noSourcesHint:
         'Pegá el enlace de una base de datos de Notion compartida con la integración. Después asignala a un rol en Equipo.',
-      addSource: 'Agregar base de datos',
+      addSource: 'Agregar bases de datos',
+      pickTables: 'Elegí las bases',
+      pickTablesHint:
+        'Estas son todas las bases que la integración de Notion puede ver. Marcá las que querés leer; después les asignás roles en Equipo.',
+      searchTables: 'Buscar por nombre',
+      noTables:
+        'La integración no ve ninguna base. En Notion, abrí cada base y compartila con la integración (••• → Conexiones).',
+      noMatches: 'Ninguna base con ese nombre',
+      alreadyAdded: 'Ya agregada',
+      selectedCount: (n: number) => `${n} ${n === 1 ? 'seleccionada' : 'seleccionadas'}`,
+      addSelected: (n: number) => `Agregar ${n}`,
+      addingOne: (name: string, i: number, total: number) => `Leyendo ${name} (${i} de ${total})…`,
+      addedSome: (n: number) => `${n} ${n === 1 ? 'base agregada' : 'bases agregadas'}`,
+      byLink: 'O pegá el enlace de una base',
       lastSync: 'Última sincronización',
       neverSynced: 'Nunca sincronizada',
       syncNow: 'Sincronizar ahora',
@@ -846,7 +859,20 @@ export const dictionary = {
       noSources: 'No databases registered yet.',
       noSourcesHint:
         'Paste the link of a Notion database shared with the integration. Then assign it to a role under Team.',
-      addSource: 'Add database',
+      addSource: 'Add databases',
+      pickTables: 'Pick the databases',
+      pickTablesHint:
+        'These are every database the Notion integration can see. Tick the ones to read; you assign them to roles under Team.',
+      searchTables: 'Search by name',
+      noTables:
+        'The integration sees no database. In Notion, open each one and share it with the integration (••• → Connections).',
+      noMatches: 'No database by that name',
+      alreadyAdded: 'Already added',
+      selectedCount: (n: number) => `${n} selected`,
+      addSelected: (n: number) => `Add ${n}`,
+      addingOne: (name: string, i: number, total: number) => `Reading ${name} (${i} of ${total})…`,
+      addedSome: (n: number) => `${n} ${n === 1 ? 'database added' : 'databases added'}`,
+      byLink: 'Or paste a database link',
       lastSync: 'Last sync',
       neverSynced: 'Never synced',
       syncNow: 'Sync now',

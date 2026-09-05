@@ -85,6 +85,56 @@ export interface NotionUser {
   type?: 'person' | 'bot';
 }
 
+/**
+ * What the workspace search returns about one table, whichever shape the API
+ * answers with. The 2025-09-03 version answers with `data_source` objects, an
+ * older one with `database` objects, and the two spell the title and the
+ * parent differently — so this reads whatever is there and says what it found.
+ */
+export interface NotionSearchResult {
+  object?: string;
+  id: string;
+  /** `database` objects carry a rich-text title; `data_source` objects a name. */
+  title?: NotionRichText[];
+  name?: string;
+  parent?: { type?: string; database_id?: string; page_id?: string; workspace?: boolean };
+  database_parent?: { database_id?: string };
+  last_edited_time?: string;
+  in_trash?: boolean;
+  archived?: boolean;
+}
+
+/** One table somebody may register, as the picker lists it. */
+export interface NotionTableSummary {
+  /** The database the table belongs to. Equals `dataSourceId` when the API gave only one id. */
+  databaseId: string;
+  /** Null when the search answered with a database and its data source is not known yet. */
+  dataSourceId: string | null;
+  title: string;
+}
+
+/**
+ * One search result as a table to offer, or null when it is not one: a page,
+ * something in the trash, or an object with no id.
+ */
+export function tableFromSearch(result: NotionSearchResult): NotionTableSummary | null {
+  if (!result?.id) return null;
+  if (result.in_trash || result.archived) return null;
+  if (result.object && result.object !== 'database' && result.object !== 'data_source') return null;
+
+  const title =
+    (result.title?.map((t) => t.plain_text).join('').trim() || result.name?.trim()) ?? '';
+  const parentDatabase = result.database_parent?.database_id ?? result.parent?.database_id;
+
+  // A data source knows the database above it; a database is its own answer.
+  const isDataSource = result.object === 'data_source' || Boolean(parentDatabase);
+  return {
+    databaseId: parentDatabase ?? result.id,
+    dataSourceId: isDataSource ? result.id : null,
+    title: title || '(sin nombre)',
+  };
+}
+
 /** A database schema, flattened from the data source object. */
 export interface NotionSchema {
   title: string;

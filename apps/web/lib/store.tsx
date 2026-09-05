@@ -56,6 +56,7 @@ import {
   type WorkerHeartbeat,
 } from '@truenorth/core';
 import type { InspectResult, SyncReport } from '../server/notion/types';
+import type { NotionTableSummary } from '@truenorth/core';
 import { useAuth } from './auth';
 import { firebase } from './firebase';
 import { currentPushToken, disablePush, enablePush, type PushState } from './push';
@@ -233,6 +234,8 @@ interface StoreValue {
   upsertSource: (source: NotionSource) => void;
   /** Removes a registered database and takes it off every role. Its records go on the next sync. */
   deleteSource: (id: string) => void;
+  /** Every Notion table the integration can see, to pick from. Admins only. */
+  listNotionTables: () => Promise<NotionTableSummary[]>;
   /** Reads a database's schema on the server and suggests a mapping. Admins only. */
   inspectDatabase: (input: string, dataSourceId?: string) => Promise<InspectResult>;
   /** Runs the Notion sync now, for one source or all. Admins only. */
@@ -1068,6 +1071,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           return batch.commit();
         }),
+
+      listNotionTables: async () => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const response = await fetch('/api/notion/databases', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId }),
+        });
+        const body = (await response.json().catch(() => ({}))) as {
+          tables?: NotionTableSummary[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body.tables ?? [];
+      },
 
       inspectDatabase: async (input, dataSourceId) => {
         if (!user || !companyId) throw new Error('not signed in');
