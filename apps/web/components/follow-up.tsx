@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { FollowUp } from '@truenorth/core';
 import { notionUrl } from '@truenorth/core';
-import { Banner, ChipButton } from './ui';
+import { Banner, ChipButton, TextButton } from './ui';
 import { NotionMark } from './icons';
 import { usePreferences } from '../lib/preferences';
 import { useStore } from '../lib/store';
@@ -24,6 +24,8 @@ export function FollowUpMessage({ message }: { message: FollowUp }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.message);
   const [failed, setFailed] = useState(false);
+  // The reasoning is there for whoever wants it; the message is what matters.
+  const [showWhy, setShowWhy] = useState(false);
 
   const outcome = store.followUp?.outcome?.[message.id];
   // Narrowed into a const so the closure below keeps the discriminant.
@@ -51,19 +53,34 @@ export function FollowUpMessage({ message }: { message: FollowUp }) {
 
   return (
     <div className="mt-3 border-t border-[var(--hair)] pt-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[13px] font-semibold uppercase tracking-wide text-[var(--ter)]">
-          {t.team.followUp}
-        </span>
-        <span
-          className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold"
-          style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}
-        >
-          {t.team.tone[message.tone]}
-        </span>
-        <span className="text-[13px] text-[var(--ter)]">
-          {task ? t.team.followUpComment(task.code || task.title) : t.team.followUpDirect}
-        </span>
+      {/* Where it goes: the task by name, with its code and a way to open it,
+          or "direct message". The tone rides along as a pill. */}
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span
+              className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold"
+              style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}
+            >
+              {t.team.tone[message.tone]}
+            </span>
+            <span className="text-[13px] text-[var(--ter)]">
+              {task ? t.team.followUpComment : t.team.followUpDirect}
+            </span>
+          </div>
+          {task ? (
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+              {task.code ? (
+                <span className="tn-tabular text-[13px] font-bold text-[var(--accent)]">
+                  {task.code}
+                </span>
+              ) : null}
+              <span className="min-w-0 text-[15px] font-semibold leading-snug text-[var(--ink)]">
+                {task.title}
+              </span>
+            </div>
+          ) : null}
+        </div>
         {notion ? (
           <a
             href={notion}
@@ -71,9 +88,9 @@ export function FollowUpMessage({ message }: { message: FollowUp }) {
             rel="noreferrer"
             aria-label={t.task.openInNotion}
             title={t.task.openInNotion}
-            className="tn-press inline-flex h-6 w-6 items-center justify-center"
+            className="tn-press flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
           >
-            <NotionMark size={15} />
+            <NotionMark size={18} />
           </a>
         ) : null}
       </div>
@@ -97,19 +114,24 @@ export function FollowUpMessage({ message }: { message: FollowUp }) {
         </p>
       )}
 
-      <p className="mt-2 text-[13px] leading-snug text-[var(--ter)]">
-        <span className="font-semibold">{t.team.followUpWhy}: </span>
-        {message.why}
-      </p>
-
-      {message.signals.length > 0 ? (
-        <ul className="mt-1.5 flex flex-col gap-1">
-          {message.signals.map((signal) => (
-            <li key={signal.id} className="text-[13px] leading-snug text-[var(--faint)]">
-              · {signal.summary[locale]}
-            </li>
-          ))}
-        </ul>
+      <div className="mt-1.5">
+        <TextButton onClick={() => setShowWhy((was) => !was)}>
+          {showWhy ? t.team.followUpHideWhy : t.team.followUpShowWhy}
+        </TextButton>
+      </div>
+      {showWhy ? (
+        <div className="mt-1">
+          <p className="text-[13px] leading-snug text-[var(--ter)]">{message.why}</p>
+          {message.signals.length > 0 ? (
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {message.signals.map((signal) => (
+                <li key={signal.id} className="text-[13px] leading-snug text-[var(--faint)]">
+                  · {signal.summary[locale]}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
 
       {failed ? (
