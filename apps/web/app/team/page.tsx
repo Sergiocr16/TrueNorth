@@ -260,8 +260,8 @@ export default function TeamPage() {
                   </>
                 );
                 const rowClass = `flex w-full items-center gap-3 px-4 py-3 text-left ${index === accounts.length - 1 ? '' : 'tn-hairline'}`;
-                // The founder manages accounts; everybody else only reads the list.
-                return store.canFound && membership.userId !== store.currentUser.id ? (
+                // The founder manages every account; everybody may open their own, to rename it.
+                return store.canFound || membership.userId === store.currentUser.id ? (
                   <button
                     key={membership.userId}
                     type="button"
@@ -688,6 +688,11 @@ function AccountSheet({ membership, onClose }: { membership: Membership; onClose
   const [copied, setCopied] = useState(false);
   const [armed, arm, disarm] = useConfirm();
   const [armedReset, armReset, disarmReset] = useConfirm();
+  const [name, setName] = useState(user?.displayName ?? '');
+  // One's own account can be renamed and nothing else; the founder does the rest to others.
+  const self = membership.userId === store.currentUser.id;
+  const canManage = store.canFound && !self;
+  const nameChanged = name.trim().length >= 2 && name.trim() !== (user?.displayName ?? '');
 
   const run = (action: 'disable' | 'enable' | 'resetPassword' | 'delete') => {
     if (busy) return;
@@ -744,14 +749,31 @@ function AccountSheet({ membership, onClose }: { membership: Membership; onClose
   }
 
   return (
-    <EditSheet open title={user?.displayName ?? membership.userId} onCancel={onClose} cancelLabel={t.common.close}>
+    <EditSheet
+      open
+      title={user?.displayName ?? membership.userId}
+      onCancel={onClose}
+      cancelLabel={t.common.close}
+      onSave={() => {
+        if (!nameChanged || busy) return;
+        setBusy(true);
+        setFailed(null);
+        store
+          .manageAccount(membership.userId, 'rename', { displayName: name.trim() })
+          .then(() => onClose())
+          .catch((cause: unknown) => setFailed(cause instanceof Error ? cause.message : String(cause)))
+          .finally(() => setBusy(false));
+      }}
+      canSave={nameChanged && !busy}
+    >
       {failed ? (
         <div className="mx-4 mt-4">
           <Banner tone="error">{failed}</Banner>
         </div>
       ) : null}
 
-      <FieldGroup footer={t.team.accountHint}>
+      <FieldGroup footer={canManage ? t.team.accountHint : t.team.accountNameHint}>
+        <TextField label={t.team.personName} value={name} onChange={setName} placeholder="Marco Jiménez" />
         <div className="tn-hairline px-4 py-3">
           <div className="text-[13px] font-semibold text-[var(--ter)]">{t.team.credentialsEmail}</div>
           <p className="mt-0.5 break-all text-[17px] text-[var(--ink)]">{user?.email ?? ''}</p>
@@ -764,6 +786,7 @@ function AccountSheet({ membership, onClose }: { membership: Membership; onClose
         </div>
       </FieldGroup>
 
+      {canManage ? (
       <div className="mt-6">
         <div className="tn-card mx-4 overflow-hidden">
           <button
@@ -792,7 +815,9 @@ function AccountSheet({ membership, onClose }: { membership: Membership; onClose
         </div>
         <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">{t.team.disableHint}</p>
       </div>
+      ) : null}
 
+      {canManage ? (
       <div className="mt-6">
         <div className="tn-card mx-4 overflow-hidden">
           <DestructiveRow
@@ -810,6 +835,7 @@ function AccountSheet({ membership, onClose }: { membership: Membership; onClose
         </div>
         <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">{t.team.deleteAccountHint}</p>
       </div>
+      ) : null}
     </EditSheet>
   );
 }
