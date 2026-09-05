@@ -1,3 +1,4 @@
+import { PRIORITY_WEIGHT } from './notion-status';
 import { computeSignals, signalsForUser } from './signals';
 import type {
   DailyPlan,
@@ -21,11 +22,16 @@ import type {
  * tested against the same cases.
  *
  * Since ADR-008 the unit of visibility is the role: a Notion record is visible
- * when its source is one the person's active role reads. And visibility is no
- * longer a filter over company-wide signals but a recomputation from the
- * visible subset, because a workload or an "empty objective" is an aggregate,
- * and an aggregate over hidden data still tells you about the hidden data.
+ * when its source is one the person's active role reads. Since ADR-009 a role
+ * may read a source only through the person's own assignments: of such a
+ * source, a task is visible when it names them and a project when they are on
+ * it. And visibility is no longer a filter over company-wide signals but a
+ * recomputation from the visible subset, because a workload or an "empty
+ * objective" is an aggregate, and an aggregate over hidden data still tells
+ * you about the hidden data.
  */
+
+const NONE: ReadonlySet<string> = new Set();
 
 /** The sources a role reads, ignoring ids of sources that no longer exist. */
 export function roleSourceIds(
@@ -37,17 +43,33 @@ export function roleSourceIds(
 }
 
 /**
+ * The sources a role reads only through the person's own assignments: the
+ * intersection of `assignedOnlySourceIds` with what the role reads at all, so
+ * an id that lingers after a source left the role means nothing.
+ */
+export function roleAssignedOnlyIds(
+  role: Pick<Role, 'sourceIds' | 'assignedOnlySourceIds'> | null | undefined,
+  sources: Pick<NotionSource, 'id'>[],
+): ReadonlySet<string> {
+  const reads = roleSourceIds(role, sources);
+  return new Set((role?.assignedOnlySourceIds ?? []).filter((id) => reads.has(id)));
+}
+
+/**
  * Company-wide app projects for everyone; private or shared ones only for the
- * people on them; Notion projects only through a source the role reads.
+ * people on them; Notion projects only through a source the role reads — and,
+ * when the role reads that source assigned-only, only the ones the person is on.
  */
 export function visibleProjects(
   projects: Project[],
   userId: string,
   sourceIds: ReadonlySet<string>,
+  assignedOnly: ReadonlySet<string> = NONE,
 ): Project[] {
   return projects.filter((p) =>
     p.source === 'notion'
-      ? Boolean(p.sourceId && sourceIds.has(p.sourceId))
+      ? Boolean(p.sourceId && sourceIds.has(p.sourceId)) &&
+        (!assignedOnly.has(p.sourceId as string) || p.memberUserIds.includes(userId))
       : p.visibility === 'company' || p.memberUserIds.includes(userId),
   );
 }
@@ -57,19 +79,27 @@ export function visibleProjects(
  * A task on a hidden *app* project is invisible too: the assignment alone
  * would reveal a private project exists. A task on a Notion project the role
  * does not read is kept but detached from it — a page id is not a secret the
- * way a private project is, and the work is still the person's.
+ * way a private project is, and the work is still the person's. Of a source
+ * the role reads assigned-only, a task is visible only when it names the
+ * person: an unowned backlog item there is as hidden as somebody else's.
  */
 export function visibleTasks(
   tasks: Task[],
   projects: Project[],
   userId: string,
   sourceIds: ReadonlySet<string>,
+  assignedOnly: ReadonlySet<string> = NONE,
 ): Task[] {
-  const visible = new Set(visibleProjects(projects, userId, sourceIds).map((p) => p.id));
+  const visible = new Set(
+    visibleProjects(projects, userId, sourceIds, assignedOnly).map((p) => p.id),
+  );
   const notionProjects = new Set(projects.filter((p) => p.source === 'notion').map((p) => p.id));
   const out: Task[] = [];
   for (const t of tasks) {
-    if (t.source === 'notion' && !(t.sourceId && sourceIds.has(t.sourceId))) continue;
+    if (t.source === 'notion') {
+      if (!(t.sourceId && sourceIds.has(t.sourceId))) continue;
+      if (assignedOnly.has(t.sourceId) && !t.assigneeUserIds.includes(userId)) continue;
+    }
     if (t.projectId === null || visible.has(t.projectId)) {
       out.push(t);
     } else if (notionProjects.has(t.projectId)) {
@@ -99,7 +129,12 @@ export interface Scoped {
   /** The role the scope was computed for; null when the id matches none. */
   role: Role | null;
   sourceIds: string[];
-  /** True when the company has sources this role does not read. */
+  /** Among `sourceIds`, the ones this role reads only through the person's assignments. */
+  assignedOnlySourceIds: string[];
+  /**
+   * True when the company has sources this role does not read, or reads only
+   * through assignments: either way, part of the work is out of view.
+   */
   partial: boolean;
   objectives: Objective[];
   projects: Project[];
@@ -125,10 +160,11 @@ export interface Scoped {
 export function scopeFor(input: ScopeInput, userId: string, roleId: string | null): Scoped {
   const role = input.roles.find((r) => r.id === roleId) ?? null;
   const sourceIds = roleSourceIds(role, input.sources);
-  const partial = input.sources.some((s) => !sourceIds.has(s.id));
+  const assignedOnly = roleAssignedOnlyIds(role, input.sources);
+  const partial = input.sources.some((s) => !sourceIds.has(s.id) || assignedOnly.has(s.id));
 
-  const projects = visibleProjects(input.projects, userId, sourceIds);
-  const tasks = visibleTasks(input.tasks, input.projects, userId, sourceIds);
+  const projects = visibleProjects(input.projects, userId, sourceIds, assignedOnly);
+  const tasks = visibleTasks(input.tasks, input.projects, userId, sourceIds, assignedOnly);
 
   const involved = new Set<string>([userId]);
   for (const t of tasks) for (const id of t.assigneeUserIds) involved.add(id);
@@ -156,6 +192,7 @@ export function scopeFor(input: ScopeInput, userId: string, roleId: string | nul
   return {
     role,
     sourceIds: [...sourceIds],
+    assignedOnlySourceIds: [...assignedOnly],
     partial,
     objectives: input.objectives,
     projects,
@@ -164,6 +201,25 @@ export function scopeFor(input: ScopeInput, userId: string, roleId: string | nul
     planHistory,
     signals,
   };
+}
+
+/**
+ * Open, unowned tasks the person could take, out of a scope already free of
+ * hidden data: app tasks and tasks of the sources the role sees whole, highest
+ * priority first. Nothing from an assigned-only source can be here — of those
+ * the person only ever sees their own — so a plan built from this list never
+ * hands somebody work their role could not have seen.
+ */
+export function pickableTasks(scope: Pick<Scoped, 'tasks' | 'assignedOnlySourceIds'>): Task[] {
+  const assignedOnly = new Set(scope.assignedOnlySourceIds);
+  return scope.tasks
+    .filter(
+      (t) =>
+        t.status !== 'done' &&
+        t.assigneeUserIds.length === 0 &&
+        !(t.source === 'notion' && t.sourceId && assignedOnly.has(t.sourceId)),
+    )
+    .sort((a, b) => PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority]);
 }
 
 /** The signals that concern the viewer, out of a scope already free of hidden data. */

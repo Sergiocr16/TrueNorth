@@ -122,9 +122,13 @@ Five sentences, enforced in `firestore.rules`:
    role (`companies/{cid}/roles`) names the Notion sources it reads; a person
    holds several roles (`roleIds`) and switches `activeRoleId` themselves, only
    among their own. A synced task or project is readable while its source is
-   on the active role; app-native records keep the project visibility above.
-   The engine applies the same scope in code and recomputes signals from it,
-   so nothing one role cannot see reaches its plan, briefing or follow-up.
+   on the active role — and, for a source the role lists in
+   `assignedOnlySourceIds` (ADR-009), only while the record names the person;
+   app-native records keep the project visibility above. The engine applies
+   the same scope in code and recomputes signals from it, so nothing one role
+   cannot see reaches its plan, briefing or follow-up; when the person has no
+   work of their own, the plan may only offer unowned tasks from sources the
+   role sees whole (`pickableTasks`).
 
 `founders()` in the rules lists who may create a company from scratch. Keep it
 short. `FOUNDERS` in `lib/store.tsx` mirrors it only to choose which screen to
@@ -154,7 +158,7 @@ generated; the data is safe in Firebase. That trade was made deliberately.
 - The team follow-up schema in the same file (ADR-006): a reading for every person, a message only for those who need one and only ever citing a signal, defaulting to a comment on the Notion task. Nothing is sent or published without Sergio copying it.
 - The `jobs` document shape used by the Raspberry Pi worker.
 - The Notion status map: every registered source carries its own `statusMap` (ADR-008), built from the database's own groups by `defaultStatusMap()` and edited on screen. `NOTION_TASK_STATUS` in `packages/core/src/notion-status.ts` is the known default, pinned by a test as what "Tareas Software" resolves to. The signal engine, the plan and the voice writer all depend on the four internal states.
-- The scope of a person (`scopeFor` in `packages/core/src/visibility.ts`, ADR-008): the active role's sources plus app records, with signals recomputed from that subset. Documents are per person and role: `analyses/{date}_{uid}_{roleId}`, `plans/…`, `followups/…`.
+- The scope of a person (`scopeFor` in `packages/core/src/visibility.ts`, ADR-008, ADR-009): the active role's sources — each read whole or only through the person's assignments — plus app records, with signals recomputed from that subset. Documents are per person and role: `analyses/{date}_{uid}_{roleId}`, `plans/…`, `followups/…`.
 - The route paths (ADR-007): English, one folder per screen, `[date]` and `[id]` for dynamic segments.
 
 ## Design system
@@ -207,6 +211,6 @@ selftest. The Notion sync exists (ADR-008) but has not run against ADITUM yet:
 it needs `NOTION_TOKEN` in the Pi's env, the databases shared with the
 integration and registered from *Integraciones*, and roles that read them.
 Until the first sync the "has not moved" signals have nothing to read. Rules
-and indexes changed with ADR-008 and must be deployed together with the code
-that issues the new queries. Work lands on `v1.0` at the moment; `main` and
+and indexes changed with ADR-008 and ADR-009 and must be deployed together
+with the code that issues the new queries. Work lands on `v1.0` at the moment; `main` and
 `production` are behind it.

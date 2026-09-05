@@ -272,6 +272,7 @@ async function writeAnalysis(
       userId: member.id,
       roleId,
       sourceIds: scope.sourceIds,
+      assignedOnlySourceIds: scope.assignedOnlySourceIds,
       date: captured.todayIso,
       generatedAt: new Date().toISOString(),
       briefing: analysis.briefing,

@@ -83,6 +83,14 @@ export interface Role {
   description: string;
   /** Notion sources this role sees. Empty means app-native records only. */
   sourceIds: string[];
+  /**
+   * Sources, among `sourceIds`, of which this role sees only what is assigned
+   * to the person: tasks that name them in `assigneeUserIds`, projects that
+   * name them in `memberUserIds`. Absent or empty means every record of every
+   * source, which is what roles written before ADR-009 mean. Ids that are not
+   * in `sourceIds` are ignored.
+   */
+  assignedOnlySourceIds?: string[];
   createdAt: string;
 }
 
@@ -445,6 +453,8 @@ export interface CompanyAnalysis {
   roleId: string;
   /** The Notion sources it was computed from, for the footer of the screen. */
   sourceIds: string[];
+  /** Among them, the ones read only through the person's assignments. Absent before ADR-009. */
+  assignedOnlySourceIds?: string[];
   date: string;
   generatedAt: string;
   briefing: string;
