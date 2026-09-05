@@ -86,17 +86,32 @@ export interface LinkResult {
 export async function linkAccountToCompany(
   companyId: string,
   uid: string,
-  invite: { email: string; roleIds: string[]; roleTitle: string; access: string; companyName: string },
+  invite: {
+    email: string;
+    roleIds: string[];
+    roleTitle: string;
+    access: string;
+    companyName: string;
+    /** The member without an account this account is for, when the admin said so. */
+    personId?: string;
+  },
 ): Promise<LinkResult> {
   const db = adminDb();
   const base = db.collection('companies').doc(companyId);
   const members = base.collection('members');
 
-  const [mine, sameEmail] = await Promise.all([
+  const [mine, sameEmail, named] = await Promise.all([
     members.doc(uid).get(),
     members.where('email', '==', invite.email).get(),
+    invite.personId && invite.personId !== uid ? members.doc(invite.personId).get() : null,
   ]);
-  const placeholder = sameEmail.docs.find((doc) => doc.id !== uid);
+  // The person named on the form wins; the address is the fallback the sync
+  // can sometimes satisfy on its own. Never absorb somebody who already has
+  // an account: that would hand one person's work to another.
+  const placeholder =
+    named?.exists && named.get('hasAccount') === false
+      ? named
+      : sameEmail.docs.find((doc) => doc.id !== uid && doc.get('hasAccount') !== true);
   const previous = { ...(placeholder?.data() ?? {}), ...(mine.data() ?? {}) };
 
   const displayName =

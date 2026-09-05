@@ -200,7 +200,17 @@ export const dictionary = {
       noAccount: 'Sin cuenta',
       removePerson: 'Quitar del equipo',
       removePersonConfirm: 'Tocá otra vez para quitar',
-      shareAccess: 'Compartir acceso a la app',
+      shareAccess: 'Crear cuenta',
+      accounts: 'Cuentas',
+      noAccounts: 'Nadie tiene cuenta todavía.',
+      accountsHint:
+        'Una cuenta deja entrar a la app. Al crearla, elegí a quién del equipo pertenece: sus tareas y su seguimiento pasan a esa cuenta.',
+      accountsFounderOnly: 'Las cuentas las crea sergio@aditumcr.com.',
+      access: { owner: 'Propietario', admin: 'Administrador', member: 'Miembro' },
+      linkPerson: 'Es la cuenta de',
+      newAccountPerson: 'Alguien nuevo en el equipo',
+      linkPersonHint:
+        'Si la persona ya está en el equipo, elegila: sus tareas de Notion quedan en esta cuenta. Escribí el correo exacto con el que va a entrar.',
       credentialsTitle: 'Acceso listo',
       credentialsCreated: 'Se creó la cuenta. Pasale estos datos a la persona:',
       credentialsExisting: (email: string) =>
@@ -783,7 +793,17 @@ export const dictionary = {
       noAccount: 'No account',
       removePerson: 'Remove from team',
       removePersonConfirm: 'Tap again to remove',
-      shareAccess: 'Share app access',
+      shareAccess: 'Create an account',
+      accounts: 'Accounts',
+      noAccounts: 'Nobody has an account yet.',
+      accountsHint:
+        'An account lets somebody into the app. When you create one, say who on the team it belongs to: their tasks and follow-up move to that account.',
+      accountsFounderOnly: 'Accounts are created by sergio@aditumcr.com.',
+      access: { owner: 'Owner', admin: 'Admin', member: 'Member' },
+      linkPerson: 'This account is for',
+      newAccountPerson: 'Somebody new to the team',
+      linkPersonHint:
+        'If the person is already on the team, pick them: their Notion tasks land in this account. Use the exact address they will sign in with.',
       credentialsTitle: 'Access ready',
       credentialsCreated: 'The account is created. Hand these over to the person:',
       credentialsExisting: (email: string) =>

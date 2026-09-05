@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
+import { isFounder } from '@truenorth/core';
 import { adminAuth, adminCredentials, adminDb, authorizeCaller } from '../../../../server/admin';
 import { linkAccountToCompany } from '../../../../server/members';
 import { temporaryPassword } from '../../../../server/password';
@@ -24,7 +25,12 @@ import { temporaryPassword } from '../../../../server/password';
  * sign-in. They are in the team from this moment, marked as having an account,
  * and whatever the Notion sync already knew about them — their name, their
  * tasks, what is expected of them — comes along instead of turning into a
- * second, emptier copy of the same person.
+ * second, emptier copy of the same person. `personId` names that person
+ * explicitly: the sync knows people by the address Notion has for them,
+ * which is rarely the one the account gets.
+ *
+ * Founders only. Sharing a company is every member's call; creating the
+ * account that lets somebody into the app is not.
  */
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +40,8 @@ interface Body {
   email?: string;
   roleIds?: string[];
   access?: 'owner' | 'admin' | 'member';
+  /** A member without an account (`p_…`) this account is for. */
+  personId?: string;
 }
 
 export async function POST(request: Request) {
@@ -53,6 +61,9 @@ export async function POST(request: Request) {
   const caller = await authorizeCaller(request, companyId, { admin: true });
   if (!caller.ok) return NextResponse.json({ error: caller.error }, { status: caller.status });
   if (!companyId) return NextResponse.json({ error: 'companyId required' }, { status: 400 });
+  if (!isFounder(caller.email)) {
+    return NextResponse.json({ error: 'founders only' }, { status: 403 });
+  }
 
   const email = (body.email ?? '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -111,6 +122,7 @@ export async function POST(request: Request) {
     roleTitle,
     access,
     companyName,
+    personId: typeof body.personId === 'string' && body.personId ? body.personId : undefined,
   });
 
   // A spent invitation left lying around is redeemed on the next sign-in and

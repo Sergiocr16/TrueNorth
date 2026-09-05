@@ -1,5 +1,6 @@
 export * from './types';
 export * from './notion-status';
+export * from './founders';
 export * from './notion';
 export * from './notion-map';
 export * from './people';
