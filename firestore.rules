@@ -15,7 +15,9 @@ rules_version = '2';
 //   4. What a member sees of Notion is decided by the role they have on.
 //      A role names the Notion sources it reads; a task or project synced
 //      from a source is readable only while the caller's active role reads
-//      that source. App-native records keep the project visibility above.
+//      that source — and, for a source the role reads "assigned only", only
+//      while the record names the caller. App-native records keep the
+//      project visibility above.
 //
 // Nothing under a company is readable without a membership document inside it,
 // so an account with no invitation sees an empty app and nothing else.
@@ -110,21 +112,37 @@ service cloud.firestore {
       return me(companyId).get('activeRoleId', null);
     }
 
+    function activeRole(companyId) {
+      return get(/databases/$(database)/documents/companies/$(companyId)/roles/$(activeRoleId(companyId))).data;
+    }
+
     // The Notion sources the caller's active role reads. No active role, no
     // Notion: a person between roles sees app records only.
     function activeSourceIds(companyId) {
-      return activeRoleId(companyId) == null
-             ? []
-             : get(/databases/$(database)/documents/companies/$(companyId)/roles/$(activeRoleId(companyId)))
-                 .data.get('sourceIds', []);
+      return activeRoleId(companyId) == null ? [] : activeRole(companyId).get('sourceIds', []);
     }
 
-    // A synced record is readable while its source is on the active role.
-    // Only `source` and `sourceId` are inspected, both of which the app's
-    // queries fix by equality, so every list the app issues can be proven.
-    function readsSource(companyId) {
+    // Among those, the sources the role reads only through the caller's own
+    // assignments (ADR-009). A role written before the field existed reads
+    // everything, which is what it always did.
+    function activeAssignedOnlyIds(companyId) {
+      return activeRoleId(companyId) == null
+             ? []
+             : activeRole(companyId).get('assignedOnlySourceIds', []);
+    }
+
+    // A synced record is readable while its source is on the active role and,
+    // when the role reads that source assigned-only, while the record names
+    // the caller. `people` is the record's own array — `assigneeUserIds` on a
+    // task, `memberUserIds` on a project — passed raw rather than through
+    // get(), because that is what the query evaluator can prove against an
+    // array-contains clause. `source` and `sourceId` are fixed by equality in
+    // every query the app issues, so each list can be proven.
+    function readsSource(companyId, people) {
       return resource.data.source == 'notion'
-             && resource.data.sourceId in activeSourceIds(companyId);
+             && resource.data.sourceId in activeSourceIds(companyId)
+             && (!(resource.data.sourceId in activeAssignedOnlyIds(companyId))
+                 || request.auth.uid in people);
     }
 
     function isAppRecord() {
@@ -235,7 +253,10 @@ service cloud.firestore {
       //   where('source', '==', 'app').where('visibility', '==', 'company')
       //   where('source', '==', 'app').where('memberUserIds', 'array-contains', uid)
       //   where('source', '==', 'notion').where('sourceId', '==', <id>)
-      //                                       one per source the active role reads
+      //                                       one per source the active role reads whole
+      //   where('source', '==', 'notion').where('sourceId', '==', <id>)
+      //       .where('memberUserIds', 'array-contains', uid)
+      //                                       one per source it reads assigned-only
       //
       // Anything else, including an unfiltered listener on the collection, is
       // refused outright — which is correct, and is what the tests pin down.
@@ -246,7 +267,7 @@ service cloud.firestore {
                     && ((isAppRecord()
                          && (resource.data.visibility == 'company'
                              || request.auth.uid in resource.data.memberUserIds))
-                        || readsSource(companyId));
+                        || readsSource(companyId, resource.data.memberUserIds));
         allow create: if isMember(companyId) && request.resource.data.source == 'app';
         allow update, delete: if isMember(companyId)
                               && isAppRecord()
@@ -254,13 +275,15 @@ service cloud.firestore {
                                   || request.auth.uid in resource.data.memberUserIds);
       }
 
-      // Two queries: where('source', '==', 'app') and, per source on the
-      // active role, where('source', '==', 'notion').where('sourceId', '==', <id>).
+      // Three queries: where('source', '==', 'app'); per source the active
+      // role reads whole, where('source', '==', 'notion').where('sourceId', '==', <id>);
+      // and per source it reads assigned-only, the same with
+      // .where('assigneeUserIds', 'array-contains', uid) added.
       // A task that came from Notion is edited in Notion; the browser only
       // ever writes app tasks.
       match /tasks/{taskId} {
         allow read: if isMember(companyId)
-                    && (isAppRecord() || readsSource(companyId));
+                    && (isAppRecord() || readsSource(companyId, resource.data.assigneeUserIds));
         allow create: if isMember(companyId) && request.resource.data.source == 'app';
         allow update, delete: if isMember(companyId) && isAppRecord();
       }

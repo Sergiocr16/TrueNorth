@@ -28,6 +28,7 @@ import {
 import {
   atMidnight,
   computeSignals,
+  roleAssignedOnlyIds,
   roleSourceIds,
   shiftIso,
   todayIso,
@@ -135,6 +136,19 @@ export interface AskAnswer {
   signals: CitedSignal[];
   /** A proposal the person confirms; the app then writes it. */
   action: (AskAction & { userName?: string }) | null;
+}
+
+/** What comes back from /api/members/invite. */
+export interface InviteResult {
+  email: string;
+  /** False when the address already had an account, which keeps its password. */
+  created: boolean;
+  /** Shown once and stored nowhere. Null whenever `created` is false. */
+  password: string | null;
+  /** True when a person the Notion sync had already created became this account. */
+  merged?: boolean;
+  /** Records whose reference to the old placeholder id was rewritten. */
+  repointed?: number;
 }
 
 /** One row in the company switcher, from the mirror under the user. */
@@ -271,7 +285,11 @@ interface StoreValue {
   /** Joins the company that invited this address. */
   acceptInvite: () => Promise<void>;
   /** Shares this company with somebody who already has an account. */
-  inviteMember: (email: string, roleIds: string[], access: Membership['access']) => Promise<void>;
+  inviteMember: (
+    email: string,
+    roleIds: string[],
+    access: Membership['access'],
+  ) => Promise<InviteResult>;
   resetToSeed: () => Promise<void>;
   /** Asks the engine on this server to recompute my plan for today, in a role (mine by default). */
   replan: (roleId?: string) => Promise<void>;
@@ -599,46 +617,77 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => [...roleSourceIds(activeRole, sources)].sort(),
     [activeRole, sources],
   );
-  const activeSourceKey = activeSourceIds.join(',');
+  const activeAssignedOnlyIds = useMemo(
+    () => roleAssignedOnlyIds(activeRole, sources),
+    [activeRole, sources],
+  );
+  // The key encodes how each source is read, so flipping a source between
+  // "whole" and "assigned only" re-subscribes with the other query shape.
+  const activeSourceKey = activeSourceIds
+    .map((id) => `${id}:${activeAssignedOnlyIds.has(id) ? 'own' : 'all'}`)
+    .join(',');
 
   // One listener per source the active role reads, for tasks and projects.
   // The rule reads the caller's active role, so a source that is not on it
-  // would be refused — and a source that leaves the role drops out here.
+  // would be refused — and a source that leaves the role drops out here. A
+  // source read assigned-only adds the caller's own array-contains clause,
+  // which is what makes the rule provable for that query (ADR-009).
   useEffect(() => {
     if (!uid || !companyId) return;
     const { db } = firebase();
     const base = doc(db, 'companies', companyId);
-    const ids = activeSourceKey ? activeSourceKey.split(',') : [];
+    const entries = activeSourceKey
+      ? activeSourceKey.split(',').map((entry) => {
+          const [sourceId, mode] = entry.split(':');
+          return { sourceId: sourceId as string, assignedOnly: mode === 'own' };
+        })
+      : [];
     setSourceTasks({});
     setSourceProjects({});
 
-    const subs = ids.flatMap((sourceId) => [
+    // Refused means the role no longer reads it; empty, do not shout. Anything
+    // else — a missing index, say — is worth a line in the console, because
+    // the symptom is otherwise identical: a source that looks empty.
+    const refused = (what: string, sourceId: string) => (error: { code?: string }) => {
+      if (error.code !== 'permission-denied') {
+        console.warn(`TrueNorth: ${what} of source ${sourceId} failed`, error);
+      }
+    };
+
+    const subs = entries.flatMap(({ sourceId, assignedOnly }) => [
       onSnapshot(
         query(
           collection(base, 'tasks'),
           where('source', '==', 'notion'),
           where('sourceId', '==', sourceId),
+          ...(assignedOnly ? [where('assigneeUserIds', 'array-contains', uid)] : []),
         ),
         (snap) =>
           setSourceTasks((current) => ({
             ...current,
             [sourceId]: snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task),
           })),
-        // Refused means the role no longer reads it; empty, do not shout.
-        () => setSourceTasks((current) => ({ ...current, [sourceId]: [] })),
+        (error) => {
+          refused('tasks', sourceId)(error);
+          setSourceTasks((current) => ({ ...current, [sourceId]: [] }));
+        },
       ),
       onSnapshot(
         query(
           collection(base, 'projects'),
           where('source', '==', 'notion'),
           where('sourceId', '==', sourceId),
+          ...(assignedOnly ? [where('memberUserIds', 'array-contains', uid)] : []),
         ),
         (snap) =>
           setSourceProjects((current) => ({
             ...current,
             [sourceId]: snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Project),
           })),
-        () => setSourceProjects((current) => ({ ...current, [sourceId]: [] })),
+        (error) => {
+          refused('projects', sourceId)(error);
+          setSourceProjects((current) => ({ ...current, [sourceId]: [] }));
+        },
       ),
     ]);
     return () => subs.forEach((unsubscribe) => unsubscribe());
@@ -741,6 +790,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       name: 'General',
       description: '',
       sourceIds: [],
+      assignedOnlySourceIds: [],
       createdAt: new Date().toISOString(),
     });
 
@@ -1063,9 +1113,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const batch = writeBatch(db);
           batch.delete(doc(db, 'companies', cid, 'notionSources', id));
           for (const role of roles) {
-            if (role.sourceIds.includes(id)) {
+            const assignedOnly = role.assignedOnlySourceIds ?? [];
+            if (role.sourceIds.includes(id) || assignedOnly.includes(id)) {
               batch.update(doc(db, 'companies', cid, 'roles', role.id), {
                 sourceIds: role.sourceIds.filter((s) => s !== id),
+                assignedOnlySourceIds: assignedOnly.filter((s) => s !== id),
               });
             }
           }
@@ -1276,6 +1328,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           name: 'General',
           description: '',
           sourceIds: [],
+          assignedOnlySourceIds: [],
           createdAt: new Date().toISOString(),
         });
 
@@ -1389,19 +1442,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       inviteMember: async (inviteEmail, roleIds, access) => {
-        if (!companyId || !uid) return;
-        const { db } = firebase();
-        const address = inviteEmail.trim().toLowerCase();
-        await setDoc(doc(db, 'invites', address), {
-          email: address,
-          companyId,
-          companyName: company.name,
-          roleTitle: roleTitleFor(roleIds, roles),
-          roleIds,
-          access,
-          invitedBy: uid,
-          createdAt: serverTimestamp(),
+        if (!user || !companyId) throw new Error('not signed in');
+        // The account and the invitation are one action on the server: the
+        // Admin SDK is the only thing that can create a Firebase user, and an
+        // invitation nobody can redeem only looks like access.
+        const token = await user.getIdToken();
+        const response = await fetch('/api/members/invite', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            companyId,
+            email: inviteEmail.trim().toLowerCase(),
+            roleIds,
+            access,
+          }),
         });
+        const body = (await response.json().catch(() => ({}))) as InviteResult & { error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body;
       },
 
       notifyHour: profile.notifyHour,
@@ -1576,6 +1634,7 @@ export function makeRole(companyId: string): Role {
     name: '',
     description: '',
     sourceIds: [],
+    assignedOnlySourceIds: [],
     createdAt: new Date().toISOString(),
   };
 }

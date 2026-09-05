@@ -42,8 +42,13 @@ export default function BriefingPage() {
 
   const selected = analysis?.perspectives.find((p) => p.key === lens);
   const roleName = store.roles.find((r) => r.id === analysis?.roleId)?.name ?? store.activeRole?.name ?? '';
+  const assignedOnly = analysis?.assignedOnlySourceIds ?? [];
   const sourceNames = (analysis?.sourceIds ?? [])
-    .map((id) => store.sources.find((s) => s.id === id)?.title)
+    .map((id) => {
+      const title = store.sources.find((s) => s.id === id)?.title;
+      if (!title) return undefined;
+      return assignedOnly.includes(id) ? `${title} (${t.roles.assignedOnlyShort})` : title;
+    })
     .filter(Boolean)
     .join(', ');
 

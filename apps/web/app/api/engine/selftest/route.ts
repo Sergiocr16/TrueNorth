@@ -79,6 +79,7 @@ export async function GET(request: Request) {
     signals: scope.signals,
     role: scope.role,
     sources: fixtures.sources.filter((s) => scope.sourceIds.includes(s.id)),
+    assignedOnlySourceIds: scope.assignedOnlySourceIds,
     today,
     todayIso: iso,
   };

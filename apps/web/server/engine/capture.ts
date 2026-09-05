@@ -222,6 +222,7 @@ export function contextFor(captured: Captured, scope: Scoped): CompanyContext {
     signals: scope.signals,
     role: scope.role,
     sources: captured.sources.filter((s) => scope.sourceIds.includes(s.id)),
+    assignedOnlySourceIds: scope.assignedOnlySourceIds,
     today: captured.today,
     todayIso: captured.todayIso,
   };

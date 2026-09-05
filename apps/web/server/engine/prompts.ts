@@ -12,7 +12,7 @@ import type {
   Task,
   User,
 } from '@truenorth/core';
-import { expectedProgressPct, idleDays, progressGap } from '@truenorth/core';
+import { expectedProgressPct, idleDays, pickableTasks, progressGap } from '@truenorth/core';
 
 /**
  * The prompts. Two of them, both in the same shape: a short system prompt that
@@ -43,6 +43,7 @@ Rules you must follow:
 - The briefing is one paragraph from this role's point of view, then the three risks that weigh most on it and the decisions it is waiting on. The five perspectives are five lenses on the same reading, two or three sentences each.
 - The plan is three to five concrete actions, each with the reason it matters today and each citing at least one signal id from the list. An action without a real signal behind it does not go in.
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's. Never ask somebody carrying a workload signal to take on more.
+- When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
 - Be honest in "consequenceIfNotDone": a concrete, plausible cost, not a threat. Estimated minutes are realistic; a plan fits in a working day alongside meetings.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
 
@@ -52,6 +53,7 @@ Rules you must follow:
 - Answer in Spanish (Costa Rica). Address the person directly ("revisá", "cerrá"), no filler.
 - Only cite signal ids that appear in the list. An action without a real signal behind it does not go in the plan.
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's.
+- When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
 - Be honest in "consequenceIfNotDone": a concrete, plausible cost, not a threat.
 - Estimated minutes are realistic; a plan should fit in a working day alongside meetings.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
@@ -102,9 +104,51 @@ export interface CompanyContext {
   role?: Role | null;
   /** The Notion sources that role reads, for naming where a task lives. */
   sources?: NotionSource[];
+  /** Among `sources`, the ones the role reads only through the person's own assignments (ADR-009). */
+  assignedOnlySourceIds?: string[];
   today: Date;
   todayIso: string;
 }
+
+/** "Tareas Software (solo lo asignado a la persona)" or "Backlog Software (todo)". */
+function sourceLabel(source: NotionSource, ctx: CompanyContext): string {
+  const assignedOnly = ctx.assignedOnlySourceIds?.includes(source.id) ?? false;
+  return `${source.title} (${assignedOnly ? 'solo lo asignado a la persona' : 'todo'})`;
+}
+
+/** What the role sees of Notion, source by source, or the honest "nothing". */
+function sourcesLine(ctx: CompanyContext): string {
+  const labels = (ctx.sources ?? []).map((s) => sourceLabel(s, ctx)).join(', ');
+  return labels
+    ? `Lo que este rol ve de Notion: ${labels}.`
+    : 'Este rol no lee ninguna base de Notion; solo lo registrado en la app.';
+}
+
+/**
+ * The section offering unowned work, only when the person has none of their
+ * own: what code already decided they may take (`pickableTasks`), so the model
+ * never has to guess which database is a pool and which is private.
+ */
+function pickableSection(
+  ctx: CompanyContext,
+  member: CompanyContext['members'][number],
+  mine: Task[],
+): string {
+  if (mine.length > 0) return '';
+  const pool = pickableTasks({
+    tasks: ctx.tasks,
+    assignedOnlySourceIds: ctx.assignedOnlySourceIds ?? [],
+  }).slice(0, PICKABLE_SHOWN);
+  if (pool.length === 0) return '';
+  return `
+## Tareas sin responsable que podría tomar (${pool.length}) — solo de las bases que ve completas
+${pool.map((t) => fmtTask(t, ctx.members, ctx.today, ctx.sources)).join('\n')}
+No tiene tareas propias abiertas (señal no_owned_work:${member.id}): proponé tomar una o dos de estas, citando esa señal.
+`;
+}
+
+/** How many unowned tasks the model is offered; the list is sorted by priority first. */
+const PICKABLE_SHOWN = 15;
 
 /** "CTO: estabilidad… Además responde por: …" — the role, then the person's own line. */
 function roleLine(ctx: CompanyContext, member: CompanyContext['members'][number]): string {
@@ -222,13 +266,12 @@ export function briefingAndPlanPrompt(
   const myProjects = projects.filter(
     (p) => p.ownerUserId === member.id || p.memberUserIds.includes(member.id),
   );
-  const sourceNames = (ctx.sources ?? []).map((s) => s.title).join(', ');
 
   return `# ${company.name} — ${todayIso} — para ${member.displayName}
 
 ## Su rol hoy
 ${roleLine(ctx, member)}
-${sourceNames ? `Lo que este rol ve de Notion: ${sourceNames}.` : 'Este rol no lee ninguna base de Notion; solo lo registrado en la app.'}
+${sourcesLine(ctx)}
 Todo lo que sigue es lo que este rol puede ver. No hay más; no supongas lo que otros roles hacen.
 
 ## Meta global
@@ -249,7 +292,7 @@ ${myProjects.map((p) => `- [${p.id}] ${p.name}`).join('\n') || '(ninguno)'}
 
 ## Sus tareas abiertas (${mine.length})
 ${mine.map((t) => `- [${t.id}] ${t.code || '—'} ${t.title}`).join('\n') || '(ninguna)'}
-
+${pickableSection(ctx, member, mine)}
 ## Personas a la vista
 ${members.map((m) => `- ${m.displayName} — ${m.membership.roleTitle || 'sin rol'}`).join('\n')}
 
@@ -290,6 +333,7 @@ export function planPrompt(
 
 ## Su rol en ${company.name}
 ${roleLine(ctx, member)}
+${sourcesLine(ctx)}
 
 ## Meta global
 ${company.northStar}
@@ -305,7 +349,7 @@ ${myProjects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Sus tareas abiertas (${mine.length})
 ${mine.map((t) => fmtTask(t, ctx.members, today, ctx.sources)).join('\n') || '(ninguna)'}
-
+${pickableSection(ctx, member, mine)}
 ## Señales que le tocan (${personalSignals.length}) — citá estos ids en signalIds
 ${personalSignals.map(fmtSignal).join('\n') || '(ninguna)'}
 
@@ -420,7 +464,7 @@ export function askPrompt(
 
   return `# Pregunta de ${member.displayName} — ${todayIso}
 Quien pregunta es ${member.displayName} (userId ${member.id}); en el contexto aparece como responsable o autor con ese nombre. Hablale de vos.
-Su rol hoy: ${roleLine(ctx, member)}. Todo lo que sigue es lo que ese rol puede ver; no hay más.
+Su rol hoy: ${roleLine(ctx, member)}. ${sourcesLine(ctx)} Todo lo que sigue es lo que ese rol puede ver; no hay más.
 
 ## Personas (userId — nombre, rol)
 ${ctx.members.map((m) => `- ${m.id} — ${m.displayName}, ${m.membership.roleTitle}`).join('\n')}

@@ -330,6 +330,13 @@ describe('roles and notion sources', () => {
       const db = ctx.firestore();
       await db.doc('companies/c1/roles/r_cto').set({ name: 'CTO', sourceIds: ['src_a'] });
       await db.doc('companies/c1/roles/r_ventas').set({ name: 'Ventas', sourceIds: ['src_b'] });
+      // A developer reads the task table only through their own assignments
+      // and the backlog whole (ADR-009).
+      await db.doc('companies/c1/roles/r_dev').set({
+        name: 'Dev',
+        sourceIds: ['src_a', 'src_b'],
+        assignedOnlySourceIds: ['src_a'],
+      });
       await db.doc('companies/c1/notionSources/src_a').set({ title: 'Tareas Software', kind: 'tasks' });
       await db.doc('companies/c1/notionSources/src_b').set({ title: 'Ventas', kind: 'tasks' });
       await db.doc('companies/c1/members/u_peer').set({
@@ -339,8 +346,42 @@ describe('roles and notion sources', () => {
         activeRoleId: 'r_cto',
       });
       await db.doc('companies/c1/members/u_norole').set({ displayName: 'Nadie', access: 'member' });
-      await db.doc('companies/c1/tasks/t_a').set({ title: 'A', source: 'notion', sourceId: 'src_a' });
-      await db.doc('companies/c1/tasks/t_b').set({ title: 'B', source: 'notion', sourceId: 'src_b' });
+      await db.doc('companies/c1/members/u_dev').set({
+        displayName: 'Dana',
+        access: 'member',
+        roleIds: ['r_dev'],
+        activeRoleId: 'r_dev',
+      });
+      await db.doc('companies/c1/tasks/t_a').set({
+        title: 'A',
+        source: 'notion',
+        sourceId: 'src_a',
+        assigneeUserIds: [],
+      });
+      await db.doc('companies/c1/tasks/t_b').set({
+        title: 'B',
+        source: 'notion',
+        sourceId: 'src_b',
+        assigneeUserIds: [],
+      });
+      await db.doc('companies/c1/tasks/t_a_mine').set({
+        title: 'Mine',
+        source: 'notion',
+        sourceId: 'src_a',
+        assigneeUserIds: ['u_dev'],
+      });
+      await db.doc('companies/c1/tasks/t_a_other').set({
+        title: 'Theirs',
+        source: 'notion',
+        sourceId: 'src_a',
+        assigneeUserIds: ['u_peer'],
+      });
+      await db.doc('companies/c1/tasks/t_b_other').set({
+        title: 'Backlog item',
+        source: 'notion',
+        sourceId: 'src_b',
+        assigneeUserIds: ['u_peer'],
+      });
       await db.doc('companies/c1/tasks/t_app').set({ title: 'App', source: 'app' });
       await db.doc('companies/c1/projects/p_a').set({
         name: 'PA',
@@ -355,6 +396,20 @@ describe('roles and notion sources', () => {
         sourceId: 'src_b',
         visibility: 'company',
         memberUserIds: [],
+      });
+      await db.doc('companies/c1/projects/p_a_mine').set({
+        name: 'PA mine',
+        source: 'notion',
+        sourceId: 'src_a',
+        visibility: 'company',
+        memberUserIds: ['u_dev'],
+      });
+      await db.doc('companies/c1/projects/p_a_other').set({
+        name: 'PA theirs',
+        source: 'notion',
+        sourceId: 'src_a',
+        visibility: 'company',
+        memberUserIds: ['u_peer'],
       });
     });
   });
@@ -444,10 +499,90 @@ describe('roles and notion sources', () => {
     await assertSucceeds(peer().doc('companies/c1/tasks/t_new').set({ title: 'X', source: 'app' }));
   });
 
+  /* Assigned-only sources (ADR-009). `dev` reads src_a through assignments and src_b whole. */
+
+  const dev = () => as('u_dev', 'dana@aditumcr.com');
+
+  it('shows a person only their own tasks of an assigned-only source, and everything of a whole one', async () => {
+    await assertSucceeds(dev().doc('companies/c1/tasks/t_a_mine').get());
+    await assertFails(dev().doc('companies/c1/tasks/t_a_other').get());
+    // Unowned work in an assigned-only source is as hidden as somebody else's.
+    await assertFails(dev().doc('companies/c1/tasks/t_a').get());
+    await assertSucceeds(dev().doc('companies/c1/tasks/t_b_other').get());
+    await assertSucceeds(dev().doc('companies/c1/tasks/t_b').get());
+  });
+
+  it('accepts the assigned-only task query only with the caller’s own array-contains clause', async () => {
+    await assertSucceeds(
+      dev()
+        .collection('companies/c1/tasks')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_a')
+        .where('assigneeUserIds', 'array-contains', 'u_dev')
+        .get(),
+    );
+    // Without the clause the rule cannot be proven; with somebody else's it is false.
+    await assertFails(
+      dev()
+        .collection('companies/c1/tasks')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_a')
+        .get(),
+    );
+    await assertFails(
+      dev()
+        .collection('companies/c1/tasks')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_a')
+        .where('assigneeUserIds', 'array-contains', 'u_peer')
+        .get(),
+    );
+    // A source read whole keeps the plain per-source query.
+    await assertSucceeds(
+      dev()
+        .collection('companies/c1/tasks')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_b')
+        .get(),
+    );
+  });
+
+  it('applies the same to synced projects, through their members', async () => {
+    await assertSucceeds(dev().doc('companies/c1/projects/p_a_mine').get());
+    await assertFails(dev().doc('companies/c1/projects/p_a_other').get());
+    await assertFails(dev().doc('companies/c1/projects/p_a').get());
+    await assertSucceeds(
+      dev()
+        .collection('companies/c1/projects')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_a')
+        .where('memberUserIds', 'array-contains', 'u_dev')
+        .get(),
+    );
+    await assertFails(
+      dev()
+        .collection('companies/c1/projects')
+        .where('source', '==', 'notion')
+        .where('sourceId', '==', 'src_a')
+        .get(),
+    );
+  });
+
+  it('keeps a role written without the field reading its sources whole', async () => {
+    await assertSucceeds(peer().doc('companies/c1/tasks/t_a_other').get());
+    await assertSucceeds(peer().doc('companies/c1/tasks/t_a').get());
+    await assertSucceeds(peer().doc('companies/c1/tasks/t_a_mine').get());
+    await assertSucceeds(peer().doc('companies/c1/projects/p_a_other').get());
+  });
+
   it('lets a member read roles and sources but only an admin write them', async () => {
     await assertSucceeds(peer().doc('companies/c1/roles/r_cto').get());
     await assertSucceeds(peer().doc('companies/c1/notionSources/src_a').get());
     await assertFails(peer().doc('companies/c1/roles/r_cto').update({ sourceIds: ['src_a', 'src_b'] }));
+    await assertFails(dev().doc('companies/c1/roles/r_dev').update({ assignedOnlySourceIds: [] }));
+    await assertSucceeds(
+      as('u_owner', FOUNDER).doc('companies/c1/roles/r_dev').update({ assignedOnlySourceIds: [] }),
+    );
     await assertFails(peer().doc('companies/c1/notionSources/src_c').set({ title: 'X' }));
     await assertSucceeds(
       as('u_owner', FOUNDER).doc('companies/c1/roles/r_nuevo').set({ name: 'Nuevo', sourceIds: [] }),

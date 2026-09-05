@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { DailyPlan, Membership, NotionSource, Project, Role, Task, User } from './types';
 import {
+  pickableTasks,
+  roleAssignedOnlyIds,
   roleSourceIds,
   scopeFor,
   teamSignals,
@@ -73,12 +75,13 @@ const source = (id: string): NotionSource => ({
   createdAt: '2026-01-01',
 });
 
-const role = (id: string, sourceIds: string[]): Role => ({
+const role = (id: string, sourceIds: string[], assignedOnlySourceIds?: string[]): Role => ({
   id,
   companyId: 'c',
   name: id,
   description: '',
   sourceIds,
+  ...(assignedOnlySourceIds ? { assignedOnlySourceIds } : {}),
   createdAt: '2026-01-01',
 });
 
@@ -125,6 +128,20 @@ describe('roleSourceIds', () => {
   });
 });
 
+describe('roleAssignedOnlyIds', () => {
+  const sources = [source('src_sw'), source('src_sales')];
+
+  it('keeps only ids the role reads at all, among sources that still exist', () => {
+    const r = role('r', ['src_sw'], ['src_sw', 'src_sales', 'src_gone']);
+    expect([...roleAssignedOnlyIds(r, sources)]).toEqual(['src_sw']);
+  });
+
+  it('is empty for a role written without the field, and for no role', () => {
+    expect(roleAssignedOnlyIds(role('r', ['src_sw']), sources).size).toBe(0);
+    expect(roleAssignedOnlyIds(null, sources).size).toBe(0);
+  });
+});
+
 describe('visibleProjects', () => {
   it('shows company-wide app projects to everyone', () => {
     expect(ids(visibleProjects(projects, 'dana', NONE))).toEqual(['p_company']);
@@ -139,6 +156,13 @@ describe('visibleProjects', () => {
     expect(ids(visibleProjects(projects, 'bob', SW))).toEqual(['p_company', 'p_shared', 'p_sw']);
     expect(ids(visibleProjects(projects, 'carla', SW))).toEqual(['p_company', 'p_sw']);
     expect(ids(visibleProjects(projects, 'carla', ALL))).toEqual(['p_company', 'p_sw', 'p_sales']);
+  });
+
+  it('of an assigned-only source, shows a Notion project only to the people on it', () => {
+    expect(ids(visibleProjects(projects, 'bob', SW, SW))).toEqual(['p_company', 'p_shared', 'p_sw']);
+    expect(ids(visibleProjects(projects, 'carla', SW, SW))).toEqual(['p_company']);
+    // Sales stays whole: carla sees it without being on it.
+    expect(ids(visibleProjects(projects, 'dana', ALL, SW))).toEqual(['p_company', 'p_sales']);
   });
 });
 
@@ -171,6 +195,18 @@ describe('visibleTasks', () => {
   it('keeps tasks that belong to no project', () => {
     expect(ids(visibleTasks(tasks, projects, 'dana', ALL))).toEqual(['t1', 't3', 't5', 't6', 't7']);
   });
+
+  it('of an assigned-only source, shows only the tasks that name the person', () => {
+    const unowned = task('t9', null, null, 'src_sw');
+    const all = [...tasks, unowned];
+    // bob: his own software task, and everything of sales, which stays whole.
+    expect(ids(visibleTasks(all, projects, 'bob', ALL, SW))).toEqual(['t1', 't3', 't4', 't5', 't6', 't7']);
+    // ana: nothing of software names her, so neither t5 nor the unowned t9;
+    // her app records (the private project's t2, the free-floating t3) stay.
+    expect(ids(visibleTasks(all, projects, 'ana', ALL, SW))).toEqual(['t1', 't2', 't3', 't4', 't6', 't7']);
+    // App tasks are untouched by the mode.
+    expect(ids(visibleTasks(all, projects, 'dana', NONE, SW))).toEqual(['t1', 't3']);
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -199,7 +235,15 @@ function input(overrides: Partial<ScopeInput> = {}): ScopeInput {
     projects: [project('p_open', 'company', ['ana'])],
     tasks: [],
     sources: [source('src_sw'), source('src_sales')],
-    roles: [role('r_cto', ['src_sw']), role('r_sales', ['src_sales']), role('r_all', ['src_sw', 'src_sales']), role('r_none', [])],
+    roles: [
+      role('r_cto', ['src_sw']),
+      role('r_sales', ['src_sales']),
+      role('r_all', ['src_sw', 'src_sales']),
+      role('r_none', []),
+      // A developer: the backlog (sales here, for want of a third source) whole,
+      // the task table only through their own assignments.
+      role('r_dev', ['src_sw', 'src_sales'], ['src_sw']),
+    ],
     members: [member('ana', 'owner', ['r_cto', 'r_all']), member('bob', 'member', ['r_cto']), member('carla', 'member', ['r_sales'])],
     planHistory: [],
     ...overrides,
@@ -286,6 +330,32 @@ describe('scopeFor', () => {
     expect(asManager.planHistory.map((p) => p.userId).sort()).toEqual(['ana', 'bob']);
   });
 
+  it('an assigned-only source makes the view partial and hides the other people in it', () => {
+    const tasks = [
+      ...Array.from({ length: 6 }, (_, i) => task(`sw${i}`, null, 'ana', 'src_sw')),
+      task('sw_bob', null, 'bob', 'src_sw'),
+      task('sw_free', null, null, 'src_sw'),
+      task('sales_c', null, 'carla', 'src_sales'),
+    ];
+    const dev = scopeFor(input({ tasks }), 'bob', 'r_dev');
+    expect(dev.partial).toBe(true);
+    expect(dev.sourceIds.sort()).toEqual(['src_sales', 'src_sw']);
+    expect(dev.assignedOnlySourceIds).toEqual(['src_sw']);
+    expect(ids(dev.tasks)).toEqual(['sw_bob', 'sales_c']);
+    // Ana's six software tasks are out of view, so no workload about her and
+    // she is not among the people in this view.
+    expect(dev.signals.some((s) => s.id === 'workload:ana')).toBe(false);
+    expect(ids(dev.users).sort()).toEqual(['ana', 'bob', 'carla']); // ana only through the app project
+    expect(dev.users.some((u) => u.id === 'ana')).toBe(true);
+  });
+
+  it('tells a person with nothing of their own in an assigned-only source that they have no work', () => {
+    const tasks = [task('sw_ana', null, 'ana', 'src_sw'), task('sw_free', null, null, 'src_sw')];
+    const dev = scopeFor(input({ tasks }), 'bob', 'r_dev');
+    expect(ids(dev.tasks)).toEqual([]);
+    expect(dev.signals.some((s) => s.id === 'no_owned_work:bob')).toBe(true);
+  });
+
   // The regression guard: reading everything must give exactly the company-wide answer.
   it('with every source visible, the signals are the company-wide ones', () => {
     const tasks = [
@@ -299,6 +369,32 @@ describe('scopeFor', () => {
     expect(kinds).toContain('overdue:b');
     expect(kinds).toContain('blocked:c');
     expect(scope.partial).toBe(false);
+  });
+});
+
+describe('pickableTasks', () => {
+  it('offers unowned open work from the app and from sources seen whole, highest priority first', () => {
+    const tasks = [
+      task('sw_free', null, null, 'src_sw'),
+      task('sales_low', null, null, 'src_sales', { priority: 'low' }),
+      task('sales_high', null, null, 'src_sales', { priority: 'high' }),
+      task('sales_owned', null, 'carla', 'src_sales'),
+      task('sales_done', null, null, 'src_sales', { status: 'done' }),
+      task('app_free', null, null),
+    ];
+    const dev = scopeFor(input({ tasks }), 'bob', 'r_dev');
+    expect(ids(pickableTasks(dev))).toEqual(['sales_high', 'app_free', 'sales_low']);
+  });
+
+  it('is empty when every visible source is assigned-only and nothing app-native is free', () => {
+    const tasks = [task('sw_free', null, null, 'src_sw'), task('sw_bob', null, 'bob', 'src_sw')];
+    const scope = scopeFor(
+      input({ tasks, roles: [role('r_only', ['src_sw'], ['src_sw'])], members: [member('bob', 'member', ['r_only'])] }),
+      'bob',
+      'r_only',
+    );
+    expect(ids(scope.tasks)).toEqual(['sw_bob']);
+    expect(pickableTasks(scope)).toEqual([]);
   });
 });
 

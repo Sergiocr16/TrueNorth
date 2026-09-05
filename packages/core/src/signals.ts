@@ -358,6 +358,15 @@ export function computeSignals(ctx: SignalContext): Signal[] {
   // A comment nobody answered. Which way it points matters: if the last word
   // came from somebody other than the person responsible, the responsible one
   // owes a reply; if it came from them, whoever leads the project does.
+  //
+  // `info`, like a stale task and for the same reason: an unanswered comment is
+  // not the work running late. What says a task is behind is its own state —
+  // its due date and its status — and a conversation that went quiet can sit on
+  // top of a task that is perfectly on time. Counting it as a warning put it in
+  // the badge, in *Avisos* and against the health compass, which made the
+  // numbers read worse than the board actually was. It stays visible under
+  // *ver menores* and still reaches the engine, which is where a pending reply
+  // is worth raising.
   for (const task of tasks) {
     if (task.status === 'done' || !task.lastCommentAt) continue;
     const idle = daysSince(task.lastCommentAt, today);
@@ -376,7 +385,7 @@ export function computeSignals(ctx: SignalContext): Signal[] {
     signals.push({
       id: `comment_unanswered:${task.id}`,
       kind: 'comment_unanswered',
-      severity: 'warning',
+      severity: 'info',
       summary: {
         es: `${author} comentó en ${task.code || task.title} hace ${idle} días y nadie respondió`,
         en: `${author} commented on ${task.code || task.title} ${idle} days ago and nobody replied`,

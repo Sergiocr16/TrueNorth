@@ -4,10 +4,11 @@ import { useState } from 'react';
 import type { AccessLevel, Membership, Role } from '@truenorth/core';
 import { isOverdue, shareQuiet } from '@truenorth/core';
 import { LargeTitle, Screen } from '../../components/shell';
-import { Avatar, Banner, Card, SectionLabel, TextButton } from '../../components/ui';
+import { Avatar, Banner, Card, PrimaryButton, SectionLabel, TextButton } from '../../components/ui';
 import {
   AddRow,
   ChipSelectField,
+  ToggleField,
   DestructiveRow,
   EditSheet,
   FieldGroup,
@@ -18,6 +19,7 @@ import {
 } from '../../components/form';
 import { HealthCompass } from '../../components/day-compass';
 import { usePreferences } from '../../lib/preferences';
+import type { InviteResult } from '../../lib/store';
 import { makeRole, useRiskCount, useStore } from '../../lib/store';
 
 /**
@@ -65,8 +67,13 @@ export default function TeamPage() {
           ) : (
             roles.map((role, index) => {
               const holders = memberships.filter((m) => m.roleIds.includes(role.id)).length;
+              const assignedOnly = role.assignedOnlySourceIds ?? [];
               const named = role.sourceIds
-                .map((id) => sources.find((s) => s.id === id)?.title)
+                .map((id) => {
+                  const title = sources.find((s) => s.id === id)?.title;
+                  if (!title) return undefined;
+                  return assignedOnly.includes(id) ? `${title} (${t.roles.assignedOnlyShort})` : title;
+                })
                 .filter(Boolean)
                 .join(', ');
               const body = (
@@ -345,13 +352,25 @@ function RoleSheet({
   const { sources } = useStore();
   const [draft, setDraft] = useState<Role>(role);
   const [armed, arm, disarm] = useConfirm();
+  // In the registered order, so the toggles line up with the chips above.
+  const selectedSources = sources.filter((s) => draft.sourceIds.includes(s.id));
 
   return (
     <EditSheet
       open
       title={isNew ? t.roles.newRole : role.name}
       onCancel={onCancel}
-      onSave={() => onSave({ ...draft, name: draft.name.trim(), description: draft.description.trim() })}
+      onSave={() =>
+        onSave({
+          ...draft,
+          name: draft.name.trim(),
+          description: draft.description.trim(),
+          // Only sources the role reads can be read assigned-only.
+          assignedOnlySourceIds: (draft.assignedOnlySourceIds ?? []).filter((id) =>
+            draft.sourceIds.includes(id),
+          ),
+        })
+      }
       canSave={draft.name.trim().length > 0}
     >
       <FieldGroup footer={t.roles.descriptionHint}>
@@ -380,11 +399,44 @@ function RoleSheet({
           label={t.roles.sources}
           options={sources.map((s) => ({ value: s.id, label: s.title }))}
           selected={draft.sourceIds}
-          onChange={(sourceIds) => setDraft({ ...draft, sourceIds })}
+          onChange={(sourceIds) =>
+            setDraft({
+              ...draft,
+              sourceIds,
+              assignedOnlySourceIds: (draft.assignedOnlySourceIds ?? []).filter((id) =>
+                sourceIds.includes(id),
+              ),
+            })
+          }
           emptyHint={sources.length === 0 ? t.roles.noSourcesYet : undefined}
           isLast
         />
       </FieldGroup>
+
+      {selectedSources.length > 0 ? (
+        <FieldGroup header={t.roles.scope} footer={t.roles.scopeHint}>
+          {selectedSources.map((source, index) => {
+            const assignedOnly = (draft.assignedOnlySourceIds ?? []).includes(source.id);
+            return (
+              <ToggleField
+                key={source.id}
+                label={source.title}
+                description={assignedOnly ? t.roles.assignedOnly : t.roles.everything}
+                value={assignedOnly}
+                onChange={(on) =>
+                  setDraft({
+                    ...draft,
+                    assignedOnlySourceIds: on
+                      ? [...(draft.assignedOnlySourceIds ?? []), source.id]
+                      : (draft.assignedOnlySourceIds ?? []).filter((id) => id !== source.id),
+                  })
+                }
+                isLast={index === selectedSources.length - 1}
+              />
+            );
+          })}
+        </FieldGroup>
+      ) : null}
 
       {onRemove ? (
         <div className="mt-6">
@@ -558,14 +610,19 @@ function PersonEditor({
   );
 }
 
-/** Sharing the company with somebody who already has an account. */
+/**
+ * Sharing the company with somebody, account and all. The server creates the
+ * Firebase account when the address has none and hands back a one-time
+ * password, which is shown here and nowhere else.
+ */
 function InviteSheet({ onClose }: { onClose: () => void }) {
   const { t, locale } = usePreferences();
   const store = useStore();
   const [email, setEmail] = useState('');
   const [roleIds, setRoleIds] = useState<string[]>(store.roles[0] ? [store.roles[0].id] : []);
   const [access, setAccess] = useState<AccessLevel>('member');
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState<InviteResult | null>(null);
+  const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
   const es = locale === 'es';
@@ -583,24 +640,56 @@ function InviteSheet({ onClose }: { onClose: () => void }) {
   ];
 
   if (sent) {
+    const credentials = `${sent.email}\n${sent.password ?? ''}`.trim();
     return (
       <EditSheet
         open
-        title={es ? 'Invitación lista' : 'Invitation ready'}
+        title={t.team.credentialsTitle}
         onCancel={onClose}
         cancelLabel={t.common.close}
       >
-        <div className="px-6 py-8 text-center">
+        <div className="px-4 py-6">
           <p className="text-[17px] leading-snug text-[var(--ink)]">
-            {es
-              ? `${email} entra a ${store.company.name} la próxima vez que ingrese.`
-              : `${email} joins ${store.company.name} the next time they sign in.`}
+            {sent.password ? t.team.credentialsCreated : t.team.credentialsExisting(sent.email)}
           </p>
-          <p className="mt-3 text-[15px] leading-snug text-[var(--sec)]">
-            {es
-              ? 'Si todavía no tiene cuenta, el administrador tiene que crearla primero en Firebase.'
-              : 'If they have no account yet, the administrator has to create it in Firebase first.'}
-          </p>
+
+          {sent.password ? (
+            <>
+              <Card className="mt-4 overflow-hidden">
+                <div className="tn-hairline px-4 py-3">
+                  <div className="text-[13px] font-semibold uppercase tracking-[0.6px] text-[var(--ter)]">
+                    {t.team.credentialsEmail}
+                  </div>
+                  <p className="mt-1 break-all text-[17px] text-[var(--ink)]">{sent.email}</p>
+                </div>
+                <div className="px-4 py-3">
+                  <div className="text-[13px] font-semibold uppercase tracking-[0.6px] text-[var(--ter)]">
+                    {t.team.credentialsPassword}
+                  </div>
+                  <p className="tn-tabular mt-1 font-mono text-[22px] font-semibold tracking-[1px] text-[var(--ink)]">
+                    {sent.password}
+                  </p>
+                </div>
+              </Card>
+
+              <div className="mt-4">
+                <PrimaryButton
+                  onClick={() => {
+                    // A clipboard the browser refuses is not a failure worth a
+                    // banner: the password is on screen to read out loud.
+                    void navigator.clipboard?.writeText(credentials).catch(() => undefined);
+                    setCopied(true);
+                  }}
+                >
+                  {copied ? t.team.credentialsCopied : t.team.credentialsCopy}
+                </PrimaryButton>
+              </div>
+
+              <div className="mt-4">
+                <Banner tone="warning">{t.team.credentialsOnce}</Banner>
+              </div>
+            </>
+          ) : null}
         </div>
       </EditSheet>
     );
@@ -615,7 +704,7 @@ function InviteSheet({ onClose }: { onClose: () => void }) {
         if (!valid) return;
         void store
           .inviteMember(email, roleIds, access)
-          .then(() => setSent(true))
+          .then(setSent)
           .catch((cause: unknown) =>
             setFailed(
               cause instanceof Error
