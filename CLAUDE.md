@@ -193,24 +193,38 @@ database's schema for the Integrations screen and `/api/notion/sync` runs the
 sync now; `/api/engine/selftest` (`?step=followup`) proves Claude answers
 without touching the database. The three load-bearing flags in
 `server/engine/claude.ts` are `--restricted`, `--tools ""` and a draft-07 JSON
-schema; the model is pinned by `ENGINE_MODEL`.
+schema; the model is pinned by `ENGINE_MODEL`. Signals name a task by its
+title with the code after it, and give every task two clocks: anybody's
+activity (`idleDays`) and the owner's own progress (`progressDays` — a status
+change, an edit, or a comment by somebody responsible); the overdue signal
+says whether the task is still moving, and the plan and follow-up rules treat
+"late but moving" and "late and silent" differently. `pickableTasks()` is the
+unowned work a person may take: app tasks and tasks of the sources their role
+sees whole (ADR-009).
 
 ## Testing
 
 - `packages/core` uses vitest: signals, visibility and scope by role, follow-up guardrails, health shares, people matching, Notion mapping (`notion-map.test.ts` runs `suggestMapping` and `pageToTask` against ADITUM's recorded schemas in `notion-schemas.fixture.ts`). Every new signal or guard ships with a test.
 - Golden cases for the engine belong in `packages/core` alongside the signal tests: a company snapshot in, an expected plan shape out.
-- Firestore rules have emulator tests in `packages/core/src/rules.test.ts` (Java 21+). The ones that matter most: nobody reads another company, nobody reads a private project they are not a member of, and nobody reads a Notion record whose source is not on their active role; then situations stay with admins and a follow-up stays with its manager.
+- Firestore rules have emulator tests in `packages/core/src/rules.test.ts` (Java 21+). The ones that matter most: nobody reads another company, nobody reads a private project they are not a member of, and nobody reads a Notion record whose source is not on their active role, or one of an assigned-only source that does not name them; then situations stay with admins and a follow-up stays with its manager. `pnpm test:rules` assumes macOS (`/usr/libexec/java_home`); on the Pi run `npx firebase-tools emulators:exec --only firestore --project truenorth-rules-test "pnpm --filter @truenorth/core exec vitest run src/rules.test.ts"`.
 
 ## Current state
 
 Firestore is wired: `apps/web/lib/store.tsx` holds live listeners (one per
-Notion source the active role reads) and every mutation is a write. The Pi runs
+Notion source the active role reads, with the caller's own `array-contains`
+clause for an assigned-only source) and every mutation is a write. The Pi runs
 `production` behind Tailscale. The first company is created empty with one role,
 "General"; `packages/core/src/fixtures.ts` feeds only the tests and the engine
-selftest. The Notion sync exists (ADR-008) but has not run against ADITUM yet:
-it needs `NOTION_TOKEN` in the Pi's env, the databases shared with the
-integration and registered from *Integraciones*, and roles that read them.
-Until the first sync the "has not moved" signals have nothing to read. Rules
-and indexes changed with ADR-008 and ADR-009 and must be deployed together
-with the code that issues the new queries. Work lands on `v1.0` at the moment; `main` and
-`production` are behind it.
+selftest. The Notion sync runs against ADITUM since 2026-09-05: four sources
+registered from *Integraciones* (Tareas Software, Backlog Software, Gestor de
+lanzamientos, Proyectos), three roles reading them, a weekday timer on the Pi.
+The status clock of every task was repaired that day to the page's last edit.
+**The ADR-009 rules are written and tested but not yet deployed**: the Pi's
+service account cannot deploy rules and the Pi holds no `firebase login`; until
+`npx firebase-tools deploy --only firestore:rules,firestore:indexes` runs from
+a logged-in machine, the live rules still accept the narrower query the app
+issues for an assigned-only source (so the screen is right) but do not enforce
+the restriction server-side. PRs #1–#10 were
+merged straight into `production`; `main` was fast-forwarded to match on
+2026-09-05, and from here the flow above (land on `main`, fast-forward
+`production`) is the one to follow.
