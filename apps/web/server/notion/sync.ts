@@ -38,6 +38,22 @@ import type { SyncReport } from './types';
 
 /** Re-map and rewrite every page, not only the changed ones, at least this often. */
 const FULL_SYNC_EVERY_DAYS = 7;
+
+/**
+ * Whether a source's records change without their page being edited.
+ *
+ * A project's progress is a rollup over its tasks: closing a task moves the
+ * percentage, but Notion computes rollups and formulas on read and does not
+ * bump the project page's `last_edited_time`. The incremental filter below
+ * would skip the page and the bar would sit still until the weekly full
+ * read — which is what happened. Reading a source whole is already the
+ * cheap half of a sync, and a projects table is a few dozen pages, so those
+ * are mapped and rewritten on every run. Task tables carry no derived value
+ * the mapping reads, so they keep the incremental path.
+ */
+function derivedValues(source: NotionSource): boolean {
+  return source.kind === 'projects';
+}
 /** Overlap on the incremental window: Notion's timestamps are minute-grained. */
 const OVERLAP_MS = 5 * 60_000;
 /** Comment fetches per source per run. Beyond this, the rest waits a day. */
@@ -315,12 +331,14 @@ async function syncSource(
   let members = ctx.members;
 
   try {
-    // 1. Mode. Full when asked, when never done, when stale, or when the
-    //    mapping changed — an old mapping's records are wrong, not outdated.
+    // 1. Mode. Full when asked, when never done, when stale, when the
+    //    mapping changed — an old mapping's records are wrong, not outdated —
+    //    and always for a source whose values move without an edit.
     const lastFull = source.lastFullSyncAt ? new Date(source.lastFullSyncAt).getTime() : 0;
     const full =
       ctx.full ||
       !source.lastSyncAt ||
+      derivedValues(source) ||
       Date.now() - lastFull > FULL_SYNC_EVERY_DAYS * 86_400_000 ||
       source.mappingHash !== (source as { syncedMappingHash?: string }).syncedMappingHash;
     report.mode = full ? 'full' : 'incremental';
