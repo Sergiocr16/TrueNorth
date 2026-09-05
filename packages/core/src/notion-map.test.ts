@@ -212,7 +212,9 @@ describe('pageToTask', () => {
     expect(task.sourceId).toBe('ns_tareas');
     expect(task.notionPageId).toBe('3acddbac34cb81e6b4c0ea280b95217b');
     expect(task.notionLastEditedAt).toBe('2026-08-29T16:40:00.000Z');
-    expect(task.statusChangedAt).toBe(ctx.now);
+    // First sight: the status changed no later than the page's last edit,
+    // and certainly not at the moment the sync happened to run.
+    expect(task.statusChangedAt).toBe('2026-08-29T16:40:00.000Z');
     expect(unmatched).toEqual([]);
   });
 
@@ -229,7 +231,7 @@ describe('pageToTask', () => {
       source,
       { ...ctx, previous },
     );
-    expect(moved.task.statusChangedAt).toBe(ctx.now);
+    expect(moved.task.statusChangedAt).toBe('2026-08-29T16:40:00.000Z');
     expect(moved.task.status).toBe('in_progress');
   });
 

@@ -225,8 +225,10 @@ export interface Task {
    * When the status last changed, stamped by the sync.
    *
    * Notion's API does not expose status history, so this is derived: the sync
-   * compares the incoming status with the stored one and stamps the clock when
-   * they differ. It therefore only tells the truth from the first sync onward.
+   * compares the incoming status with the stored one and, when they differ,
+   * stamps the page's last edit time — the change happened at or before it.
+   * On first sight that is the best it can say; from then on it is exact to
+   * within a sync.
    */
   statusChangedAt?: string;
   /** The last few comments, kept so a follow-up can quote one. */
