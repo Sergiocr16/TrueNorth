@@ -294,6 +294,9 @@ export function TaskLine({
         <div className="min-w-0 flex-1">{body}</div>
       )}
 
+      {/* The Notion mark is the row's one visible action: it opens the page.
+          Tapping the body opens the editor, and needs no chevron to say so —
+          a chevron promises a screen, and a task has none of its own. */}
       {notion ? (
         <a
           href={notion}
@@ -305,12 +308,6 @@ export function TaskLine({
         >
           <NotionMark size={18} />
         </a>
-      ) : null}
-
-      {onOpen ? (
-        <span className="mt-1.5 shrink-0 text-[var(--ter)]">
-          <Chevron />
-        </span>
       ) : null}
     </div>
   );
