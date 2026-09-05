@@ -30,6 +30,9 @@ export default function SettingsPage() {
   const riskCount = useRiskCount();
   const [pushState, setPushState] = useState<'idle' | 'busy' | 'denied' | 'unsupported'>('idle');
   const [confirming, arm, disarm] = useConfirm();
+  const [confirmingDelete, armDelete, disarmDelete] = useConfirm();
+  const [deleteState, setDeleteState] = useState<'idle' | 'busy' | 'failed'>('idle');
+  const isOwner = store.currentMembership.access === 'owner';
 
   const themeOptions: { value: ThemePreference; label: string }[] = [
     { value: 'system', label: t.settings.themeSystem },
@@ -190,6 +193,35 @@ export default function SettingsPage() {
             : 'Deletes objectives, projects, tasks and risks, then loads the starting data again.'}
         </p>
       </div>
+
+      {isOwner ? (
+        <div className="mt-6">
+          <div className="tn-card mx-4 overflow-hidden">
+            <DestructiveRow
+              label={
+                deleteState === 'busy'
+                  ? t.settings.deletingCompany
+                  : confirmingDelete
+                    ? t.settings.deleteCompanyConfirm(store.company.name)
+                    : t.settings.deleteCompany
+              }
+              onClick={() => {
+                if (deleteState === 'busy') return;
+                if (!confirmingDelete) {
+                  armDelete();
+                  return;
+                }
+                disarmDelete();
+                setDeleteState('busy');
+                store.deleteCompany().catch(() => setDeleteState('failed'));
+              }}
+            />
+          </div>
+          <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">
+            {deleteState === 'failed' ? t.settings.deleteCompanyFailed : t.settings.deleteCompanyHint}
+          </p>
+        </div>
+      ) : null}
 
       <div className="mx-4 mt-4 mb-2">
         <Card className="overflow-hidden">

@@ -409,6 +409,12 @@ export const dictionary = {
 
     settings: {
       title: 'Ajustes',
+      deleteCompany: 'Eliminar la empresa y todos sus datos',
+      deleteCompanyConfirm: (name: string) => `Tocá otra vez para eliminar ${name}`,
+      deletingCompany: 'Eliminando…',
+      deleteCompanyHint:
+        'Borra la empresa entera: roles, bases de Notion, objetivos, proyectos, tareas, personas, briefings, planes, seguimientos, invitaciones y logo. No se puede deshacer. Solo el dueño puede hacerlo.',
+      deleteCompanyFailed: 'No se pudo eliminar. Probá de nuevo en un momento.',
       language: 'Idioma',
       spanish: 'Español',
       english: 'English',
@@ -986,6 +992,12 @@ export const dictionary = {
 
     settings: {
       title: 'Settings',
+      deleteCompany: 'Delete the company and all its data',
+      deleteCompanyConfirm: (name: string) => `Tap again to delete ${name}`,
+      deletingCompany: 'Deleting…',
+      deleteCompanyHint:
+        'Deletes the whole company: roles, Notion databases, objectives, projects, tasks, people, briefings, plans, follow-ups, invitations and logo. Cannot be undone. Owner only.',
+      deleteCompanyFailed: 'Could not delete. Try again in a moment.',
       language: 'Language',
       spanish: 'Español',
       english: 'English',
