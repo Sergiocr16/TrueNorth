@@ -131,6 +131,12 @@ export interface Membership {
   expectations: string;
   /** Notion's own user id, so a comment author maps back to this person. */
   notionUserId?: string;
+  /**
+   * Every Notion identity this person has, when they have more than one — a
+   * personal user and a shared account, say. `notionUserId` stays the first;
+   * the matcher reads both.
+   */
+  notionUserIds?: string[];
   /** The register the follow-up should copy when writing to this person. */
   commsTone?: 'directo' | 'cercano' | 'formal';
 }

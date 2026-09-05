@@ -128,6 +128,7 @@ interface MemberDoc {
   /** Absent on every document written before expectations existed. */
   expectations?: string;
   notionUserId?: string;
+  notionUserIds?: string[];
   commsTone?: Membership['commsTone'];
 }
 
@@ -294,6 +295,8 @@ interface StoreValue {
     /** A member without an account this account is for. */
     personId?: string,
   ) => Promise<InviteResult>;
+  /** Founders only: folds a member without an account into an account — same person, two Notion identities. */
+  mergePerson: (personId: string, uid: string) => Promise<void>;
   /** Founders only: switch an account off or on, hand it a new password, or delete it. */
   manageAccount: (
     uid: string,
@@ -882,6 +885,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       disabled: m.disabled ?? false,
       expectations: typeof m.expectations === 'string' ? m.expectations : '',
       notionUserId: m.notionUserId,
+      notionUserIds: m.notionUserIds,
       commsTone: m.commsTone,
     })) as Membership[];
 
@@ -1471,6 +1475,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setPendingInvite(null);
         setCompanyId(cid);
         setNeedsBootstrap(false);
+      },
+
+      mergePerson: async (personId, targetUid) => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const response = await fetch('/api/members/merge', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId, personId, uid: targetUid }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
       },
 
       manageAccount: async (targetUid, action, options) => {

@@ -545,6 +545,20 @@ function PersonEditor({
   const [name, setName] = useState(displayName);
   const [armed, arm, disarm] = useConfirm();
   const profile = !membership.hasAccount;
+  // Same person as an account: the sync creates a member per Notion identity,
+  // and one person can have two. The founder folds this one into the account.
+  const [mergeInto, setMergeInto] = useState('');
+  const [armedMerge, armMerge, disarmMerge] = useConfirm();
+  const [merging, setMerging] = useState(false);
+  const [mergeFailed, setMergeFailed] = useState<string | null>(null);
+  const accounts = store.memberships.filter((m) => m.hasAccount);
+  const accountOptions = [
+    { value: '', label: t.team.mergeNone },
+    ...accounts.map((m) => ({
+      value: m.userId,
+      label: store.users.find((u) => u.id === m.userId)?.displayName ?? m.userId,
+    })),
+  ];
   const isManager = store.currentMembership.access !== 'member';
   // A plain member editing themselves may only change their own line; the
   // rules say so, and the sheet offers no more than that.
@@ -647,6 +661,47 @@ function PersonEditor({
           />
         </FieldGroup>
       )}
+
+      {profile && store.canFound && accounts.length > 0 ? (
+        <FieldGroup header={t.team.mergeHeader} footer={t.team.mergeHint}>
+          <SelectField
+            label={t.team.mergeInto}
+            value={mergeInto}
+            options={accountOptions}
+            onChange={(next) => {
+              setMergeInto(next);
+              disarmMerge();
+            }}
+          />
+          <button
+            type="button"
+            disabled={!mergeInto || merging}
+            onClick={() => {
+              if (!mergeInto || merging) return;
+              if (!armedMerge) {
+                armMerge();
+                return;
+              }
+              disarmMerge();
+              setMerging(true);
+              setMergeFailed(null);
+              store
+                .mergePerson(membership.userId, mergeInto)
+                .then(() => onCancel())
+                .catch((cause: unknown) =>
+                  setMergeFailed(cause instanceof Error ? cause.message : String(cause)),
+                )
+                .finally(() => setMerging(false));
+            }}
+            className="tn-press flex min-h-[48px] w-full items-center px-4 text-[17px] font-semibold text-[var(--accent)] disabled:opacity-40"
+          >
+            {merging ? t.team.working : armedMerge ? t.team.mergeConfirm : t.team.merge}
+          </button>
+          {mergeFailed ? (
+            <p className="px-4 pb-3 text-[13px] text-[var(--red)]">{mergeFailed}</p>
+          ) : null}
+        </FieldGroup>
+      ) : null}
 
       {onRemove ? (
         <div className="mt-6">

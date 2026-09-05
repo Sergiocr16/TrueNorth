@@ -230,3 +230,57 @@ export async function renameAccount(uid: string, displayName: string): Promise<n
   }
   return companies;
 }
+
+export interface MergeResult {
+  repointed: number;
+  notionUserIds: string[];
+}
+
+/**
+ * Two members that are one person: a placeholder the sync created from a
+ * Notion identity, and an account. Everything the placeholder was named on
+ * moves to the account, the account learns the placeholder's Notion identity
+ * on top of its own — so the next sync resolves that identity to the account
+ * instead of creating the placeholder again — and the placeholder goes.
+ * Whatever the account already says about itself wins; the placeholder only
+ * fills what is empty.
+ */
+export async function mergePersonIntoAccount(
+  companyId: string,
+  personId: string,
+  uid: string,
+): Promise<MergeResult> {
+  const db = adminDb();
+  const members = db.collection('companies').doc(companyId).collection('members');
+  const [person, account] = await Promise.all([members.doc(personId).get(), members.doc(uid).get()]);
+  if (!person.exists) throw new Error('person not found');
+  if (!account.exists) throw new Error('account not found');
+  if (person.get('hasAccount') === true) throw new Error('that member has an account');
+
+  const p = person.data() ?? {};
+  const a = account.data() ?? {};
+  const ids = (value: unknown): string[] => (Array.isArray(value) ? value.filter((x) => typeof x === 'string') : []);
+  const notionUserIds = [
+    ...new Set(
+      [a.notionUserId, ...ids(a.notionUserIds), p.notionUserId, ...ids(p.notionUserIds)].filter(
+        (id): id is string => typeof id === 'string' && id.length > 0,
+      ),
+    ),
+  ];
+
+  await members.doc(uid).set(
+    {
+      notionUserId: notionUserIds[0] ?? null,
+      notionUserIds,
+      ...(!a.expectations && p.expectations ? { expectations: p.expectations } : {}),
+      ...(!a.roleDescription && p.roleDescription ? { roleDescription: p.roleDescription } : {}),
+      ...(ids(a.roleIds).length === 0 && ids(p.roleIds).length > 0
+        ? { roleIds: ids(p.roleIds), activeRoleId: ids(p.roleIds)[0] }
+        : {}),
+    },
+    { merge: true },
+  );
+  const repointed = await repoint(db, companyId, personId, uid);
+  await person.ref.delete();
+  return { repointed, notionUserIds };
+}

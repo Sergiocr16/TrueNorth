@@ -21,6 +21,15 @@ describe('matchPerson', () => {
     expect(matchPerson({ name: 'Marco Jiménez Rojas' }, team)?.id).toBe('u_marco');
   });
 
+  it('answers to every Notion identity a person has', () => {
+    const merged = [
+      ...team,
+      { id: 'u_sergio', displayName: 'Sergio', notionUserId: 'n-sergio', notionUserIds: ['n-sergio', 'n-partners'] },
+    ];
+    expect(matchPerson({ name: 'ADITUM Partners', notionUserId: 'n-partners' }, merged)?.id).toBe('u_sergio');
+    expect(matchPerson({ name: 'Sergio Castro', notionUserId: 'n-sergio' }, merged)?.id).toBe('u_sergio');
+  });
+
   it('prefers a stored Notion user id over the name', () => {
     expect(
       matchPerson({ name: 'A. Vargas', notionUserId: 'notion-adriana' }, team)?.id,
