@@ -1,6 +1,6 @@
 import 'server-only';
 import type { Firestore } from 'firebase-admin/firestore';
-import { adminDb } from './admin';
+import { adminAuth, adminDb } from './admin';
 
 /**
  * Giving a person's records to their new account.
@@ -205,4 +205,28 @@ export async function detachAccountFromCompany(companyId: string, uid: string): 
   await current.ref.delete();
   await db.collection('users').doc(uid).collection('memberships').doc(companyId).delete().catch(() => undefined);
   return { kept, repointed };
+}
+
+/**
+ * A new display name, everywhere it is written: the Firebase account, the
+ * user document, and the member document in every company — which is what
+ * the screens read, because a member may not read anyone else's user
+ * document. Initials follow the name.
+ */
+export async function renameAccount(uid: string, displayName: string): Promise<number> {
+  const db = adminDb();
+  const name = displayName.trim();
+  const initials = initialsFrom(name);
+  await adminAuth().updateUser(uid, { displayName: name });
+  await db.collection('users').doc(uid).set({ displayName: name }, { merge: true });
+  const memberships = await db.collection('users').doc(uid).collection('memberships').get();
+  let companies = 0;
+  for (const mirror of memberships.docs) {
+    const member = db.collection('companies').doc(mirror.id).collection('members').doc(uid);
+    if ((await member.get()).exists) {
+      await member.set({ displayName: name, initials }, { merge: true });
+      companies += 1;
+    }
+  }
+  return companies;
 }

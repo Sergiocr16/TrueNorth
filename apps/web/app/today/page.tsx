@@ -104,7 +104,7 @@ export default function TodayPage() {
     <Screen riskCount={riskCount}>
       <LargeTitle
         title={t.nav.today}
-        subtitle={`${formatShortDate(plan.date, locale)} · ${activeRole?.name ?? currentMembership.roleTitle} · ${company.name}`}
+        subtitle={`${store.currentUser.displayName} · ${formatShortDate(plan.date, locale)} · ${activeRole?.name ?? currentMembership.roleTitle} · ${company.name}`}
         trailing={
           <div className="flex items-center gap-2">
             <RoleSwitcher compact />
