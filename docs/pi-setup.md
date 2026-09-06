@@ -316,8 +316,10 @@ User=truenorth
 EnvironmentFile=/etc/truenorth/env
 ExecStart=/usr/bin/curl -fsS --max-time 600 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" "http://localhost:3000/api/notion/sync?company=<company id>"
 # GitHub after Notion: a pull request finds its task by the code in its
-# branch, and the task has to be there first (ADR-010).
-ExecStart=/usr/bin/curl -fsS --max-time 600 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" "http://localhost:3000/api/github/sync?company=<company id>"
+# branch, and the task has to be there first (ADR-010). `wait=1` keeps the
+# reports in this log; without it the route answers at once and the run
+# goes on in the server, which is what the screen's button uses.
+ExecStart=/usr/bin/curl -fsS --max-time 600 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" "http://localhost:3000/api/github/sync?company=<company id>&wait=1"
 ```
 
 ```ini

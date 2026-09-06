@@ -687,12 +687,30 @@ export interface GithubRepo {
 export interface GithubIntegration {
   lastSyncAt: string | null;
   lastError: string | null;
+  /**
+   * When the run in progress started; null between runs. The screen cannot
+   * wait for a run — a full read of a busy repository takes minutes — so it
+   * watches this instead, and treats a marker older than
+   * `GITHUB_SYNC_STALE_MS` as a run the server lost.
+   */
+  syncStartedAt?: string | null;
+  /** What the last run did, for the screen that did not wait for it. */
+  lastRun?: GithubSyncRun | null;
   /** The account the token belongs to. */
   login: string | null;
   /** Roles whose holders review and merge: the CTO's, by default. */
   approverRoleIds: string[];
   /** Notion status labels that mean "development finished, a pull request is owed". */
   finishedStatuses: string[];
+}
+
+/** The outcome of one GitHub sync, summed over the repositories it read. */
+export interface GithubSyncRun {
+  startedAt: string;
+  finishedAt: string;
+  pulls: number;
+  written: number;
+  error: string | null;
 }
 
 export type PullRequestState = 'open' | 'merged' | 'closed';

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   defaultApproverRoleIds,
   githubDocId,
+  githubSyncRunning,
   isBot,
   pullToRecord,
   reviewStateFrom,
@@ -154,6 +155,15 @@ describe('approvers and identities', () => {
   it('defaults the approvers to the role called CTO, whatever its case', () => {
     expect(defaultApproverRoleIds([{ id: 'a', name: 'CTO' }, { id: 'b', name: 'PM' }, { id: 'c', name: ' cto ' }])).toEqual(['a', 'c']);
     expect(defaultApproverRoleIds([{ id: 'b', name: 'PM' }])).toEqual([]);
+  });
+
+  it('reads the sync marker as running only while it is fresh', () => {
+    const now = Date.parse('2026-09-06T02:30:00Z');
+    expect(githubSyncRunning(null, now)).toBe(false);
+    expect(githubSyncRunning(undefined, now)).toBe(false);
+    expect(githubSyncRunning('2026-09-06T02:25:00Z', now)).toBe(true);
+    expect(githubSyncRunning('2026-09-06T02:00:00Z', now)).toBe(false);
+    expect(githubSyncRunning('not a date', now)).toBe(false);
   });
 
   it('knows a bot when it sees one', () => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { GithubRepo } from '@truenorth/core';
-import { DEFAULT_FINISHED_STATUSES, defaultApproverRoleIds } from '@truenorth/core';
+import { DEFAULT_FINISHED_STATUSES, defaultApproverRoleIds, githubSyncRunning } from '@truenorth/core';
 import type { GithubRepoChoice, GithubStatus } from '../server/github/types';
 import { Banner, Card, EmptyState, SectionLabel, Skeleton, TextButton } from './ui';
 import {
@@ -39,8 +39,11 @@ export function GithubSection({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<GithubRepo | null>(null);
   const [settings, setSettings] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [starting, setStarting] = useState(false);
+  /** The run the last tap started: the `lastRun` on the document at the time, so the next one is the outcome. */
+  const [watching, setWatching] = useState<{ before: string | null } | null>(null);
   const [note, setNote] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
+  const running = githubSyncRunning(github?.syncStartedAt, Date.now());
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -64,24 +67,30 @@ export function GithubSection({
   const login = status?.login ?? github?.login ?? null;
   const firstError = repos.find((r) => r.lastSyncError)?.lastSyncError ?? github?.lastError ?? null;
 
+  // The outcome arrives on the document, not in the response: the run
+  // outlives any request a browser keeps open.
+  const lastRun = github?.lastRun ?? null;
+  useEffect(() => {
+    if (!watching || running || !lastRun || lastRun.finishedAt === watching.before) return;
+    setWatching(null);
+    setNote(
+      lastRun.error
+        ? { tone: 'error', text: `${t.github.syncFailed}: ${lastRun.error}` }
+        : { tone: 'info', text: t.github.syncDone(lastRun.pulls) },
+    );
+  }, [watching, running, lastRun, t]);
+
   const sync = () => {
-    setSyncing(true);
+    setStarting(true);
     setNote(null);
+    setWatching({ before: lastRun?.finishedAt ?? null });
     store
       .syncGithubNow()
-      .then((reports) => {
-        const failed = reports.find((r) => r.error);
-        const pulls = reports.reduce((sum, r) => sum + r.pulls, 0);
-        setNote(
-          failed
-            ? { tone: 'error', text: `${t.github.syncFailed}: ${failed.error}` }
-            : { tone: 'info', text: t.github.syncDone(pulls) },
-        );
+      .catch((cause: unknown) => {
+        setWatching(null);
+        setNote({ tone: 'error', text: `${t.github.syncFailed}: ${cause instanceof Error ? cause.message : String(cause)}` });
       })
-      .catch((cause: unknown) =>
-        setNote({ tone: 'error', text: `${t.github.syncFailed}: ${cause instanceof Error ? cause.message : String(cause)}` }),
-      )
-      .finally(() => setSyncing(false));
+      .finally(() => setStarting(false));
   };
 
   return (
@@ -118,8 +127,8 @@ export function GithubSection({
               <span className="ml-auto flex gap-3">
                 <TextButton onClick={() => setSettings(true)}>{t.github.settings}</TextButton>
                 {repos.length > 0 ? (
-                  <TextButton onClick={syncing ? undefined : sync}>
-                    {syncing ? t.integrations.syncing : t.integrations.syncNow}
+                  <TextButton onClick={starting || running ? undefined : sync}>
+                    {starting || running ? t.integrations.syncing : t.integrations.syncNow}
                   </TextButton>
                 ) : null}
               </span>
@@ -129,6 +138,10 @@ export function GithubSection({
         {status && !status.configured ? (
           <div className="mt-3">
             <Banner tone="warning">{t.github.tokenMissing}</Banner>
+          </div>
+        ) : running ? (
+          <div className="mt-3">
+            <Banner tone="info">{t.github.syncRunning}</Banner>
           </div>
         ) : note ? (
           <div className="mt-3">

@@ -62,7 +62,7 @@ import {
   type WorkerHeartbeat,
 } from '@truenorth/core';
 import type { InspectResult, SyncReport } from '../server/notion/types';
-import type { GithubRepoChoice, GithubStatus, GithubSyncReport } from '../server/github/types';
+import type { GithubRepoChoice, GithubStatus } from '../server/github/types';
 import type { NotionTableSummary } from '@truenorth/core';
 import { useAuth } from './auth';
 import { firebase } from './firebase';
@@ -275,7 +275,8 @@ interface StoreValue {
   deleteRepo: (id: string) => void;
   listGithubRepos: () => Promise<GithubRepoChoice[]>;
   githubStatus: () => Promise<GithubStatus>;
-  syncGithubNow: (options?: { repoId?: string; full?: boolean }) => Promise<GithubSyncReport[]>;
+  /** Starts the sync and returns at once; the run is followed on `github.syncStartedAt` and `github.lastRun`. */
+  syncGithubNow: (options?: { repoId?: string; full?: boolean }) => Promise<{ started: boolean }>;
   updateGithubIntegration: (patch: Partial<Pick<GithubIntegration, 'approverRoleIds' | 'finishedStatuses'>>) => void;
   /** Asks the engine for today's follow-up in a role, e.g. after switching to it. */
   generateFollowUp: (roleId: string) => Promise<void>;
@@ -1317,9 +1318,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           method: 'POST',
           headers: { authorization: `Bearer ${token}` },
         });
-        const body = (await response.json().catch(() => ({}))) as { reports?: GithubSyncReport[]; error?: string };
+        const body = (await response.json().catch(() => ({}))) as { started?: boolean; error?: string };
         if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
-        return body.reports ?? [];
+        return { started: body.started ?? true };
       },
       updateGithubIntegration: (patch) =>
         write((db, cid) => setDoc(doc(db, 'companies', cid, 'integrations', 'github'), patch, { merge: true })),
