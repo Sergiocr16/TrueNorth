@@ -1,3 +1,4 @@
+import { resolveDay } from './schedule';
 import { describe, expect, it } from 'vitest';
 import type { DailyPlan, GithubRepo, Membership, NotionSource, Project, PullRequest, Role, Task, User } from './types';
 import {
@@ -499,6 +500,13 @@ describe('visibleSignals and teamSignals', () => {
   it('gives the viewer only what concerns them', () => {
     const scope = scopeFor(input({ tasks }), 'ana', 'r_all');
     expect(ids(visibleSignals(scope, 'ana'))).toEqual(['overdue:app_ana']);
+  });
+
+  it('shows the day itself to everybody, so a rest-day suggestion has something to cite', () => {
+    const day = resolveDay({}, null, '2026-09-05');
+    const scope = scopeFor(input({ tasks, today: new Date('2026-09-05T00:00:00'), day }), 'ana', 'r_all');
+    expect(ids(visibleSignals(scope, 'ana'))).toContain('rest_day:2026-09-05');
+    expect(ids(visibleSignals(scope, 'carla'))).toContain('rest_day:2026-09-05');
   });
 
   it('groups the team by person and leaves out whoever has nothing visible', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { atMidnight, shiftIso, todayIso } from './dates';
+import { atMidnight, shiftIso, todayIso, weekdayOf } from './dates';
 
 describe('dates', () => {
   it('names the day in Costa Rica, not in UTC', () => {
@@ -12,6 +12,13 @@ describe('dates', () => {
     expect(shiftIso('2026-03-01', -1)).toBe('2026-02-28');
     expect(shiftIso('2026-12-31', 1)).toBe('2027-01-01');
     expect(shiftIso('2026-09-04', -7)).toBe('2026-08-28');
+  });
+
+  it('names the weekday, Monday first', () => {
+    expect(weekdayOf('2026-09-05')).toBe('sat');
+    expect(weekdayOf('2026-09-06')).toBe('sun');
+    expect(weekdayOf('2026-09-07')).toBe('mon');
+    expect(weekdayOf('2027-01-01')).toBe('fri');
   });
 
   it('parses an ISO day at local midnight', () => {

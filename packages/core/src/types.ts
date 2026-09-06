@@ -53,6 +53,24 @@ export interface User {
   reduceTransparency: boolean;
 }
 
+/** Monday-first keys for the days of the week. */
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+/**
+ * The company's week (ADR-012): which days are working days, and an optional
+ * focus for any day — one sentence the plan is ordered by ("cerrar pendientes
+ * y dejar todo listo para el lunes"). Absent means Monday to Friday, no focus.
+ */
+export interface CompanySchedule {
+  workingDays: Weekday[];
+  focus: Partial<Record<Weekday, string>>;
+}
+
+/** A role's own focus for some days, over the company's. The role itself never changes by day. */
+export interface RoleSchedule {
+  focus: Partial<Record<Weekday, string>>;
+}
+
 export interface Company {
   id: string;
   name: string;
@@ -63,6 +81,7 @@ export interface Company {
   northStar: string;
   northStarDeadline: string;
   plans: { m3: string; m6: string; m12: string };
+  schedule?: CompanySchedule;
 }
 
 /**
@@ -91,6 +110,8 @@ export interface Role {
    * in `sourceIds` are ignored.
    */
   assignedOnlySourceIds?: string[];
+  /** The role's own focus for some weekdays (ADR-012); the company's stands for the rest. */
+  schedule?: RoleSchedule;
   createdAt: string;
 }
 
@@ -399,7 +420,10 @@ export type SignalKind =
   | 'pr_missing'
   | 'pr_awaiting_review'
   | 'pr_changes_requested'
-  | 'pr_approved_unmerged';
+  | 'pr_approved_unmerged'
+  /* The day itself (ADR-012): a rest day, or a working day with a focus. */
+  | 'rest_day'
+  | 'day_focus';
 
 /**
  * A deterministic fact computed in code, never by the model. Every plan item
@@ -438,6 +462,8 @@ export interface PlanItem {
   /** Optional hard time, e.g. "14:00". */
   deadlineTime?: string;
   signalIds: string[];
+  /** A rest-day suggestion (ADR-012): never chased, never owed. Stamped in code. */
+  optional?: boolean;
 }
 
 export type PlanItemVerdict = 'done' | 'skipped' | 'irrelevant';
@@ -452,7 +478,12 @@ export interface DailyPlan {
   headline: string;
   why: string;
   items: PlanItem[];
+  /** Empty on a rest day: nothing is owed. */
   consequenceIfNotDone: string;
+  /** What kind of day the plan was written for (ADR-012). Plans older than that have neither. */
+  dayKind?: 'working' | 'rest';
+  /** The focus the plan was ordered by, when the day had one. */
+  focus?: string | null;
   deliveredAt: string | null;
   stale: boolean;
   feedback: Record<number, PlanItemVerdict>;

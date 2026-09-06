@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { AccessLevel, Membership, Role } from '@truenorth/core';
-import { isOverdue, shareQuiet } from '@truenorth/core';
+import { WEEKDAYS, companySchedule, isOverdue, roleFocus, shareQuiet } from '@truenorth/core';
 import { LargeTitle, Screen } from '../../components/shell';
 import { Avatar, Banner, Card, PrimaryButton, SectionLabel, TextButton } from '../../components/ui';
 import {
@@ -18,6 +18,7 @@ import {
   useConfirm,
 } from '../../components/form';
 import { HealthCompass } from '../../components/day-compass';
+import { weekdayName } from '../../lib/i18n/dictionary';
 import { usePreferences } from '../../lib/preferences';
 import type { InviteResult } from '../../lib/store';
 import { makeRole, useRiskCount, useStore } from '../../lib/store';
@@ -408,9 +409,10 @@ function RoleSheet({
   onRemove?: () => void;
 }) {
   const { t, locale } = usePreferences();
-  const { sources, repos } = useStore();
+  const { sources, repos, company } = useStore();
   const [draft, setDraft] = useState<Role>(role);
   const [armed, arm, disarm] = useConfirm();
+  const week = companySchedule(company);
   // In the registered order, so the toggles line up with the chips above.
   // Repositories sit on the same list as Notion databases (ADR-010).
   const selectedSources = [
@@ -425,17 +427,22 @@ function RoleSheet({
       open
       title={isNew ? t.roles.newRole : role.name}
       onCancel={onCancel}
-      onSave={() =>
+      onSave={() => {
+        // The role's own focus lines, blank ones dropped; no field at all
+        // when none is left (the client SDK refuses `undefined`).
+        const focus = roleFocus(draft);
+        const { schedule: _schedule, ...rest } = draft;
         onSave({
-          ...draft,
+          ...rest,
           name: draft.name.trim(),
           description: draft.description.trim(),
           // Only sources the role reads can be read assigned-only.
           assignedOnlySourceIds: (draft.assignedOnlySourceIds ?? []).filter((id) =>
             draft.sourceIds.includes(id),
           ),
-        })
-      }
+          ...(Object.keys(focus).length > 0 ? { schedule: { focus } } : {}),
+        });
+      }}
       canSave={draft.name.trim().length > 0}
     >
       <FieldGroup footer={t.roles.descriptionHint}>
@@ -521,6 +528,24 @@ function RoleSheet({
           })}
         </FieldGroup>
       ) : null}
+
+      <FieldGroup header={t.roles.focus} footer={t.roles.focusHint}>
+        {WEEKDAYS.map((day, index) => {
+          const working = week.workingDays.includes(day);
+          return (
+            <TextField
+              key={day}
+              label={`${weekdayName(day, locale)}${working ? '' : ` · ${t.company.restDay}`}`}
+              value={draft.schedule?.focus[day] ?? ''}
+              onChange={(text) =>
+                setDraft({ ...draft, schedule: { focus: { ...(draft.schedule?.focus ?? {}), [day]: text } } })
+              }
+              placeholder={week.focus[day] ?? t.company.focusPlaceholder}
+              isLast={index === 6}
+            />
+          );
+        })}
+      </FieldGroup>
 
       {onRemove ? (
         <div className="mt-6">

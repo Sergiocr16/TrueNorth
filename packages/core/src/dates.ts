@@ -7,7 +7,12 @@
  * both go through here rather than through `new Date()` directly.
  */
 
+import type { Weekday } from './types';
+
 export const TIME_ZONE = 'America/Costa_Rica';
+
+/** The week as the product reads it: Monday first. */
+export const WEEKDAYS: readonly Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 /** ISO date (YYYY-MM-DD) for "now" in the product's time zone. */
 export function todayIso(now: Date = new Date(), timeZone: string = TIME_ZONE): string {
@@ -23,6 +28,11 @@ export function todayIso(now: Date = new Date(), timeZone: string = TIME_ZONE): 
 /** Midnight local of an ISO date, as a Date usable for arithmetic. */
 export function atMidnight(iso: string): Date {
   return new Date(`${iso}T00:00:00`);
+}
+
+/** The weekday of an ISO date. `getDay()` counts from Sunday; the product counts from Monday. */
+export function weekdayOf(iso: string): Weekday {
+  return WEEKDAYS[(atMidnight(iso).getDay() + 6) % 7]!;
 }
 
 /** ISO date shifted by a number of days. */

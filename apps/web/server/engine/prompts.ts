@@ -2,6 +2,7 @@ import 'server-only';
 
 import type {
   Company,
+  DayResolution,
   GithubRepo,
   Membership,
   NotionSource,
@@ -15,6 +16,7 @@ import type {
   User,
 } from '@truenorth/core';
 import {
+  WEEKDAY_NAMES,
   expectedObjectivePct,
   idleDays,
   indicatorProgressPct,
@@ -52,7 +54,8 @@ Rules you must follow:
 - Answer in Spanish (Costa Rica), in the voice of a sharp colleague: direct, specific, no filler. The plan addresses the person directly ("revisá", "cerrá").
 - Everything you say rests on the signals, objectives, projects and tasks you were given. Do not invent facts, numbers, tasks or people. What is not in your context is not in the company as far as this role is concerned; never say what other roles are doing.
 - The briefing is one paragraph from this role's point of view, then the three risks that weigh most on it and the decisions it is waiting on. The five perspectives are five lenses on the same reading, two or three sentences each.
-- The plan is three to five concrete actions, each with the reason it matters today and each citing at least one signal id from the list. An action without a real signal behind it does not go in.
+- The plan is three to five concrete actions (one to three on a rest day, as the prompt says), each with the reason it matters today and each citing at least one signal id from the list. An action without a real signal behind it does not go in.
+- The prompt says what kind of day it is. On a working day with a focus, the focus is the first ordering criterion: actions serving it go first, but an overdue-and-silent or blocked signal is never dropped for it. On a rest day the plan is one to three optional suggestions of research or improvement — read, explore, document, try something — never obligations, deadlines or chasing overdue work, in a light tone; the briefing still says honestly where things stand.
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's. Never ask somebody carrying a workload signal to take on more.
 - Late is not the same as stuck. An overdue signal says whether the owner moved the task recently — a status change, an edit, a comment of theirs. If they did, the work is advancing: the action is to close it or fix its date, not to chase. Stuck is past its date with no word from the owner; somebody else's comment on it is a question, not progress.
 - When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
@@ -60,11 +63,12 @@ Rules you must follow:
 - Be honest in "consequenceIfNotDone": a concrete, plausible cost, not a threat. Estimated minutes are realistic; a plan fits in a working day alongside meetings.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
 
-export const PLAN_SYSTEM = `You write one person's plan for today, given their role, their work, and signals that code has already computed. The plan is three to five concrete actions, each with the reason it matters today, and each citing at least one signal id from the list you were given.
+export const PLAN_SYSTEM = `You write one person's plan for today, given their role, their work, and signals that code has already computed. The plan is three to five concrete actions (one to three on a rest day, as the prompt says), each with the reason it matters today, and each citing at least one signal id from the list you were given.
 
 Rules you must follow:
 - Answer in Spanish (Costa Rica). Address the person directly ("revisá", "cerrá"), no filler.
 - Only cite signal ids that appear in the list. An action without a real signal behind it does not go in the plan.
+- The prompt says what kind of day it is. On a working day with a focus, the focus is the first ordering criterion: actions serving it go first, but an overdue-and-silent or blocked signal is never dropped for it. On a rest day the plan is one to three optional suggestions of research or improvement — read, explore, document, try something — never obligations, deadlines or chasing overdue work, in a light tone.
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's.
 - When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
 - Pull requests: the developer responsible for a task opens the pull request when the work is done and answers requested changes; whoever holds an approver role reviews and merges. pr_missing and pr_changes_requested are the developer's action; pr_awaiting_review and pr_approved_unmerged are the approver's — they go in the approver's plan, and nobody is ever asked to approve their own pull request. Each task line says what its pull request is waiting on; read it before calling a task stuck.
@@ -132,6 +136,35 @@ export interface CompanyContext {
   approverUserIds?: string[];
   today: Date;
   todayIso: string;
+  /** The day itself (ADR-012): working or rest, and the focus that applies. */
+  day: DayResolution;
+}
+
+/** "lunes 2026-09-07" — the day named, so the model does not have to work it out. */
+function dayName(ctx: CompanyContext): string {
+  return `${WEEKDAY_NAMES[ctx.day.weekday].es} ${ctx.todayIso}`;
+}
+
+/**
+ * What kind of day it is, under the role. On a working day with a focus the
+ * focus orders the plan; on a rest day nothing is owed.
+ */
+function dayLine(ctx: CompanyContext): string {
+  const { day } = ctx;
+  if (!day.working) {
+    return `Hoy es ${dayName(ctx)}, día no laboral${day.focus ? ` (tema sugerido: «${day.focus}»)` : ''}. Nada es obligatorio hoy.`;
+  }
+  if (day.focus) {
+    return `Hoy es ${dayName(ctx)}, día laboral. Enfoque del día: «${day.focus}». Ordená el plan según este enfoque — primero lo que lo sirve — sin dejar fuera una señal crítica; una acción que nace del enfoque y no de una tarea cita day_focus:${day.iso}.`;
+  }
+  return `Hoy es ${dayName(ctx)}, día laboral.`;
+}
+
+/** The closing instruction for the plan: the working-day shape, or the rest-day one. */
+function planInstruction(ctx: CompanyContext): string {
+  return ctx.day.working
+    ? 'un titular con la prioridad de hoy, el porqué ligado a un objetivo (objectiveId), de tres a cinco acciones con su porqué, minutos estimados, y qué pasa si no se hace hoy.'
+    : `un titular liviano, el porqué, y de una a tres sugerencias opcionales de investigación o mejora (leer, explorar, documentar, probar algo), cada una citando rest_day:${ctx.day.iso} y, si aplica, otra señal; sin plazos, sin vencidos, sin «qué pasa si no se hace».`;
 }
 
 /** "Tareas Software (solo lo asignado a la persona)" or "Backlog Software (todo)". */
@@ -357,10 +390,11 @@ export function briefingAndPlanPrompt(
     (p) => p.ownerUserId === member.id || p.memberUserIds.includes(member.id),
   );
 
-  return `# ${company.name} — ${todayIso} — para ${member.displayName}
+  return `# ${company.name} — ${dayName(ctx)} — para ${member.displayName}
 
 ## Su rol hoy
 ${roleLine(ctx, member)}
+${dayLine(ctx)}
 ${sourcesLine(ctx)}
 ${githubLine(ctx)}
 Todo lo que sigue es lo que este rol puede ver. No hay más; no supongas lo que otros roles hacen.
@@ -403,7 +437,7 @@ Continuá lo que quedó abierto si sigue importando; no repitas lo hecho.`
     : ''
 }
 
-Escribí primero el briefing del día desde este rol: un párrafo, los tres riesgos que más pesan, las decisiones pendientes y una lectura breve desde cada perspectiva (ceo, coo, cto, cfo, pm). Después su plan: un titular con la prioridad de hoy, el porqué ligado a un objetivo (objectiveId), de tres a cinco acciones con su porqué, minutos estimados, y qué pasa si no se hace hoy.`;
+Escribí primero el briefing del día desde este rol: un párrafo, los tres riesgos que más pesan, las decisiones pendientes y una lectura breve desde cada perspectiva (ceo, coo, cto, cfo, pm). Después su plan: ${planInstruction(ctx)}`;
 }
 
 /** One person's plan. Runs once per member, after the analysis. */
@@ -420,10 +454,11 @@ export function planPrompt(
     (p) => p.ownerUserId === member.id || p.memberUserIds.includes(member.id),
   );
 
-  return `# Plan de hoy para ${member.displayName} — ${todayIso}
+  return `# Plan de hoy para ${member.displayName} — ${dayName(ctx)}
 
 ## Su rol en ${company.name}
 ${roleLine(ctx, member)}
+${dayLine(ctx)}
 ${sourcesLine(ctx)}
 ${githubLine(ctx)}
 
@@ -455,7 +490,7 @@ Continuá lo que quedó abierto si sigue importando; no repitas lo hecho.`
     : ''
 }
 
-Escribí su plan: un titular con la prioridad de hoy, el porqué ligado a un objetivo (objectiveId), de tres a cinco acciones con su porqué, minutos estimados, y qué pasa si no se hace hoy.`;
+Escribí su plan: ${planInstruction(ctx)}`;
 }
 
 /**

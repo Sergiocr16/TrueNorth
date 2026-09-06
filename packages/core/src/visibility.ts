@@ -1,3 +1,4 @@
+import type { DayResolution } from './schedule';
 import { PRIORITY_WEIGHT } from './notion-status';
 import { computeSignals, signalsForUser } from './signals';
 import type {
@@ -149,6 +150,8 @@ export interface ScopeInput {
   approverRoleIds?: string[];
   /** Notion status labels that mean development finished and a pull request is owed. */
   finishedStatuses?: string[];
+  /** The day itself, for the role the scope is computed for (ADR-012). */
+  day?: DayResolution;
 }
 
 export interface Scoped {
@@ -232,6 +235,7 @@ export function scopeFor(input: ScopeInput, userId: string, roleId: string | nul
     repos: repos.filter((r) => sourceIds.has(r.id)),
     approverUserIds,
     finishedStatuses: input.finishedStatuses,
+    day: input.day,
   }).filter((s) => !(partial && s.kind === 'empty_objective'));
 
   return {

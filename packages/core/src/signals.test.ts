@@ -21,6 +21,8 @@ import {
   progressGap,
 } from './signals';
 import { NOTION_TASK_STATUS, taskStatusFromNotion } from './notion-status';
+import { resolveDay } from './schedule';
+import { signalsForUser } from './signals';
 import * as fixtures from './fixtures';
 import type { DailyPlan, GithubRepo, Objective, Project, PullRequest, Signal, Task, User } from './types';
 
@@ -302,6 +304,40 @@ describe('pull request signals (ADR-010)', () => {
     expect(signal?.userIds).toEqual(['u2']);
     expect(signal?.summary.es).toContain('está aprobado hace 3 días y sin fusionar');
     expect(byId(run({ pullRequests: [pull({ ...approved, state: 'merged' })] }), 'pr_approved_unmerged:gh_api_42')).toBeUndefined();
+  });
+});
+
+describe('the day itself (ADR-012)', () => {
+  const company = { schedule: { workingDays: [], focus: { mon: 'Planificar la semana' } } };
+  const base = { objectives: [], projects: [], tasks: [], users };
+  // Only what the day says; people without work raise their own signals.
+  const ofDay = (signals: Signal[]) => signals.filter((s) => s.kind === 'rest_day' || s.kind === 'day_focus');
+
+  it('says a rest day is a rest day, and nothing about a focus', () => {
+    const day = resolveDay(company, null, '2026-09-05');
+    const signals = ofDay(computeSignals({ ...base, today: new Date('2026-09-05T00:00:00'), day }));
+    expect(signals.map((s) => s.id)).toEqual(['rest_day:2026-09-05']);
+    expect(signals[0]).toMatchObject({ kind: 'rest_day', severity: 'info', data: { weekday: 'sat' } });
+    expect(signals[0]!.summary.es).toBe('Sábado: día no laboral');
+  });
+
+  it('names the focus of a working day', () => {
+    const day = resolveDay(company, null, '2026-09-07');
+    const signals = ofDay(computeSignals({ ...base, today: new Date('2026-09-07T00:00:00'), day }));
+    expect(signals.map((s) => s.id)).toEqual(['day_focus:2026-09-07']);
+    expect(signals[0]).toMatchObject({ kind: 'day_focus', severity: 'info', data: { focus: 'Planificar la semana' } });
+  });
+
+  it('says nothing on a plain working day, or when no day was given', () => {
+    const day = resolveDay(company, null, '2026-09-08');
+    expect(ofDay(computeSignals({ ...base, today: new Date('2026-09-08T00:00:00'), day }))).toEqual([]);
+    expect(ofDay(computeSignals({ ...base, today: TODAY }))).toEqual([]);
+  });
+
+  it('reaches everybody, so a plan can cite it', () => {
+    const day = resolveDay(company, null, '2026-09-05');
+    const signals = computeSignals({ ...base, today: new Date('2026-09-05T00:00:00'), day });
+    expect(ofDay(signalsForUser(signals, 'u1', [])).map((s) => s.id)).toEqual(['rest_day:2026-09-05']);
   });
 });
 

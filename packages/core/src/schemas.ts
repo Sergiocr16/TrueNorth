@@ -5,6 +5,9 @@ import { z } from 'zod';
  * `--json-schema` built from these, and the result is validated again with Zod
  * before anything is written. A change here is a change to the worker, the API
  * fallback and the UI at once, so it needs an ADR.
+ *
+ * Since ADR-012 there are two plan contracts, chosen in code by the character
+ * of the day: the working-day plan below, and the rest-day plan after it.
  */
 
 export const planItemSchema = z.object({
@@ -28,6 +31,23 @@ export const dailyPlanSchema = z.object({
   consequenceIfNotDone: z.string().min(3).max(280),
 });
 
+/**
+ * A rest day (ADR-012): one to three optional suggestions of research or
+ * improvement. No deadline, nothing owed, nothing longer than a couple of
+ * hours. Every item is optional by definition, so the flag is stamped in
+ * code rather than asked of the model.
+ */
+export const restDayPlanItemSchema = planItemSchema
+  .omit({ deadlineTime: true })
+  .extend({ estimatedMinutes: z.number().int().min(5).max(120) })
+  .strict();
+
+export const restDayPlanSchema = z.object({
+  headline: z.string().min(3).max(160),
+  why: z.string().min(3).max(400),
+  items: z.array(restDayPlanItemSchema).min(1).max(3),
+});
+
 export const perspectiveSchema = z.object({
   key: z.enum(['ceo', 'coo', 'cto', 'cfo', 'pm']),
   reading: z.string().min(3).max(600),
@@ -48,6 +68,12 @@ export const companyAnalysisSchema = z.object({
 export const personalBriefingSchema = z.object({
   analysis: companyAnalysisSchema,
   plan: dailyPlanSchema,
+});
+
+/** The same morning call on a rest day: the briefing still says where things stand; the plan is the light one. */
+export const restDayBriefingSchema = z.object({
+  analysis: companyAnalysisSchema,
+  plan: restDayPlanSchema,
 });
 
 /* ------------------------------------------------------------------ */
@@ -146,6 +172,8 @@ export const voiceInterpretationSchema = z.object({
   unmatched: z.array(z.string()).max(5).default([]),
 });
 
+export type RestDayPlanOutput = z.infer<typeof restDayPlanSchema>;
+export type RestDayBriefingOutput = z.infer<typeof restDayBriefingSchema>;
 export type DailyPlanOutput = z.infer<typeof dailyPlanSchema>;
 export type TeamReadingOutput = z.infer<typeof teamReadingSchema>;
 export type FollowUpOutput = z.infer<typeof followUpSchema>;

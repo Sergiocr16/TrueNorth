@@ -39,7 +39,6 @@ packages/core/       domain types, Zod contracts, signal engine, visibility,
 docs/brand/          the compass mark (light, dark, maskable app icon)
 docs/design/         the Claude Design brief
 docs/adr/            architecture decision records
-docs/prompts/        engine prompts with their change history
 ```
 
 Not yet built: voice, and writing back to Notion. There is no `apps/functions`
@@ -158,7 +157,7 @@ generated; the data is safe in Firebase. That trade was made deliberately.
 
 ## Contracts that need an ADR to change
 
-- The daily plan schema (`packages/core/src/schemas.ts`): three to five items, each citing a signal, plus the consequence sentence. Since ADR-008 it travels inside `personalBriefingSchema` with the briefing, one call per person per role.
+- The daily plan schema (`packages/core/src/schemas.ts`): three to five items, each citing a signal, plus the consequence sentence. Since ADR-008 it travels inside `personalBriefingSchema` with the briefing, one call per person per role. Since ADR-012 a rest day has its own contract (`restDayPlanSchema`: one to three optional suggestions, nothing owed), chosen in code from the company's weekly schedule.
 - The team follow-up schema in the same file (ADR-006): a reading for every person, a message only for those who need one and only ever citing a signal, defaulting to a comment on the Notion task. Nothing is sent or published without Sergio copying it.
 - The `jobs` document shape used by the Raspberry Pi worker.
 - The Notion status map: every registered source carries its own `statusMap` (ADR-008), built from the database's own groups by `defaultStatusMap()` and edited on screen. `NOTION_TASK_STATUS` in `packages/core/src/notion-status.ts` is the known default, pinned by a test as what "Tareas Software" resolves to. The signal engine, the plan and the voice writer all depend on the four internal states.

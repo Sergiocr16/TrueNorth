@@ -9,6 +9,8 @@ import {
   leaksNote,
   messageId,
   personalBriefingSchema,
+  restDayBriefingSchema,
+  restDayPlanSchema,
   shiftIso,
   teamFollowUpSchema,
   teamSignals,
@@ -17,7 +19,9 @@ import {
   type CitedSignal,
   type CompanyAnalysisOutput,
   type DailyPlanOutput,
+  type DayResolution,
   type FollowUp,
+  type RestDayPlanOutput,
   type Scoped,
   type Signal,
   type TeamFollowUp,
@@ -32,6 +36,7 @@ import { askClaude, type ClaudeUsage } from './claude';
 import {
   captureCompany,
   contextFor,
+  dayFor,
   roleFor,
   scopeOf,
   type Captured,
@@ -70,7 +75,16 @@ export interface RunReport {
   analysis: { ok: boolean; usage?: ClaudeUsage; error?: string };
   plans: { uid: string; roleId: string; ok: boolean; skipped?: boolean; usage?: ClaudeUsage; error?: string }[];
   /** One per manager: owners and admins are the people who follow up. */
-  followUps: { uid: string; roleId: string; ok: boolean; messages?: number; usage?: ClaudeUsage; error?: string }[];
+  followUps: {
+    uid: string;
+    roleId: string;
+    ok: boolean;
+    /** A rest day (ADR-012): nobody is followed up with. */
+    skipped?: boolean;
+    messages?: number;
+    usage?: ClaudeUsage;
+    error?: string;
+  }[];
   durationMs: number;
 }
 
@@ -143,12 +157,17 @@ export async function runDaily(companyId: string, dateIso?: string): Promise<Run
 
   // 2. The team follow-up, once per manager in their role. A plain member
   //    has nobody to follow up with, and the situations behind it are theirs
-  //    to not see.
+  //    to not see. On a rest day nobody is followed up with at all.
+  const restDay = !dayFor(captured, null).working;
   for (const manager of captured.members.filter(
     (m) => m.membership.hasAccount && m.membership.access !== 'member',
   )) {
     const roleId = roleFor(manager);
     if (!roleId) continue;
+    if (restDay) {
+      report.followUps.push({ uid: manager.id, roleId, ok: true, skipped: true });
+      continue;
+    }
     const result = await followUpFor(captured, manager, roleId);
     report.followUps.push({ uid: manager.id, roleId, ...result });
   }
@@ -233,21 +252,30 @@ function yesterdaySummary(captured: Captured, member: MemberRecord, roleId: stri
 }
 
 /** An item may only cite signals it was shown; one that cites nothing real is dropped. */
-function enforceCitations(plan: DailyPlanOutput, allowed: Set<string>): DailyPlanOutput['items'] {
-  return plan.items
+function enforceCitations<T extends { signalIds: string[] }>(items: T[], allowed: Set<string>): T[] {
+  return items
     .map((item) => ({ ...item, signalIds: item.signalIds.filter((id) => allowed.has(id)) }))
     .filter((item) => item.signalIds.length > 0);
 }
 
+/**
+ * The plan document. On a rest day (ADR-012) every item is optional and
+ * nothing is owed, which the document says in code rather than trusting
+ * the model to.
+ */
 async function writePlan(
   captured: Captured,
   member: MemberRecord,
   roleId: string,
-  plan: DailyPlanOutput,
+  plan: DailyPlanOutput | RestDayPlanOutput,
+  day: DayResolution,
   usage: ClaudeUsage,
   allowed: Set<string>,
 ): Promise<void> {
   const base = adminDb().collection('companies').doc(captured.company.id);
+  const items = enforceCitations(plan.items, allowed).map((item) =>
+    day.working ? item : { ...item, optional: true },
+  );
   await base
     .collection('plans')
     .doc(docId(captured.todayIso, member.id, roleId))
@@ -259,8 +287,10 @@ async function writePlan(
       date: captured.todayIso,
       headline: plan.headline,
       why: plan.why,
-      items: enforceCitations(plan, allowed),
-      consequenceIfNotDone: plan.consequenceIfNotDone,
+      items,
+      consequenceIfNotDone: 'consequenceIfNotDone' in plan ? plan.consequenceIfNotDone : '',
+      dayKind: day.working ? 'working' : 'rest',
+      focus: day.focus,
       deliveredAt: new Date().toISOString(),
       stale: false,
       feedback: {},
@@ -320,13 +350,14 @@ async function briefingAndPlanFor(
   const allowed = new Set(personal.map((s) => s.id));
 
   try {
-    const answer = await askClaude(
-      briefingAndPlanPrompt(ctx, member, personal, yesterdaySummary(captured, member, roleId)),
-      personalBriefingSchema,
-      { system: BRIEFING_PLAN_SYSTEM },
-    );
+    // Two contracts, chosen by the day (ADR-012): the schema is a hard
+    // constraint on the model, so the choice is made here, not asked of it.
+    const prompt = briefingAndPlanPrompt(ctx, member, personal, yesterdaySummary(captured, member, roleId));
+    const answer = ctx.day.working
+      ? await askClaude(prompt, personalBriefingSchema, { system: BRIEFING_PLAN_SYSTEM })
+      : await askClaude(prompt, restDayBriefingSchema, { system: BRIEFING_PLAN_SYSTEM });
     await writeAnalysis(captured, member, roleId, scope, answer.value.analysis, answer.usage);
-    await writePlan(captured, member, roleId, answer.value.plan, answer.usage, allowed);
+    await writePlan(captured, member, roleId, answer.value.plan, ctx.day, answer.usage, allowed);
     return { ok: true, usage: answer.usage };
   } catch (cause) {
     return { ok: false, error: describe(cause) };
@@ -346,12 +377,11 @@ async function planOnlyFor(
   const allowed = new Set(personal.map((s) => s.id));
 
   try {
-    const answer = await askClaude(
-      planPrompt(ctx, member, personal, briefing, yesterdaySummary(captured, member, roleId)),
-      dailyPlanSchema,
-      { system: PLAN_SYSTEM },
-    );
-    await writePlan(captured, member, roleId, answer.value, answer.usage, allowed);
+    const prompt = planPrompt(ctx, member, personal, briefing, yesterdaySummary(captured, member, roleId));
+    const answer = ctx.day.working
+      ? await askClaude(prompt, dailyPlanSchema, { system: PLAN_SYSTEM })
+      : await askClaude(prompt, restDayPlanSchema, { system: PLAN_SYSTEM });
+    await writePlan(captured, member, roleId, answer.value, ctx.day, answer.usage, allowed);
     return { ok: true, usage: answer.usage };
   } catch (cause) {
     return { ok: false, error: describe(cause) };

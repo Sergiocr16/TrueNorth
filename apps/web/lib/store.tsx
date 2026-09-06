@@ -37,6 +37,7 @@ import {
   healthFrom,
   objectiveHealth,
   objectiveProgressPct,
+  resolveDay,
   type Company,
   type CompanyAnalysis,
   type DailyPlan,
@@ -1016,6 +1017,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       repos: repos.filter((r) => activeRepoIds.includes(r.id)),
       approverUserIds,
       finishedStatuses: github?.finishedStatuses,
+      // The day itself, so a plan item that cites it can show its signal.
+      day: resolveDay(company, activeRole, TODAY),
     });
     const currentPlan = plan ?? emptyPlan(companyId ?? '', uid ?? '', activeRoleId ?? '');
     const roleAnalyses = activeRoleId

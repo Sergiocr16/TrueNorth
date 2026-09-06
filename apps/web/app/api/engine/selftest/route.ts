@@ -3,6 +3,8 @@ import {
   atMidnight,
   fixtures,
   personalBriefingSchema,
+  resolveDay,
+  restDayBriefingSchema,
   scopeFor,
   teamFollowUpSchema,
   teamSignals,
@@ -82,6 +84,7 @@ export async function GET(request: Request) {
     assignedOnlySourceIds: scope.assignedOnlySourceIds,
     today,
     todayIso: iso,
+    day: resolveDay(company, scope.role, iso),
   };
 
   const started = Date.now();
@@ -116,11 +119,11 @@ export async function GET(request: Request) {
     }
 
     const personal = visibleSignals(scope, member.id);
-    const answer = await askClaude(
-      briefingAndPlanPrompt(ctx, member, personal, null),
-      personalBriefingSchema,
-      { system: BRIEFING_PLAN_SYSTEM },
-    );
+    const prompt = briefingAndPlanPrompt(ctx, member, personal, null);
+    // The contract follows the day (ADR-012), as the real run does.
+    const answer = ctx.day.working
+      ? await askClaude(prompt, personalBriefingSchema, { system: BRIEFING_PLAN_SYSTEM })
+      : await askClaude(prompt, restDayBriefingSchema, { system: BRIEFING_PLAN_SYSTEM });
     return NextResponse.json({
       ok: true,
       step,
