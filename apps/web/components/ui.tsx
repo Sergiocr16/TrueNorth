@@ -1,12 +1,12 @@
 'use client';
 
 import type { CSSProperties, ReactNode } from 'react';
-import type { HealthStatus, Task, TaskStatus, User } from '@truenorth/core';
+import type { HealthStatus, PullRequest, Task, TaskStatus, User } from '@truenorth/core';
 import { idleDays, isOverdue, notionUrl, progressDays } from '@truenorth/core';
 import { usePreferences, useT } from '../lib/preferences';
 import { useStore } from '../lib/store';
 import { formatShortDate } from '../lib/i18n/dictionary';
-import { Chevron, CheckIcon, NotionMark, SmallTriangle, WarningTriangle } from './icons';
+import { Chevron, CheckIcon, GithubMark, NotionMark, SmallTriangle, WarningTriangle } from './icons';
 import { Overlay } from './overlay';
 
 /* ------------------------------------------------------------------ */
@@ -163,6 +163,92 @@ export function TaskStatusPill({ status, label }: { status: TaskStatus; label?: 
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Pull requests                                                        */
+/* ------------------------------------------------------------------ */
+
+/** What a pull request is waiting on, in one word and one shape. */
+export function pullState(pr: PullRequest): 'merged' | 'closed' | 'draft' | 'changes' | 'approved' | 'waiting' {
+  if (pr.state === 'merged') return 'merged';
+  if (pr.state === 'closed') return 'closed';
+  if (pr.draft) return 'draft';
+  if (pr.reviewState === 'changes_requested') return 'changes';
+  if (pr.reviewState === 'approved') return 'approved';
+  return 'waiting';
+}
+
+/** The pull request that speaks for a task: open first, then the latest. */
+export function usePullFor(taskId: string | null | undefined): PullRequest | undefined {
+  const { pullRequests } = useStore();
+  if (!taskId) return undefined;
+  const mine = pullRequests.filter((pr) => pr.taskId === taskId);
+  if (mine.length === 0) return undefined;
+  const open = mine.filter((pr) => pr.state === 'open');
+  const pick = (list: PullRequest[]) => [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  return pick(open) ?? pick(mine);
+}
+
+/** "#42 · esperando revisión": the number, the state, and a shape for the state. */
+export function PullPill({ pr }: { pr: PullRequest }) {
+  const t = useT();
+  const state = pullState(pr);
+  const styles: Record<ReturnType<typeof pullState>, { bg: string; fg: string }> = {
+    merged: { bg: 'var(--green-bg)', fg: 'var(--green)' },
+    closed: { bg: 'var(--chip-bg)', fg: 'var(--ter)' },
+    draft: { bg: 'var(--chip-bg)', fg: 'var(--sec)' },
+    changes: { bg: 'var(--amber-bg)', fg: 'var(--amber)' },
+    approved: { bg: 'var(--green-bg)', fg: 'var(--green)' },
+    waiting: { bg: 'var(--slate-bg)', fg: 'var(--slate)' },
+  };
+  const style = styles[state];
+  return (
+    <span
+      className="tn-tabular inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px] font-semibold"
+      style={{ background: style.bg, color: style.fg }}
+    >
+      {state === 'merged' || state === 'approved' ? <CheckIcon size={11} /> : null}
+      {state === 'changes' ? <SmallTriangle size={10} /> : null}
+      #{pr.number} · {t.pull[state]}
+    </span>
+  );
+}
+
+/** One pull request as a row: number, title, author, state, age, and the link. */
+export function PullRequestLine({ pr, users, today, isLast = false }: { pr: PullRequest; users: User[]; today: Date; isLast?: boolean }) {
+  const t = useT();
+  const author = users.find((u) => u.id === pr.authorUserId);
+  const days = Math.max(0, Math.floor((today.getTime() - new Date(pr.lastPushAt ?? pr.createdAt).getTime()) / 86_400_000));
+  return (
+    <div className={`flex items-start gap-2 px-4 py-3 ${isLast ? '' : 'tn-hairline'}`}>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="tn-tabular text-[13px] font-bold text-[var(--accent)]">#{pr.number}</span>
+          <span className="min-w-0 flex-1 text-[17px] font-semibold leading-snug text-[var(--ink)]">{pr.title}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-[var(--ter)]">
+          <PullPill pr={pr} />
+          <span className="flex items-center gap-1.5">
+            <Avatar initials={author?.initials ?? '—'} size={20} />
+            {author?.displayName ?? pr.authorLogin}
+          </span>
+          <span className="tn-tabular">{pr.headRef} → {pr.baseRef}</span>
+          <span className="tn-tabular">{t.pull.age(days)}</span>
+        </div>
+      </div>
+      <a
+        href={pr.url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={t.pull.open}
+        title={t.pull.open}
+        className="tn-press mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+      >
+        <GithubMark size={18} />
+      </a>
+    </div>
+  );
+}
+
 /** Where a record came from: the app, or a named Notion database. */
 export function SourceBadge({ source, title }: { source: 'app' | 'notion'; title?: string }) {
   const t = useT();
@@ -218,6 +304,7 @@ export function TaskLine({
   const t = useT();
   const { locale } = usePreferences();
   const sourceTitle = useSourceTitle(task.sourceId);
+  const pr = usePullFor(task.id);
 
   const notion = notionUrl(task.notionPageId);
   // Everybody responsible, as Notion has it. The first gets a name; the rest
@@ -278,6 +365,7 @@ export function TaskLine({
           </span>
         ) : null}
         {sourceTitle ? <SourceBadge source="notion" title={sourceTitle} /> : null}
+        {pr ? <PullPill pr={pr} /> : null}
       </div>
 
       {showActivity && activity.length > 0 ? (
@@ -311,6 +399,18 @@ export function TaskLine({
           className="tn-press mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
         >
           <NotionMark size={18} />
+        </a>
+      ) : null}
+      {pr ? (
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={t.pull.open}
+          title={t.pull.open}
+          className="tn-press mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+        >
+          <GithubMark size={18} />
         </a>
       ) : null}
     </div>

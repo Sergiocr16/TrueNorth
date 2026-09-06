@@ -10,6 +10,7 @@ import {
   Banner,
   Card,
   ProgressBar,
+  PullRequestLine,
   SectionLabel,
   SourceBadge,
   StatusPill,
@@ -54,6 +55,9 @@ export default function ProjectDetailPage() {
   const owner = store.users.find((u) => u.id === project.ownerUserId);
   const linkedObjectives = store.objectives.filter((o) => project.objectiveIds.includes(o.id));
   const projectTasks = store.tasks.filter((task) => task.projectId === project.id);
+  const openPulls = store.pullRequests
+    .filter((pr) => pr.projectId === project.id && pr.state === 'open')
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
   const isOrphan = project.objectiveIds.length === 0;
 
   return (
@@ -154,6 +158,19 @@ export default function ProjectDetailPage() {
           )}
         </Card>
       </div>
+
+      {openPulls.length > 0 ? (
+        <div className="mx-4 mt-4">
+          <SectionLabel>
+            {t.projects.pullRequests} · {openPulls.length}
+          </SectionLabel>
+          <Card className="overflow-hidden">
+            {openPulls.map((pr, index) => (
+              <PullRequestLine key={pr.id} pr={pr} users={store.users} today={store.today} isLast={index === openPulls.length - 1} />
+            ))}
+          </Card>
+        </div>
+      ) : null}
 
       <div className="mx-4 mt-4">
         <SectionLabel>
