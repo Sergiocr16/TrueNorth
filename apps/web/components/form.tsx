@@ -72,6 +72,96 @@ export function TextField({
   );
 }
 
+/**
+ * A text box that grows with what is typed, up to a cap, then scrolls
+ * inside. Long prose — a role's responsibility, a day's notes — reads whole
+ * instead of through a four-line slot, and a short one takes no more room
+ * than it needs.
+ */
+const TEXTAREA_MAX_PX = 320;
+
+function useAutoGrow(value: string) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_PX)}px`;
+    el.style.overflowY = el.scrollHeight > TEXTAREA_MAX_PX ? 'auto' : 'hidden';
+  }, [value]);
+  return ref;
+}
+
+/**
+ * Optional notes on a row: closed, it is the row's title with an "add" link;
+ * open, the title with a "remove" link and a filled text box under it, so a
+ * long sentence wraps instead of being squeezed into one line. Without a
+ * title it is only the link, for a row that already has one above it.
+ */
+export function NotesField({
+  label,
+  value,
+  open,
+  onChange,
+  onOpen,
+  onClear,
+  addLabel,
+  removeLabel,
+  notesLabel,
+  isLast = false,
+}: {
+  label?: string;
+  value: string;
+  open: boolean;
+  onChange: (value: string) => void;
+  onOpen: () => void;
+  onClear: () => void;
+  addLabel: string;
+  removeLabel: string;
+  /** Read to screen readers when there is no visible title. */
+  notesLabel: string;
+  isLast?: boolean;
+}) {
+  const id = useId();
+  const ref = useAutoGrow(value);
+  const link = 'tn-press min-h-11 text-[15px] font-semibold text-[var(--accent)]';
+  if (!open) {
+    return (
+      <div
+        className={`flex items-center gap-3 px-4 ${label ? 'min-h-[52px] justify-between' : '-mt-1 justify-end pb-1'} ${
+          isLast ? '' : 'tn-hairline'
+        }`}
+      >
+        {label ? <span className="text-[17px] text-[var(--ink)]">{label}</span> : null}
+        <button type="button" onClick={onOpen} className={link}>
+          {addLabel}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className={`px-4 pb-3 ${label ? 'pt-3' : 'pt-0'} ${isLast ? '' : 'tn-hairline'}`}>
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor={id} className={label ? 'text-[17px] text-[var(--ink)]' : 'text-[13px] font-semibold text-[var(--ter)]'}>
+          {label || notesLabel}
+        </label>
+        <button type="button" onClick={onClear} className={link}>
+          {removeLabel}
+        </button>
+      </div>
+      <textarea
+        id={id}
+        ref={ref}
+        value={value}
+        rows={2}
+        autoFocus={value.length === 0}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 w-full resize-none rounded-xl bg-[var(--chip-bg)] px-3 py-2 text-[17px] leading-snug text-[var(--ink)] outline-none"
+      />
+    </div>
+  );
+}
+
 /** Multi-line field. The label sits above so long Spanish text has room. */
 export function TextAreaField({
   label,
@@ -89,6 +179,7 @@ export function TextAreaField({
   isLast?: boolean;
 }) {
   const id = useId();
+  const ref = useAutoGrow(value);
   return (
     <div className={`px-4 py-3 ${isLast ? '' : 'tn-hairline'}`}>
       <label htmlFor={id} className="block text-[13px] font-semibold text-[var(--ter)]">
@@ -96,6 +187,7 @@ export function TextAreaField({
       </label>
       <textarea
         id={id}
+        ref={ref}
         value={value}
         rows={rows}
         placeholder={placeholder}
