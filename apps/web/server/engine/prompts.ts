@@ -47,6 +47,7 @@ Rules you must follow:
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's. Never ask somebody carrying a workload signal to take on more.
 - Late is not the same as stuck. An overdue signal says whether the owner moved the task recently — a status change, an edit, a comment of theirs. If they did, the work is advancing: the action is to close it or fix its date, not to chase. Stuck is past its date with no word from the owner; somebody else's comment on it is a question, not progress.
 - When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
+- Pull requests: the developer responsible for a task opens the pull request when the work is done and answers requested changes; whoever holds an approver role reviews and merges. pr_missing and pr_changes_requested are the developer's action; pr_awaiting_review and pr_approved_unmerged are the approver's — they go in the approver's plan, and nobody is ever asked to approve their own pull request. Each task line says what its pull request is waiting on; read it before calling a task stuck.
 - Be honest in "consequenceIfNotDone": a concrete, plausible cost, not a threat. Estimated minutes are realistic; a plan fits in a working day alongside meetings.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
 
@@ -57,6 +58,7 @@ Rules you must follow:
 - Only cite signal ids that appear in the list. An action without a real signal behind it does not go in the plan.
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's.
 - When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
+- Pull requests: the developer responsible for a task opens the pull request when the work is done and answers requested changes; whoever holds an approver role reviews and merges. pr_missing and pr_changes_requested are the developer's action; pr_awaiting_review and pr_approved_unmerged are the approver's — they go in the approver's plan, and nobody is ever asked to approve their own pull request. Each task line says what its pull request is waiting on; read it before calling a task stuck.
 - Be honest in "consequenceIfNotDone": a concrete, plausible cost, not a threat.
 - Estimated minutes are realistic; a plan should fit in a working day alongside meetings.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
@@ -71,6 +73,7 @@ Rules you must follow:
 - Every person you were given gets exactly one reading, with their userId copied verbatim. The reading is two or three plain sentences; the recommendation is one sentence. Same rule on names: tasks by what they are, the code at most once.
 - A message goes only to somebody the data says needs one today. Silence is a valid answer and the reading is where you explain it; never invent a reason to write.
 - Every message cites at least one signal id from that person's list. A message with nothing real behind it is not written.
+- Pull requests: a pr_changes_requested signal is the developer's — ask them for the answer or the push; a pr_awaiting_review or pr_approved_unmerged signal is the manager's own review to do, not a message to anybody. Each task line says what its pull request is waiting on.
 - When the signal is about one task, the message belongs on that task: set target to "comentario" and taskId to that task's id. Reserve "directo" for what spans several tasks, or is about the person rather than the work.
 - Late is not the same as stuck. An overdue signal says whether the owner moved the task recently — a status change, an edit, a comment of theirs — and each task lists its owner's last advance. If they moved it, the work is advancing: acknowledge it and ask only for a date, never chase it as silence. Stuck is past its date with no word from the owner; somebody else's comment on it is a question waiting, not progress.
 - When somebody is ahead, or has just delivered, the message that fits is recognition. A day where everyone gets a telling-off is a misreading, not a hard day.
@@ -85,6 +88,7 @@ Rules you must follow:
 - Answer in Spanish (Costa Rica), as a sharp colleague would out loud: two to five sentences, the answer first, then the reason. No headings, no lists, no filler.
 - The person asking is named at the top. Speak to them as "vos": their tasks are "tus tareas", a comment they owe is one *you* owe. Never refer to them in the third person, and never offer to tell them something — they are the one reading.
 - Only say what the context supports. If it does not answer the question, say so in one sentence and, if useful, ask the one question that would.
+- Pull requests: each task line says whether its pull request is open, waiting for review, waiting on the author, approved or merged, and the approvers are named above. "Where is X" is answered from that, not from the Notion status alone.
 - Cite the signal ids the answer rests on in signalIds; leave it empty when none apply. Never invent a task, a person or a number.
 - You can also propose one action, which the person confirms before anything is written. Use it only when the message clearly asks for it:
   · situation — they tell you something going on with a person ("Marco anda con un tema familiar esta semana"). Fill userId, text (the note, in their words), situationKind, discreet (true unless they say it can be mentioned), endsAt when a date or "esta semana" is implied.
@@ -153,7 +157,7 @@ function pickableSection(
   if (pool.length === 0) return '';
   return `
 ## Tareas sin responsable que podría tomar (${pool.length}) — solo de las bases que ve completas
-${pool.map((t) => fmtTask(t, ctx.members, ctx.today, ctx.sources)).join('\n')}
+${pool.map((t) => fmtTask(t, ctx.members, ctx.today, ctx.sources, ctx.pullRequests)).join('\n')}
 No tiene tareas propias abiertas (señal no_owned_work:${member.id}): proponé tomar una o dos de estas, citando esa señal.
 `;
 }
@@ -204,6 +208,7 @@ function fmtTask(
   members: CompanyContext['members'],
   today?: Date,
   sources?: NotionSource[],
+  pullRequests?: PullRequest[],
 ): string {
   const nameOf = (id: string | null) => members.find((m) => m.id === id)?.displayName;
   const sourceName = task.sourceId ? sources?.find((s) => s.id === task.sourceId)?.title : undefined;
@@ -230,7 +235,63 @@ function fmtTask(
     );
   }
 
-  return `- [${task.id}] ${task.code || '—'} ${task.title} — estado ${task.notionStatus ?? task.status}, prioridad ${task.priority}, vence ${task.dueDate ?? 'sin fecha'}, ${responsible.includes(',') ? 'responsables' : 'responsable'} ${responsible || 'nadie'}${task.dependsOn.length ? `, depende de ${task.dependsOn.join(', ')}` : ''}${sourceName ? ` [fuente: ${sourceName}]` : ''}${activity.length ? `. ${activity.join('; ')}` : ''}`;
+  // The task's pull request, when there is one: what the code is waiting on
+  // is the fact that turns "this has not moved" into "this waits on me".
+  const pr = latestPullFor(task.id, pullRequests);
+  const prFact = pr && today ? ` ${fmtPull(pr, members, today)}` : '';
+
+  return `- [${task.id}] ${task.code || '—'} ${task.title} — estado ${task.notionStatus ?? task.status}, prioridad ${task.priority}, vence ${task.dueDate ?? 'sin fecha'}, ${responsible.includes(',') ? 'responsables' : 'responsable'} ${responsible || 'nadie'}${task.dependsOn.length ? `, depende de ${task.dependsOn.join(', ')}` : ''}${sourceName ? ` [fuente: ${sourceName}]` : ''}${activity.length ? `. ${activity.join('; ')}` : ''}${prFact}`;
+}
+
+/** The pull request that speaks for a task: open first, then the latest. */
+function latestPullFor(taskId: string, pullRequests?: PullRequest[]): PullRequest | undefined {
+  const mine = (pullRequests ?? []).filter((pr) => pr.taskId === taskId);
+  if (mine.length === 0) return undefined;
+  const open = mine.filter((pr) => pr.state === 'open').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return open[0] ?? [...mine].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+}
+
+/** One pull request in a sentence: where it goes and what it is waiting on. */
+function fmtPull(pr: PullRequest, members: CompanyContext['members'], today: Date): string {
+  const nameOf = (id: string | null | undefined) => members.find((m) => m.id === id)?.displayName;
+  const days = (iso: string | null | undefined) =>
+    iso ? Math.max(0, Math.floor((today.getTime() - new Date(iso).getTime()) / 86_400_000)) : null;
+  const who = nameOf(pr.authorUserId) ?? pr.authorLogin;
+  const head = `PR #${pr.number} de ${who} hacia ${pr.baseRef}`;
+  if (pr.state === 'merged') return `${head}: fusionado el ${(pr.mergedAt ?? pr.updatedAt).slice(0, 10)}.`;
+  if (pr.state === 'closed') return `${head}: cerrado sin fusionar.`;
+  if (pr.draft) return `${head}: borrador, no pide revisión todavía.`;
+  if (pr.reviewState === 'changes_requested') {
+    const answered = pr.lastAuthorActivityAt && pr.lastReviewAt && pr.lastAuthorActivityAt > pr.lastReviewAt;
+    return `${head}: ${nameOf(pr.lastReviewBy) ?? 'un revisor'} pidió cambios hace ${days(pr.lastReviewAt)} días, ${answered ? 'el autor ya respondió' : 'sin respuesta del autor'}.`;
+  }
+  if (pr.reviewState === 'approved') return `${head}: aprobado hace ${days(pr.lastReviewAt)} días, sin fusionar.`;
+  return `${head}: abierto hace ${days(pr.createdAt)} días, sin aprobación${pr.lastPushAt ? ` (último push hace ${days(pr.lastPushAt)} días)` : ''}.`;
+}
+
+/** What the role reads of GitHub, and who approves, or nothing. */
+function githubLine(ctx: CompanyContext): string {
+  const repos = ctx.repos ?? [];
+  if (repos.length === 0) return '';
+  const projectName = (id: string | null) => ctx.projects.find((p) => p.id === id)?.name;
+  const named = repos
+    .map((r) => `${r.fullName}${projectName(r.projectId) ? ` (proyecto ${projectName(r.projectId)}, base ${r.baseBranch})` : ` (base ${r.baseBranch})`}`)
+    .join(', ');
+  const approvers = (ctx.approverUserIds ?? [])
+    .map((id) => ctx.members.find((m) => m.id === id)?.displayName)
+    .filter(Boolean)
+    .join(', ');
+  return `Repositorios de GitHub que ve: ${named}. ${approvers ? `Aprueban y fusionan los pull requests: ${approvers}.` : 'Nadie tiene rol aprobador configurado.'}`;
+}
+
+/** Open pull requests that name no task, so nothing waiting on somebody is invisible. */
+function untaskedPullsSection(ctx: CompanyContext): string {
+  const open = (ctx.pullRequests ?? []).filter((pr) => pr.state === 'open' && !pr.taskId).slice(0, 15);
+  if (open.length === 0) return '';
+  return `
+## Pull requests abiertos sin tarea (${open.length})
+${open.map((pr) => `- [${pr.id}] ${pr.title} — ${fmtPull(pr, ctx.members, ctx.today)}`).join('\n')}
+`;
 }
 
 function fmtSignal(signal: Signal): string {
@@ -255,7 +316,7 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${openTasks.length})
-${openTasks.map((t) => fmtTask(t, members, today, ctx.sources)).join('\n') || '(ninguna)'}
+${openTasks.map((t) => fmtTask(t, members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
 
 ## Equipo
 ${members.map((m) => `- ${m.displayName} — ${m.membership.roleTitle}: ${m.membership.roleDescription || 'sin descripción'}`).join('\n')}
@@ -288,6 +349,7 @@ export function briefingAndPlanPrompt(
 ## Su rol hoy
 ${roleLine(ctx, member)}
 ${sourcesLine(ctx)}
+${githubLine(ctx)}
 Todo lo que sigue es lo que este rol puede ver. No hay más; no supongas lo que otros roles hacen.
 
 ## Meta global
@@ -301,14 +363,14 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas a la vista (${openTasks.length})
-${openTasks.map((t) => fmtTask(t, members, today, ctx.sources)).join('\n') || '(ninguna)'}
+${openTasks.map((t) => fmtTask(t, members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
 
 ## Sus proyectos
 ${myProjects.map((p) => `- [${p.id}] ${p.name}`).join('\n') || '(ninguno)'}
 
 ## Sus tareas abiertas (${mine.length})
 ${mine.map((t) => `- [${t.id}] ${t.code || '—'} ${t.title}`).join('\n') || '(ninguna)'}
-${pickableSection(ctx, member, mine)}
+${pickableSection(ctx, member, mine)}${untaskedPullsSection(ctx)}
 ## Personas a la vista
 ${members.map((m) => `- ${m.displayName} — ${m.membership.roleTitle || 'sin rol'}`).join('\n')}
 
@@ -350,6 +412,7 @@ export function planPrompt(
 ## Su rol en ${company.name}
 ${roleLine(ctx, member)}
 ${sourcesLine(ctx)}
+${githubLine(ctx)}
 
 ## Meta global
 ${company.northStar}
@@ -364,7 +427,7 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${myProjects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Sus tareas abiertas (${mine.length})
-${mine.map((t) => fmtTask(t, ctx.members, today, ctx.sources)).join('\n') || '(ninguna)'}
+${mine.map((t) => fmtTask(t, ctx.members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
 ${pickableSection(ctx, member, mine)}
 ## Señales que le tocan (${personalSignals.length}) — citá estos ids en signalIds
 ${personalSignals.map(fmtSignal).join('\n') || '(ninguna)'}
@@ -419,7 +482,7 @@ ${
 }
 
 Sus tareas abiertas (${open.length}):
-${open.map((t) => fmtTask(t, ctx.members, today, ctx.sources)).join('\n') || '- (ninguna)'}
+${open.map((t) => fmtTask(t, ctx.members, today, ctx.sources, ctx.pullRequests)).join('\n') || '- (ninguna)'}
 
 Señales sobre esta persona (${signals.length}) — solo podés citar estos ids:
 ${signals.map(fmtSignal).join('\n') || '- (ninguna)'}
@@ -480,7 +543,7 @@ export function askPrompt(
 
   return `# Pregunta de ${member.displayName} — ${todayIso}
 Quien pregunta es ${member.displayName} (userId ${member.id}); en el contexto aparece como responsable o autor con ese nombre. Hablale de vos.
-Su rol hoy: ${roleLine(ctx, member)}. ${sourcesLine(ctx)} Todo lo que sigue es lo que ese rol puede ver; no hay más.
+Su rol hoy: ${roleLine(ctx, member)}. ${sourcesLine(ctx)} ${githubLine(ctx)} Todo lo que sigue es lo que ese rol puede ver; no hay más.
 
 ## Personas (userId — nombre, rol)
 ${ctx.members.map((m) => `- ${m.id} — ${m.displayName}, ${m.membership.roleTitle}`).join('\n')}
@@ -502,8 +565,8 @@ ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 ${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${open.length})
-${open.map((t) => fmtTask(t, ctx.members, today, ctx.sources)).join('\n') || '(ninguna)'}
-
+${open.map((t) => fmtTask(t, ctx.members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
+${untaskedPullsSection(ctx)}
 ## Señales (${personalSignals.length}) — citá estos ids en signalIds
 ${personalSignals.map(fmtSignal).join('\n') || '(ninguna)'}
 ${

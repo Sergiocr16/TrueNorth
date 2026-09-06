@@ -39,6 +39,16 @@ export const PLAN_SLIPPING_ITEMS = 4;
 
 /** Overdue tasks on one person before the pile, not each task, is the signal. */
 export const OVERDUE_LOAD_TASKS = 3;
+/** A task in a "development finished" status owes a pull request after this many days. */
+export const PR_MISSING_DAYS = 1;
+/** An open pull request with nothing decisive from a reviewer is waiting after this many days. */
+export const PR_REVIEW_DAYS = 2;
+/** Changes requested and nothing from the author for this long is the author's turn overdue. */
+export const PR_CHANGES_DAYS = 2;
+/** Approved and still open for this long is a merge owed. */
+export const PR_MERGE_DAYS = 2;
+/** A pull request waiting this long turns critical. */
+export const PR_CRITICAL_DAYS = 7;
 
 export interface SignalContext {
   today: Date;
@@ -614,6 +624,131 @@ export function computeSignals(ctx: SignalContext): Signal[] {
       projectId: project.id,
       userId: project.ownerUserId,
       data: { days: idle },
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Pull requests: the developer opens and answers, the approver       */
+  /* reviews and merges (ADR-010)                                        */
+  /* ---------------------------------------------------------------- */
+
+  const pulls = ctx.pullRequests ?? [];
+  const repos = ctx.repos ?? [];
+  const approvers = ctx.approverUserIds ?? [];
+  const finished = new Set(ctx.finishedStatuses ?? []);
+  const prName = (pr: PullRequest): string => `#${pr.number} ${pr.title}`;
+  const taskOf = (pr: PullRequest): Task | undefined => tasks.find((t) => t.id === pr.taskId);
+  const repoOf = (pr: PullRequest): GithubRepo | undefined => repos.find((r) => r.id === pr.repoId);
+
+  // Development finished, no pull request. Only where a pull request can
+  // exist — the task's project has a repository — and only on the statuses
+  // the company says mean "done coding"; `done` itself never counts, a
+  // finished task with no code is the normal case for most work.
+  const reposByProject = new Map<string, GithubRepo[]>();
+  for (const repo of repos) {
+    if (!repo.projectId) continue;
+    reposByProject.set(repo.projectId, [...(reposByProject.get(repo.projectId) ?? []), repo]);
+  }
+  for (const task of tasks) {
+    if (task.status === 'done' || !task.notionStatus || !finished.has(task.notionStatus)) continue;
+    if (!task.projectId || !reposByProject.has(task.projectId)) continue;
+    const has = pulls.some((pr) => pr.taskId === task.id && (pr.state === 'open' || pr.state === 'merged'));
+    if (has) continue;
+    const since = task.statusChangedAt ? daysSince(task.statusChangedAt, today) : null;
+    if (since === null || since < PR_MISSING_DAYS) continue;
+    const base = reposByProject.get(task.projectId)?.[0]?.baseBranch ?? 'development';
+    signals.push({
+      id: `pr_missing:${task.id}`,
+      kind: 'pr_missing',
+      severity: 'info',
+      summary: {
+        es: `${taskName(task)} está en ${task.notionStatus} hace ${since} ${since === 1 ? 'día' : 'días'} y no tiene pull request hacia ${base}`,
+        en: `${taskName(task)} has been in ${task.notionStatus} for ${since} ${since === 1 ? 'day' : 'days'} with no pull request toward ${base}`,
+      },
+      taskId: task.id,
+      projectId: task.projectId,
+      userId: owners(task)[0],
+      userIds: owners(task),
+      data: { days: since, status: task.notionStatus },
+    });
+  }
+
+  for (const pr of pulls) {
+    if (pr.state !== 'open') continue;
+    const task = taskOf(pr);
+    const label = task ? `${prName(pr)} de ${taskName(task)}` : prName(pr);
+    const labelEn = task ? `${prName(pr)} for ${taskName(task)}` : prName(pr);
+    const author = nameOf(pr.authorUserId);
+    const common = {
+      taskId: pr.taskId ?? undefined,
+      projectId: pr.projectId ?? undefined,
+    };
+    // Whoever reviews: the approver roles' holders, or the requested reviewers
+    // when nobody is configured. Never the author.
+    const reviewers = (approvers.length > 0 ? approvers : pr.reviewerUserIds).filter((id) => id !== pr.authorUserId);
+
+    if (pr.reviewState === 'changes_requested' && pr.lastReviewAt) {
+      // The author's turn: changes asked, and no push nor comment since.
+      const answered = pr.lastAuthorActivityAt !== null && pr.lastAuthorActivityAt > pr.lastReviewAt;
+      const days = daysSince(pr.lastReviewAt, today) ?? 0;
+      if (!answered && days >= PR_CHANGES_DAYS && pr.authorUserId) {
+        const reviewer = nameOf(pr.lastReviewBy);
+        signals.push({
+          id: `pr_changes_requested:${pr.id}`,
+          kind: 'pr_changes_requested',
+          severity: 'warning',
+          summary: {
+            es: `${label}: ${reviewer} pidió cambios hace ${days} días y no hay respuesta del autor`,
+            en: `${labelEn}: ${reviewer} requested changes ${days} days ago and the author has not answered`,
+          },
+          ...common,
+          userId: pr.authorUserId,
+          userIds: [pr.authorUserId],
+          data: { days, number: pr.number, url: pr.url, reviewer },
+        });
+      }
+      continue;
+    }
+
+    if (pr.reviewState === 'approved' && pr.lastReviewAt) {
+      const days = daysSince(pr.lastReviewAt, today) ?? 0;
+      if (days >= PR_MERGE_DAYS && reviewers.length > 0) {
+        signals.push({
+          id: `pr_approved_unmerged:${pr.id}`,
+          kind: 'pr_approved_unmerged',
+          severity: days >= PR_CRITICAL_DAYS ? 'critical' : 'warning',
+          summary: {
+            es: `${label} está aprobado hace ${days} días y sin fusionar`,
+            en: `${labelEn} has been approved for ${days} days and is not merged`,
+          },
+          ...common,
+          userId: reviewers[0],
+          userIds: reviewers,
+          data: { days, number: pr.number, url: pr.url, author },
+        });
+      }
+      continue;
+    }
+
+    // Nothing decisive from a reviewer: the approvers' turn, once it has sat
+    // a while since the last review, push or opening. Drafts are not asking.
+    if (pr.draft) continue;
+    const waitingSince = pr.lastReviewAt ?? pr.lastPushAt ?? pr.createdAt;
+    const days = daysSince(waitingSince, today) ?? 0;
+    if (days < PR_REVIEW_DAYS || reviewers.length === 0) continue;
+    const base = repoOf(pr)?.baseBranch;
+    signals.push({
+      id: `pr_awaiting_review:${pr.id}`,
+      kind: 'pr_awaiting_review',
+      severity: days >= PR_CRITICAL_DAYS ? 'critical' : 'warning',
+      summary: {
+        es: `${label} lleva ${days} días esperando revisión${base && pr.baseRef !== base ? ` (hacia ${pr.baseRef})` : ''}`,
+        en: `${labelEn} has been waiting for review for ${days} days${base && pr.baseRef !== base ? ` (toward ${pr.baseRef})` : ''}`,
+      },
+      ...common,
+      userId: reviewers[0],
+      userIds: reviewers,
+      data: { days, number: pr.number, url: pr.url, author },
     });
   }
 
