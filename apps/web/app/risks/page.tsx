@@ -28,7 +28,7 @@ import { HealthCompass } from '../../components/day-compass';
 import { usePreferences } from '../../lib/preferences';
 import { makeRisk, useRiskCount, useStore } from '../../lib/store';
 
-type GroupKey = 'overdue' | 'blocked' | 'stale' | 'people' | 'structure';
+type GroupKey = 'overdue' | 'blocked' | 'stale' | 'pulls' | 'people' | 'structure';
 
 /**
  * Risks is the inverse of Today: instead of what to do, it shows what the
@@ -51,6 +51,11 @@ export default function RisksPage() {
     { key: 'overdue', title: t.risks.overdue, kinds: ['overdue_task', 'due_today', 'overdue_load'] },
     { key: 'blocked', title: t.risks.blocked, kinds: ['blocked_task'] },
     { key: 'stale', title: t.risks.stale, kinds: ['stale_task', 'comment_unanswered', 'stale_progress'] },
+    {
+      key: 'pulls',
+      title: t.risks.pullRequests,
+      kinds: ['pr_awaiting_review', 'pr_changes_requested', 'pr_approved_unmerged', 'pr_missing'],
+    },
     { key: 'people', title: t.risks.people, kinds: ['silent_owner', 'no_followup', 'workload', 'plan_ignored', 'plan_slipping', 'no_owned_work'] },
     {
       key: 'structure',
@@ -83,7 +88,9 @@ export default function RisksPage() {
 
   /** Where a signal points: the person, the task's project, or the objective. */
   const hrefFor = (signal: Signal) =>
-    signal.projectId
+    typeof signal.data?.url === 'string'
+      ? signal.data.url
+      : signal.projectId
       ? `${ROUTES.projects}/${signal.projectId}`
       : signal.objectiveId
         ? `${ROUTES.objectives}/${signal.objectiveId}`

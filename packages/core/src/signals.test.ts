@@ -16,7 +16,7 @@ import {
 } from './signals';
 import { NOTION_TASK_STATUS, taskStatusFromNotion } from './notion-status';
 import * as fixtures from './fixtures';
-import type { DailyPlan, Objective, Project, Task, User } from './types';
+import type { DailyPlan, GithubRepo, Objective, Project, PullRequest, Signal, Task, User } from './types';
 
 const TODAY = new Date('2026-09-03T00:00:00');
 
@@ -151,6 +151,151 @@ describe('overdue', () => {
 
   it('counts a past due date', () => {
     expect(isOverdue(task({ dueDate: '2026-09-02' }), TODAY)).toBe(true);
+  });
+});
+
+const repo = (overrides: Partial<GithubRepo> = {}): GithubRepo => ({
+  id: 'gh_api',
+  companyId: 'c1',
+  owner: 'aditum',
+  name: 'api',
+  fullName: 'aditum/api',
+  repoId: 1,
+  projectId: 'p1',
+  baseBranch: 'development',
+  lastSyncAt: null,
+  lastFullSyncAt: null,
+  lastSyncError: null,
+  counts: { open: 0, awaiting: 0, changesRequested: 0, approved: 0 },
+  createdBy: 'u1',
+  createdAt: '2026-01-01',
+  ...overrides,
+});
+
+const pull = (overrides: Partial<PullRequest> = {}): PullRequest => ({
+  id: 'gh_api_42',
+  companyId: 'c1',
+  repoId: 'gh_api',
+  number: 42,
+  title: 'Portal de proveedores',
+  url: 'https://github.com/aditum/api/pull/42',
+  state: 'open',
+  draft: false,
+  baseRef: 'development',
+  headRef: 'feature/TAR-001',
+  authorLogin: 'dev',
+  authorUserId: 'u1',
+  reviewerLogins: [],
+  reviewerUserIds: [],
+  peopleUserIds: ['u1'],
+  createdAt: '2026-08-25T10:00:00Z',
+  updatedAt: '2026-08-25T10:00:00Z',
+  mergedAt: null,
+  closedAt: null,
+  lastPushAt: '2026-08-25T10:00:00Z',
+  reviewState: 'none',
+  lastReviewAt: null,
+  lastReviewBy: null,
+  lastAuthorActivityAt: '2026-08-25T10:00:00Z',
+  taskCode: 'TAR-001',
+  taskId: 't1',
+  projectId: 'p1',
+  syncedAt: '2026-09-03T00:00:00Z',
+  ...overrides,
+});
+
+describe('pull request signals (ADR-010)', () => {
+  const finished = ['Pruebas QA', 'Lista para deploy'];
+  const run = (extra: {
+    tasks?: Task[];
+    pullRequests?: PullRequest[];
+    repos?: GithubRepo[];
+    approverUserIds?: string[];
+    finishedStatuses?: string[];
+  }) =>
+    computeSignals({
+      today: TODAY,
+      objectives: [objective()],
+      projects: [project()],
+      tasks: extra.tasks ?? [],
+      users,
+      pullRequests: extra.pullRequests ?? [],
+      repos: extra.repos ?? [repo()],
+      approverUserIds: extra.approverUserIds ?? ['u2'],
+      finishedStatuses: extra.finishedStatuses ?? finished,
+    });
+  const byId = (signals: Signal[], id: string) => signals.find((s) => s.id === id);
+
+  it('says a task in a finished status owes a pull request, only where one can exist', () => {
+    const done = task({ status: 'in_progress', notionStatus: 'Pruebas QA', statusChangedAt: '2026-08-30T10:00:00Z' });
+    const missing = byId(run({ tasks: [done] }), 'pr_missing:t1');
+    expect(missing?.severity).toBe('info');
+    expect(missing?.userId).toBe('u1');
+    expect(missing?.summary.es).toBe('Task (TAR-001) está en Pruebas QA hace 4 días y no tiene pull request hacia development');
+    expect(missing?.data).toEqual({ days: 4, status: 'Pruebas QA' });
+
+    // Any pull request for the task, toward any branch, satisfies it.
+    expect(byId(run({ tasks: [done], pullRequests: [pull({ baseRef: 'project/x' })] }), 'pr_missing:t1')).toBeUndefined();
+    expect(byId(run({ tasks: [done], pullRequests: [pull({ state: 'merged' })] }), 'pr_missing:t1')).toBeUndefined();
+    // A closed, unmerged one does not.
+    expect(byId(run({ tasks: [done], pullRequests: [pull({ state: 'closed' })] }), 'pr_missing:t1')).toBeDefined();
+    // No repository for the project, a status outside the list, done, or too fresh: silent.
+    expect(byId(run({ tasks: [done], repos: [repo({ projectId: 'other' })] }), 'pr_missing:t1')).toBeUndefined();
+    expect(byId(run({ tasks: [task({ ...done, notionStatus: 'En curso' })] }), 'pr_missing:t1')).toBeUndefined();
+    expect(byId(run({ tasks: [task({ ...done, status: 'done', notionStatus: 'Finalizada' })] }), 'pr_missing:t1')).toBeUndefined();
+    expect(byId(run({ tasks: [task({ ...done, statusChangedAt: '2026-09-03T08:00:00Z' })] }), 'pr_missing:t1')).toBeUndefined();
+  });
+
+  it('hands a pull request waiting for review to the approvers, critical after a week, never a draft', () => {
+    const waiting = byId(run({ tasks: [task()], pullRequests: [pull()] }), 'pr_awaiting_review:gh_api_42');
+    expect(waiting?.severity).toBe('critical');
+    expect(waiting?.userIds).toEqual(['u2']);
+    expect(waiting?.taskId).toBe('t1');
+    expect(waiting?.summary.es).toBe('#42 Portal de proveedores de Task (TAR-001) lleva 9 días esperando revisión');
+    expect(waiting?.data).toMatchObject({ days: 9, number: 42, url: 'https://github.com/aditum/api/pull/42' });
+
+    const fresh = pull({ lastPushAt: '2026-09-02T10:00:00Z' });
+    expect(byId(run({ pullRequests: [fresh] }), 'pr_awaiting_review:gh_api_42')).toBeUndefined();
+    const threeDays = pull({ lastPushAt: '2026-08-31T10:00:00Z' });
+    expect(byId(run({ pullRequests: [threeDays] }), 'pr_awaiting_review:gh_api_42')?.severity).toBe('warning');
+    expect(byId(run({ pullRequests: [pull({ draft: true })] }), 'pr_awaiting_review:gh_api_42')).toBeUndefined();
+    // Toward a project branch it is still waiting, and says so.
+    const stacked = byId(run({ pullRequests: [pull({ baseRef: 'project/passkeys' })] }), 'pr_awaiting_review:gh_api_42');
+    expect(stacked?.summary.es).toContain('(hacia project/passkeys)');
+  });
+
+  it('falls back to the requested reviewers when no approver role is set, and never asks the author', () => {
+    const own = pull({ reviewerUserIds: ['u3', 'u1'] });
+    const signal = byId(run({ pullRequests: [own], approverUserIds: [] }), 'pr_awaiting_review:gh_api_42');
+    expect(signal?.userIds).toEqual(['u3']);
+    expect(byId(run({ pullRequests: [pull()], approverUserIds: [] }), 'pr_awaiting_review:gh_api_42')).toBeUndefined();
+    expect(byId(run({ pullRequests: [pull()], approverUserIds: ['u1'] }), 'pr_awaiting_review:gh_api_42')).toBeUndefined();
+  });
+
+  it('turns changes requested into the author’s signal until they push or answer', () => {
+    const asked = pull({
+      reviewState: 'changes_requested',
+      lastReviewAt: '2026-08-30T10:00:00Z',
+      lastReviewBy: 'u2',
+      lastAuthorActivityAt: '2026-08-25T10:00:00Z',
+    });
+    const signal = byId(run({ pullRequests: [asked] }), 'pr_changes_requested:gh_api_42');
+    expect(signal?.severity).toBe('warning');
+    expect(signal?.userId).toBe('u1');
+    expect(signal?.summary.es).toContain('pidió cambios hace 4 días y no hay respuesta del autor');
+    expect(byId(run({ pullRequests: [asked] }), 'pr_awaiting_review:gh_api_42')).toBeUndefined();
+
+    const answered = pull({ ...asked, lastAuthorActivityAt: '2026-09-01T10:00:00Z' });
+    expect(byId(run({ pullRequests: [answered] }), 'pr_changes_requested:gh_api_42')).toBeUndefined();
+  });
+
+  it('asks the approvers to merge what they approved', () => {
+    const approved = pull({ reviewState: 'approved', lastReviewAt: '2026-08-31T10:00:00Z', lastReviewBy: 'u2' });
+    const signal = byId(run({ pullRequests: [approved] }), 'pr_approved_unmerged:gh_api_42');
+    expect(signal?.severity).toBe('warning');
+    expect(signal?.userIds).toEqual(['u2']);
+    expect(signal?.summary.es).toContain('está aprobado hace 3 días y sin fusionar');
+    expect(byId(run({ pullRequests: [pull({ ...approved, state: 'merged' })] }), 'pr_approved_unmerged:gh_api_42')).toBeUndefined();
   });
 });
 
