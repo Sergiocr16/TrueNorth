@@ -7,7 +7,7 @@ import { CompanyLogoPicker } from '../../components/company-switcher';
 import { HealthCompass } from '../../components/day-compass';
 import { LargeTitle, Screen } from '../../components/shell';
 import { Card, SectionLabel, StatusPill, TextButton } from '../../components/ui';
-import { DateField, EditSheet, FieldGroup, TextAreaField, TextField, ToggleField } from '../../components/form';
+import { DateField, EditSheet, FieldGroup, NotesField, TextAreaField, ToggleField } from '../../components/form';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
 import { WEEKDAYS, companySchedule, shareHealthy, todayIso } from '@truenorth/core';
@@ -250,18 +250,20 @@ function ScheduleSheet({
                 }
                 isLast
               />
-              {noting.includes(day) ? (
-                <TextField
-                  label={t.company.notes}
-                  value={draft.focus[day] ?? ''}
-                  onChange={(text) => setDraft({ ...draft, focus: { ...draft.focus, [day]: text } })}
-                  isLast
-                />
-              ) : (
-                <div className="-mt-1 px-4 pb-1">
-                  <TextButton onClick={() => setNoting([...noting, day])}>{t.company.addNotes}</TextButton>
-                </div>
-              )}
+              <NotesField
+                value={draft.focus[day] ?? ''}
+                open={noting.includes(day)}
+                onChange={(text) => setDraft({ ...draft, focus: { ...draft.focus, [day]: text } })}
+                onOpen={() => setNoting([...noting, day])}
+                onClear={() => {
+                  setNoting(noting.filter((d) => d !== day));
+                  setDraft({ ...draft, focus: { ...draft.focus, [day]: '' } });
+                }}
+                addLabel={t.company.addNotes}
+                removeLabel={t.company.removeNotes}
+                notesLabel={t.company.notes}
+                isLast
+              />
             </div>
           );
         })}

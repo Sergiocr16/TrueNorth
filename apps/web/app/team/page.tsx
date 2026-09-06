@@ -8,13 +8,14 @@ import { Avatar, Banner, Card, PrimaryButton, SectionLabel, TextButton } from '.
 import {
   AddRow,
   ChipSelectField,
-  ToggleField,
   DestructiveRow,
   EditSheet,
   FieldGroup,
+  NotesField,
   SelectField,
   TextAreaField,
   TextField,
+  ToggleField,
   useConfirm,
 } from '../../components/form';
 import { HealthCompass } from '../../components/day-compass';
@@ -534,25 +535,25 @@ function RoleSheet({
       <FieldGroup header={t.roles.focus} footer={t.roles.focusHint}>
         {WEEKDAYS.map((day, index) => {
           const working = week.workingDays.includes(day);
-          const label = `${weekdayName(day, locale)}${working ? '' : ` · ${t.company.restDay}`}`;
-          return noting.includes(day) ? (
-            <TextField
+          const setNote = (text: string) =>
+            setDraft({ ...draft, schedule: { focus: { ...(draft.schedule?.focus ?? {}), [day]: text } } });
+          return (
+            <NotesField
               key={day}
-              label={label}
+              label={`${weekdayName(day, locale)}${working ? '' : ` · ${t.company.restDay}`}`}
               value={draft.schedule?.focus[day] ?? ''}
-              onChange={(text) =>
-                setDraft({ ...draft, schedule: { focus: { ...(draft.schedule?.focus ?? {}), [day]: text } } })
-              }
+              open={noting.includes(day)}
+              onChange={setNote}
+              onOpen={() => setNoting([...noting, day])}
+              onClear={() => {
+                setNoting(noting.filter((d) => d !== day));
+                setNote('');
+              }}
+              addLabel={t.company.addNotes}
+              removeLabel={t.company.removeNotes}
+              notesLabel={t.company.notes}
               isLast={index === 6}
             />
-          ) : (
-            <div
-              key={day}
-              className={`flex min-h-[52px] items-center justify-between gap-3 px-4 ${index === 6 ? '' : 'tn-hairline'}`}
-            >
-              <span className="text-[17px] text-[var(--ink)]">{label}</span>
-              <TextButton onClick={() => setNoting([...noting, day])}>{t.company.addNotes}</TextButton>
-            </div>
           );
         })}
       </FieldGroup>

@@ -133,6 +133,7 @@ export const dictionary = {
       restDayMode: 'Descanso · sugerencias opcionales',
       notes: 'Observaciones',
       addNotes: 'Agregar observaciones',
+      removeNotes: 'Quitar',
       atLeastOneDay: 'Dejá al menos un día laboral.',
     },
 
@@ -843,6 +844,7 @@ export const dictionary = {
       restDayMode: 'Rest · optional suggestions',
       notes: 'Notes',
       addNotes: 'Add notes',
+      removeNotes: 'Remove',
       atLeastOneDay: 'Leave at least one working day.',
     },
 
