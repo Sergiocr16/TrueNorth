@@ -43,7 +43,7 @@ export default function TeamPage() {
   const [inviting, setInviting] = useState(false);
   const [managing, setManaging] = useState<Membership | null>(null);
 
-  const { memberships, users, tasks, today, plan, roles, sources } = store;
+  const { memberships, users, tasks, today, plan, roles, sources, repos } = store;
   const isManager = store.currentMembership.access !== 'member';
   const accounts = memberships.filter((m) => m.hasAccount);
 
@@ -72,7 +72,7 @@ export default function TeamPage() {
               const assignedOnly = role.assignedOnlySourceIds ?? [];
               const named = role.sourceIds
                 .map((id) => {
-                  const title = sources.find((s) => s.id === id)?.title;
+                  const title = sources.find((s) => s.id === id)?.title ?? repos.find((r) => r.id === id)?.fullName;
                   if (!title) return undefined;
                   return assignedOnly.includes(id) ? `${title} (${t.roles.assignedOnlyShort})` : title;
                 })

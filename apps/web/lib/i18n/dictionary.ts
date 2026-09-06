@@ -155,6 +155,7 @@ export const dictionary = {
       expectedShort: (pct: number) => `esperado ${pct} %`,
       showDone: (n: number) => `Ver ${n} ${n === 1 ? 'terminada' : 'terminadas'}`,
       hideDone: 'Ocultar terminadas',
+      pullRequests: 'Pull requests',
       showDoneProjects: (n: number) => `Ver ${n} ${n === 1 ? 'completado' : 'completados'}`,
       hideDoneProjects: 'Ocultar',
       allDone: 'Nada en curso',
@@ -167,6 +168,17 @@ export const dictionary = {
       emptyBody: 'Conectá Notion o creá un proyecto para empezar.',
       add: 'Agregar proyecto',
       description: 'Descripción',
+    },
+
+    pull: {
+      open: 'Abrir en GitHub',
+      waiting: 'esperando revisión',
+      changes: 'cambios pedidos',
+      approved: 'aprobado',
+      merged: 'fusionado',
+      closed: 'cerrado',
+      draft: 'borrador',
+      age: (days: number) => (days === 0 ? 'hoy' : `hace ${days} ${days === 1 ? 'día' : 'días'}`),
     },
 
     task: {
@@ -825,6 +837,7 @@ export const dictionary = {
       expectedShort: (pct: number) => `expected ${pct} %`,
       showDone: (n: number) => `Show ${n} done`,
       hideDone: 'Hide done',
+      pullRequests: 'Pull requests',
       showDoneProjects: (n: number) => `Show ${n} completed`,
       hideDoneProjects: 'Hide',
       allDone: 'Nothing in flight',
@@ -837,6 +850,17 @@ export const dictionary = {
       emptyBody: 'Connect Notion or create a project to get started.',
       add: 'Add project',
       description: 'Description',
+    },
+
+    pull: {
+      open: 'Open in GitHub',
+      waiting: 'awaiting review',
+      changes: 'changes requested',
+      approved: 'approved',
+      merged: 'merged',
+      closed: 'closed',
+      draft: 'draft',
+      age: (days: number) => (days === 0 ? 'today' : `${days} ${days === 1 ? 'day' : 'days'} ago`),
     },
 
     task: {
