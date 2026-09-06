@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -37,9 +38,12 @@ import {
   type Company,
   type CompanyAnalysis,
   type DailyPlan,
+  type GithubIntegration,
+  type GithubRepo,
   type Indicator,
   type Membership,
   type NotionSource,
+  type PullRequest,
   type Role,
   type AskAction,
   type CitedSignal,
@@ -58,6 +62,7 @@ import {
   type WorkerHeartbeat,
 } from '@truenorth/core';
 import type { InspectResult, SyncReport } from '../server/notion/types';
+import type { GithubRepoChoice, GithubStatus, GithubSyncReport } from '../server/github/types';
 import type { NotionTableSummary } from '@truenorth/core';
 import { useAuth } from './auth';
 import { firebase } from './firebase';
@@ -129,6 +134,8 @@ interface MemberDoc {
   expectations?: string;
   notionUserId?: string;
   notionUserIds?: string[];
+  githubLogin?: string;
+  githubLogins?: string[];
   commsTone?: Membership['commsTone'];
 }
 
@@ -203,6 +210,12 @@ interface StoreValue {
   roles: Role[];
   /** The registered Notion databases. */
   sources: NotionSource[];
+  /** GitHub repositories registered as sources, and the pull requests the active role reads (ADR-010). */
+  repos: GithubRepo[];
+  pullRequests: PullRequest[];
+  github: GithubIntegration | null;
+  /** Holders of the approver roles: who reviews and merges. */
+  approverUserIds: string[];
   /** The role I have on, which decides what I see. Null between roles. */
   activeRole: Role | null;
   /** The sources my active role reads. */
@@ -257,6 +270,13 @@ interface StoreValue {
   inspectDatabase: (input: string, dataSourceId?: string) => Promise<InspectResult>;
   /** Runs the Notion sync now, for one source or all. Admins only. */
   syncNow: (options?: { sourceId?: string; full?: boolean }) => Promise<SyncReport[]>;
+  upsertRepo: (repo: GithubRepo) => void;
+  /** Removes the repository and takes it off every role. Its pull requests go with the next sync. */
+  deleteRepo: (id: string) => void;
+  listGithubRepos: () => Promise<GithubRepoChoice[]>;
+  githubStatus: () => Promise<GithubStatus>;
+  syncGithubNow: (options?: { repoId?: string; full?: boolean }) => Promise<GithubSyncReport[]>;
+  updateGithubIntegration: (patch: Partial<Pick<GithubIntegration, 'approverRoleIds' | 'finishedStatuses'>>) => void;
   /** Asks the engine for today's follow-up in a role, e.g. after switching to it. */
   generateFollowUp: (roleId: string) => Promise<void>;
   /** Removes a person without an account. Accounts are removed by revoking access, not here. */
@@ -362,6 +382,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<Record<string, MemberDoc>>({});
   const [roles, setRoles] = useState<Role[]>([]);
   const [sources, setSources] = useState<NotionSource[]>([]);
+  const [repos, setRepos] = useState<GithubRepo[]>([]);
+  const [github, setGithub] = useState<GithubIntegration | null>(null);
+  // Pull requests arrive one listener per repository the active role reads.
+  const [repoPulls, setRepoPulls] = useState<Record<string, PullRequest[]>>({});
   const [objectives, setObjectives] = useState<Objective[]>([]);
   // App projects arrive from two queries; see the listeners below for why.
   const [sharedProjects, setSharedProjects] = useState<Project[]>([]);
@@ -521,6 +545,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         fail,
       ),
       onSnapshot(
+        collection(base, 'githubRepos'),
+        (snap) => setRepos(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as GithubRepo)),
+        fail,
+      ),
+      onSnapshot(
+        doc(base, 'integrations', 'github'),
+        (snap) => setGithub(snap.exists() ? (snap.data() as GithubIntegration) : null),
+        () => setGithub(null),
+      ),
+      onSnapshot(
         collection(base, 'objectives'),
         (snap) => setObjectives(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Objective)),
         fail,
@@ -648,13 +682,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => [...roleSourceIds(activeRole, sources)].sort(),
     [activeRole, sources],
   );
+  // Repositories sit on the same role list as Notion sources (ADR-010).
+  const activeRepoIds = useMemo(
+    () => [...roleSourceIds(activeRole, repos)].sort(),
+    [activeRole, repos],
+  );
   const activeAssignedOnlyIds = useMemo(
-    () => roleAssignedOnlyIds(activeRole, sources),
-    [activeRole, sources],
+    () => roleAssignedOnlyIds(activeRole, [...sources, ...repos]),
+    [activeRole, sources, repos],
   );
   // The key encodes how each source is read, so flipping a source between
   // "whole" and "assigned only" re-subscribes with the other query shape.
   const activeSourceKey = activeSourceIds
+    .map((id) => `${id}:${activeAssignedOnlyIds.has(id) ? 'own' : 'all'}`)
+    .join(',');
+  const activeRepoKey = activeRepoIds
     .map((id) => `${id}:${activeAssignedOnlyIds.has(id) ? 'own' : 'all'}`)
     .join(',');
 
@@ -723,6 +765,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ]);
     return () => subs.forEach((unsubscribe) => unsubscribe());
   }, [uid, companyId, activeSourceKey]);
+
+  // One listener per repository the active role reads, same rule shape as a
+  // Notion source: the whole repository, or only the pull requests naming me.
+  useEffect(() => {
+    if (!uid || !companyId) return;
+    const { db } = firebase();
+    const base = doc(db, 'companies', companyId);
+    const entries = activeRepoKey
+      ? activeRepoKey.split(',').map((entry) => {
+          const [repoId, mode] = entry.split(':');
+          return { repoId: repoId as string, assignedOnly: mode === 'own' };
+        })
+      : [];
+    setRepoPulls({});
+    const subs = entries.map(({ repoId, assignedOnly }) =>
+      onSnapshot(
+        query(
+          collection(base, 'pullRequests'),
+          where('repoId', '==', repoId),
+          ...(assignedOnly ? [where('peopleUserIds', 'array-contains', uid)] : []),
+        ),
+        (snap) =>
+          setRepoPulls((current) => ({
+            ...current,
+            [repoId]: snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PullRequest),
+          })),
+        (error: { code?: string }) => {
+          if (error.code !== 'permission-denied') {
+            console.warn(`TrueNorth: pull requests of repository ${repoId} failed`, error);
+          }
+          setRepoPulls((current) => ({ ...current, [repoId]: [] }));
+        },
+      ),
+    );
+    return () => subs.forEach((unsubscribe) => unsubscribe());
+  }, [uid, companyId, activeRepoKey]);
 
   // Today's plan and follow-up, for the role I have on. One document per
   // person per role per day; switching roles switches documents.
@@ -886,6 +964,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       expectations: typeof m.expectations === 'string' ? m.expectations : '',
       notionUserId: m.notionUserId,
       notionUserIds: m.notionUserIds,
+      githubLogin: m.githubLogin,
+      githubLogins: m.githubLogins,
       commsTone: m.commsTone,
     })) as Membership[];
 
@@ -918,7 +998,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } satisfies Membership);
 
     // Already scoped: the listeners only ever hold what the active role reads.
-    const signals = computeSignals({ today, objectives, projects, tasks, users });
+    const pullRequests = Object.values(repoPulls).flat();
+    const approverRoleIds = new Set(github?.approverRoleIds ?? []);
+    const approverUserIds = memberships
+      .filter((m) => m.roleIds.some((id) => approverRoleIds.has(id)))
+      .map((m) => m.userId);
+    const signals = computeSignals({
+      today,
+      objectives,
+      projects,
+      tasks,
+      users,
+      pullRequests,
+      repos: repos.filter((r) => activeRepoIds.includes(r.id)),
+      approverUserIds,
+      finishedStatuses: github?.finishedStatuses,
+    });
     const currentPlan = plan ?? emptyPlan(companyId ?? '', uid ?? '', activeRoleId ?? '');
     const roleAnalyses = activeRoleId
       ? analyses.filter((a) => a.roleId === activeRoleId)
@@ -949,6 +1044,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       memberships,
       roles,
       sources,
+      repos,
+      pullRequests,
+      github,
+      approverUserIds,
       activeRole,
       activeSourceIds,
       objectives,
@@ -1097,6 +1196,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ...(patch.access !== undefined ? { access: patch.access } : {}),
             ...(patch.expectations !== undefined ? { expectations: patch.expectations } : {}),
             ...(patch.notionUserId !== undefined ? { notionUserId: patch.notionUserId } : {}),
+            ...(patch.githubLogin !== undefined
+              ? {
+                  githubLogin: patch.githubLogin || null,
+                  ...(patch.githubLogin ? { githubLogins: arrayUnion(patch.githubLogin) } : {}),
+                }
+              : {}),
             ...(patch.commsTone !== undefined ? { commsTone: patch.commsTone } : {}),
             ...(patch.displayName !== undefined
               ? { displayName: patch.displayName, initials: initialsFrom(patch.displayName) }
@@ -1159,6 +1264,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           return batch.commit();
         }),
+
+      upsertRepo: (repo) =>
+        write((db, cid) => {
+          const { id, ...rest } = repo;
+          return setDoc(doc(db, 'companies', cid, 'githubRepos', id), { ...rest, companyId: cid });
+        }),
+      deleteRepo: (id) =>
+        write(async (db, cid) => {
+          const batch = writeBatch(db);
+          batch.delete(doc(db, 'companies', cid, 'githubRepos', id));
+          for (const role of roles) {
+            const assignedOnly = role.assignedOnlySourceIds ?? [];
+            if (role.sourceIds.includes(id) || assignedOnly.includes(id)) {
+              batch.update(doc(db, 'companies', cid, 'roles', role.id), {
+                sourceIds: role.sourceIds.filter((s) => s !== id),
+                assignedOnlySourceIds: assignedOnly.filter((s) => s !== id),
+              });
+            }
+          }
+          return batch.commit();
+        }),
+      listGithubRepos: async () => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const response = await fetch('/api/github/repos', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ companyId }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { repos?: GithubRepoChoice[]; error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body.repos ?? [];
+      },
+      githubStatus: async () => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const response = await fetch(`/api/github/status?company=${encodeURIComponent(companyId)}`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const body = (await response.json().catch(() => ({}))) as GithubStatus & { error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body;
+      },
+      syncGithubNow: async (options = {}) => {
+        if (!user || !companyId) throw new Error('not signed in');
+        const token = await user.getIdToken();
+        const params = new URLSearchParams({ company: companyId });
+        if (options.repoId) params.set('repo', options.repoId);
+        if (options.full) params.set('full', '1');
+        const response = await fetch(`/api/github/sync?${params.toString()}`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const body = (await response.json().catch(() => ({}))) as { reports?: GithubSyncReport[]; error?: string };
+        if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+        return body.reports ?? [];
+      },
+      updateGithubIntegration: (patch) =>
+        write((db, cid) => setDoc(doc(db, 'companies', cid, 'integrations', 'github'), patch, { merge: true })),
 
       listNotionTables: async () => {
         if (!user || !companyId) throw new Error('not signed in');
@@ -1614,6 +1778,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         for (const role of roles) batch.delete(doc(base, 'roles', role.id));
         for (const source of sources) batch.delete(doc(base, 'notionSources', source.id));
+        for (const repo of repos) batch.delete(doc(base, 'githubRepos', repo.id));
         for (const risk of risks) batch.delete(doc(base, 'risks', risk.id));
         for (const situation of situations) batch.delete(doc(base, 'situations', situation.id));
         // The sample people go too; accounts stay, they are not sample data —
@@ -1644,6 +1809,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     members,
     roles,
     sources,
+    repos,
+    repoPulls,
+    github,
+    activeRepoIds,
     activeRole,
     activeRoleId,
     activeSourceIds,

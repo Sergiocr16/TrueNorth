@@ -2,10 +2,12 @@ import 'server-only';
 
 import type {
   Company,
+  GithubRepo,
   Membership,
   NotionSource,
   Objective,
   Project,
+  PullRequest,
   Role,
   Signal,
   Situation,
@@ -110,6 +112,11 @@ export interface CompanyContext {
   sources?: NotionSource[];
   /** Among `sources`, the ones the role reads only through the person's own assignments (ADR-009). */
   assignedOnlySourceIds?: string[];
+  /** GitHub repositories the role reads, and the pull requests in view (ADR-010). */
+  repos?: GithubRepo[];
+  pullRequests?: PullRequest[];
+  /** Who reviews and merges pull requests. */
+  approverUserIds?: string[];
   today: Date;
   todayIso: string;
 }

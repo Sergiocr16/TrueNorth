@@ -57,6 +57,15 @@
       ]
     },
     {
+      "comment": "Pull requests of one repository, only those naming the caller (assigned-only role).",
+      "collectionGroup": "pullRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "repoId", "order": "ASCENDING" },
+        { "fieldPath": "peopleUserIds", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
       "comment": "Worker: the next queued job, oldest first.",
       "collectionGroup": "jobs",
       "queryScope": "COLLECTION",

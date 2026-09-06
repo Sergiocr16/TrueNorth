@@ -1,6 +1,5 @@
 import 'server-only';
 
-import type { DocumentReference, WriteBatch } from 'firebase-admin/firestore';
 import {
   flattenComments,
   knownPeople,
@@ -16,6 +15,7 @@ import {
   type Task,
 } from '@truenorth/core';
 import { adminDb } from '../admin';
+import { Writer } from '../writer';
 import { NotionClient, NotionError } from './client';
 import type { SyncReport } from './types';
 
@@ -76,7 +76,6 @@ const OVERLAP_MS = 5 * 60_000;
 const COMMENTS_PER_RUN = 150;
 /** Comments kept on the task document. The follow-up quotes the last one. */
 const COMMENTS_KEPT = 5;
-const BATCH = 400;
 
 export interface SyncOptions {
   /** Read everything, not only what changed since the last run. */
@@ -92,47 +91,6 @@ interface Store {
 
 function isoNow(): string {
   return new Date().toISOString();
-}
-
-/** Writes in chunks: a batch holds 500 operations, and a big table has more. */
-class Writer {
-  private batch: WriteBatch;
-  private count = 0;
-  written = 0;
-  deleted = 0;
-
-  constructor(private readonly db = adminDb()) {
-    this.batch = db.batch();
-  }
-
-  private async tick(): Promise<void> {
-    this.count += 1;
-    if (this.count >= BATCH) await this.flush();
-  }
-
-  async set(ref: DocumentReference, data: object): Promise<void> {
-    this.batch.set(ref, data);
-    this.written += 1;
-    await this.tick();
-  }
-
-  async update(ref: DocumentReference, data: object): Promise<void> {
-    this.batch.update(ref, data);
-    await this.tick();
-  }
-
-  async delete(ref: DocumentReference): Promise<void> {
-    this.batch.delete(ref);
-    this.deleted += 1;
-    await this.tick();
-  }
-
-  async flush(): Promise<void> {
-    if (this.count === 0) return;
-    await this.batch.commit();
-    this.batch = this.db.batch();
-    this.count = 0;
-  }
 }
 
 /** Every source of a company, projects first so task relations resolve. */

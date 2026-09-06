@@ -608,6 +608,98 @@ describe('roles and notion sources', () => {
   });
 });
 
+describe('github repositories and pull requests', () => {
+  const peer = () => as('u_peer', 'marco@aditumcr.com');
+  const dev = () => as('u_dev', 'dana@aditumcr.com');
+
+  beforeEach(async () => {
+    await seedCompany();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      // Repositories sit on roles in the same list as Notion sources (ADR-010).
+      await db.doc('companies/c1/roles/r_cto').set({ name: 'CTO', sourceIds: ['src_a', 'gh_1'] });
+      await db.doc('companies/c1/roles/r_dev').set({
+        name: 'Dev',
+        sourceIds: ['src_a', 'gh_1'],
+        assignedOnlySourceIds: ['gh_1'],
+      });
+      await db.doc('companies/c1/githubRepos/gh_1').set({ fullName: 'aditum/api', projectId: null });
+      await db.doc('companies/c1/githubRepos/gh_2').set({ fullName: 'aditum/web', projectId: null });
+      await db.doc('companies/c1/members/u_peer').set({
+        displayName: 'Marco',
+        access: 'member',
+        roleIds: ['r_cto'],
+        activeRoleId: 'r_cto',
+      });
+      await db.doc('companies/c1/members/u_dev').set({
+        displayName: 'Dana',
+        access: 'member',
+        roleIds: ['r_dev'],
+        activeRoleId: 'r_dev',
+      });
+      await db.doc('companies/c1/members/u_norole').set({ displayName: 'Nadie', access: 'member' });
+      await db.doc('companies/c1/pullRequests/pr_mine').set({ repoId: 'gh_1', peopleUserIds: ['u_dev'] });
+      await db.doc('companies/c1/pullRequests/pr_other').set({ repoId: 'gh_1', peopleUserIds: ['u_peer'] });
+      await db.doc('companies/c1/pullRequests/pr_nobody').set({ repoId: 'gh_1', peopleUserIds: [] });
+      await db.doc('companies/c1/pullRequests/pr_repo2').set({ repoId: 'gh_2', peopleUserIds: ['u_peer'] });
+    });
+  });
+
+  it('shows every pull request of a repository on the role, and none of one that is not', async () => {
+    await assertSucceeds(peer().doc('companies/c1/pullRequests/pr_mine').get());
+    await assertSucceeds(peer().doc('companies/c1/pullRequests/pr_other').get());
+    await assertSucceeds(peer().doc('companies/c1/pullRequests/pr_nobody').get());
+    await assertFails(peer().doc('companies/c1/pullRequests/pr_repo2').get());
+    await assertSucceeds(
+      peer().collection('companies/c1/pullRequests').where('repoId', '==', 'gh_1').get(),
+    );
+    await assertFails(peer().collection('companies/c1/pullRequests').where('repoId', '==', 'gh_2').get());
+  });
+
+  it('of an assigned-only repository, shows only the pull requests that name the person', async () => {
+    await assertSucceeds(dev().doc('companies/c1/pullRequests/pr_mine').get());
+    await assertFails(dev().doc('companies/c1/pullRequests/pr_other').get());
+    await assertFails(dev().doc('companies/c1/pullRequests/pr_nobody').get());
+    await assertSucceeds(
+      dev()
+        .collection('companies/c1/pullRequests')
+        .where('repoId', '==', 'gh_1')
+        .where('peopleUserIds', 'array-contains', 'u_dev')
+        .get(),
+    );
+    await assertFails(dev().collection('companies/c1/pullRequests').where('repoId', '==', 'gh_1').get());
+    await assertFails(
+      dev()
+        .collection('companies/c1/pullRequests')
+        .where('repoId', '==', 'gh_1')
+        .where('peopleUserIds', 'array-contains', 'u_peer')
+        .get(),
+    );
+  });
+
+  it('refuses an unfiltered listener and gives a person with no active role nothing', async () => {
+    await assertFails(peer().collection('companies/c1/pullRequests').get());
+    await assertFails(as('u_norole', 'nadie@aditumcr.com').doc('companies/c1/pullRequests/pr_nobody').get());
+  });
+
+  it('keeps pull requests out of the browser’s hands and repositories with the admins', async () => {
+    await assertFails(
+      peer().doc('companies/c1/pullRequests/pr_new').set({ repoId: 'gh_1', peopleUserIds: ['u_peer'] }),
+    );
+    await assertFails(peer().doc('companies/c1/pullRequests/pr_mine').update({ title: 'x' }));
+    await assertSucceeds(peer().doc('companies/c1/githubRepos/gh_1').get());
+    await assertFails(peer().doc('companies/c1/githubRepos/gh_1').update({ projectId: 'p1' }));
+    await assertSucceeds(
+      as('u_owner', FOUNDER).doc('companies/c1/githubRepos/gh_1').update({ projectId: 'p1' }),
+    );
+    await assertSucceeds(peer().doc('companies/c1/integrations/github').get());
+    await assertFails(peer().doc('companies/c1/integrations/github').set({ approverRoleIds: [] }));
+    await assertSucceeds(
+      as('u_owner', FOUNDER).doc('companies/c1/integrations/github').set({ approverRoleIds: ['r_cto'] }),
+    );
+  });
+});
+
 describe('plans', () => {
   beforeEach(async () => {
     await seedCompany();

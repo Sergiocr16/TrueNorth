@@ -210,6 +210,9 @@ export const dictionary = {
       linkPerson: 'Es la cuenta de',
       newAccountPerson: 'Alguien nuevo en el equipo',
       accountHint: 'Tocá una cuenta para cambiarle el nombre, restablecer su contraseña, deshabilitarla o eliminarla.',
+      githubLogin: 'Usuario de GitHub',
+      githubLoginHint:
+        'Con esto un pull request suyo se le atribuye. El sync lo completa solo cuando el nombre del perfil coincide; si no, escribilo acá.',
       accountNameHint: 'Así aparecés en la app, en Hoy y en el equipo.',
       mergeHeader: 'Es la misma persona que una cuenta',
       mergeInto: 'Cuenta',
@@ -322,6 +325,7 @@ export const dictionary = {
       sourcesHint:
         'Solo lo que está marcado entra al plan, al briefing y al seguimiento de este rol. Sin bases, ve solo lo registrado en la app. Abajo se decide cuánto ve de cada una.',
       noSourcesYet: 'Todavía no hay bases registradas. Se agregan en Integraciones.',
+      repos: 'Repositorios de GitHub que ve',
       scope: 'Qué ve de cada base',
       scopeHint:
         'Todo: cada registro de la base. Solo lo asignado: únicamente lo que tiene a la persona como responsable. El plan solo propone tomar tareas sin responsable de las bases que ve completas.',
@@ -439,6 +443,54 @@ export const dictionary = {
       removeSourceHint: 'Sus tareas desaparecen en la próxima sincronización.',
       editedInNotion: 'Esto viene de Notion y se edita allá.',
       warnings: 'Revisá antes de guardar',
+    },
+
+    github: {
+      title: 'GitHub',
+      connected: 'Conectado',
+      notConnected: 'Sin conectar',
+      tokenMissing:
+        'El servidor no tiene GITHUB_TOKEN. Se configura en /etc/truenorth/env en la Raspberry Pi; ver docs/pi-setup.md.',
+      checking: 'Comprobando el token…',
+      as: (login: string) => `como ${login}`,
+      repos: 'Repositorios registrados',
+      noRepos: 'Todavía no hay repositorios registrados.',
+      noReposHint:
+        'Elegí los repositorios que tienen el código de tus proyectos. Después asignalos a un rol en Equipo, como una base de Notion.',
+      addRepos: 'Agregar repositorios',
+      pickRepos: 'Elegí los repositorios',
+      pickReposHint:
+        'Todos los repositorios que el token puede ver, los más activos primero. Después de agregarlos, decí a qué proyecto pertenece cada uno.',
+      searchRepos: 'Buscar por nombre',
+      noMatches: 'Ningún repositorio con ese nombre',
+      alreadyAdded: 'Ya agregado',
+      archived: 'archivado',
+      selectedCount: (n: number) => `${n} ${n === 1 ? 'seleccionado' : 'seleccionados'}`,
+      addSelected: (n: number) => `Agregar ${n}`,
+      project: 'Proyecto',
+      noProject: 'Sin proyecto',
+      noProjectHint:
+        'Un PR cuya rama nombra una tarea (feature/TAR-966) cuelga de esa tarea. Los demás cuelgan del proyecto del repositorio.',
+      baseBranch: 'Rama base',
+      baseBranchHint: 'La rama a la que se abre el trabajo terminado. Por defecto, la rama principal del repositorio.',
+      open: (n: number) => `${n} ${n === 1 ? 'PR abierto' : 'PRs abiertos'}`,
+      awaiting: (n: number) => `${n} sin revisar`,
+      changes: (n: number) => `${n} con cambios pedidos`,
+      unmatched: (n: number) => `${n} ${n === 1 ? 'usuario sin persona' : 'usuarios sin persona'}`,
+      unmatchedHint: (logins: string) =>
+        `Nadie del equipo tiene estos usuarios de GitHub: ${logins}. Escribilos en la persona correcta desde Equipo.`,
+      removeRepo: 'Quitar repositorio',
+      removeRepoConfirm: 'Tocá otra vez para quitar',
+      removeRepoHint: 'Sus pull requests desaparecen en la próxima sincronización.',
+      settings: 'Quién aprueba',
+      approvers: 'Roles que aprueban y fusionan',
+      approversHint:
+        'Un PR esperando revisión es acción de quien tenga estos roles. Por defecto, el rol CTO.',
+      finishedStatuses: 'Estados que significan "desarrollo terminado"',
+      finishedStatusesHint:
+        'Una tarea en uno de estos estados sin pull request es una señal para su responsable, solo si su proyecto tiene repositorio.',
+      syncDone: (n: number) => `Listo: ${n} ${n === 1 ? 'pull request leído' : 'pull requests leídos'}`,
+      syncFailed: 'La sincronización falló',
     },
 
     settings: {
@@ -827,6 +879,9 @@ export const dictionary = {
       linkPerson: 'This account is for',
       newAccountPerson: 'Somebody new to the team',
       accountHint: 'Tap an account to rename it, reset its password, disable it or delete it.',
+      githubLogin: 'GitHub username',
+      githubLoginHint:
+        'This is how a pull request of theirs is attributed. The sync fills it in when the profile name matches; otherwise write it here.',
       accountNameHint: 'How you appear in the app, on Today and on the team.',
       mergeHeader: 'Same person as an account',
       mergeInto: 'Account',
@@ -939,6 +994,7 @@ export const dictionary = {
       sourcesHint:
         'Only what is ticked goes into this role\'s plan, briefing and follow-up. With none, it sees only what was recorded in the app. Below, how much of each it sees.',
       noSourcesYet: 'No databases registered yet. Add them under Integrations.',
+      repos: 'GitHub repositories it sees',
       scope: 'What it sees of each database',
       scopeHint:
         'Everything: every record in the database. Assigned only: just what names the person as responsible. The plan only proposes taking unowned tasks from databases it sees whole.',
@@ -1056,6 +1112,54 @@ export const dictionary = {
       removeSourceHint: 'Its tasks disappear on the next sync.',
       editedInNotion: 'This comes from Notion and is edited there.',
       warnings: 'Check before saving',
+    },
+
+    github: {
+      title: 'GitHub',
+      connected: 'Connected',
+      notConnected: 'Not connected',
+      tokenMissing:
+        'The server has no GITHUB_TOKEN. It is set in /etc/truenorth/env on the Raspberry Pi; see docs/pi-setup.md.',
+      checking: 'Checking the token…',
+      as: (login: string) => `as ${login}`,
+      repos: 'Registered repositories',
+      noRepos: 'No repositories registered yet.',
+      noReposHint:
+        'Pick the repositories that hold your projects\' code. Then put them on a role under Team, like a Notion database.',
+      addRepos: 'Add repositories',
+      pickRepos: 'Pick the repositories',
+      pickReposHint:
+        'Every repository the token can see, most active first. After adding them, say which project each belongs to.',
+      searchRepos: 'Search by name',
+      noMatches: 'No repository with that name',
+      alreadyAdded: 'Already added',
+      archived: 'archived',
+      selectedCount: (n: number) => `${n} selected`,
+      addSelected: (n: number) => `Add ${n}`,
+      project: 'Project',
+      noProject: 'No project',
+      noProjectHint:
+        'A PR whose branch names a task (feature/TAR-966) hangs off that task. The rest hang off the repository\'s project.',
+      baseBranch: 'Base branch',
+      baseBranchHint: 'The branch finished work is opened against. By default, the repository\'s main branch.',
+      open: (n: number) => `${n} open ${n === 1 ? 'PR' : 'PRs'}`,
+      awaiting: (n: number) => `${n} unreviewed`,
+      changes: (n: number) => `${n} with changes requested`,
+      unmatched: (n: number) => `${n} ${n === 1 ? 'user without a person' : 'users without a person'}`,
+      unmatchedHint: (logins: string) =>
+        `Nobody on the team has these GitHub usernames: ${logins}. Write them on the right person under Team.`,
+      removeRepo: 'Remove repository',
+      removeRepoConfirm: 'Tap again to remove',
+      removeRepoHint: 'Its pull requests disappear with the next sync.',
+      settings: 'Who approves',
+      approvers: 'Roles that review and merge',
+      approversHint:
+        'A PR waiting for review is an action for whoever holds these roles. By default, the CTO role.',
+      finishedStatuses: 'Statuses that mean "development finished"',
+      finishedStatusesHint:
+        'A task in one of these statuses with no pull request is a signal for its owner, only when its project has a repository.',
+      syncDone: (n: number) => `Done: ${n} pull ${n === 1 ? 'request' : 'requests'} read`,
+      syncFailed: 'The sync failed',
     },
 
     settings: {

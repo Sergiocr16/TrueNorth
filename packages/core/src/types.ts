@@ -137,6 +137,10 @@ export interface Membership {
    * the matcher reads both.
    */
   notionUserIds?: string[];
+  /** GitHub login, so a pull request's author or reviewer maps back to this person. */
+  githubLogin?: string;
+  /** Every GitHub login this person uses; `githubLogin` stays the first. */
+  githubLogins?: string[];
   /** The register the follow-up should copy when writing to this person. */
   commsTone?: 'directo' | 'cercano' | 'formal';
 }
@@ -384,7 +388,11 @@ export type SignalKind =
   | 'plan_ignored'
   | 'plan_slipping'
   | 'no_owned_work'
-  | 'overdue_load';
+  | 'overdue_load'
+  | 'pr_missing'
+  | 'pr_awaiting_review'
+  | 'pr_changes_requested'
+  | 'pr_approved_unmerged';
 
 /**
  * A deterministic fact computed in code, never by the model. Every plan item
@@ -639,4 +647,93 @@ export interface WorkerHeartbeat {
   version: string;
   hostname: string;
   lastRun?: EngineRun;
+}
+
+/* ------------------------------------------------------------------ */
+/* GitHub: repositories as sources, pull requests as records           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A registered GitHub repository — `companies/{cid}/githubRepos/{id}`.
+ *
+ * A repository is a source the way a Notion database is: its id sits in
+ * `Role.sourceIds`, whole or assigned-only, and decides who reads its pull
+ * requests (ADR-010). Every pull request of the repository hangs off
+ * `projectId` unless its branch names a task, which then wins.
+ */
+export interface GithubRepo {
+  id: string;
+  companyId: string;
+  owner: string;
+  name: string;
+  /** "owner/name", what GitHub shows. */
+  fullName: string;
+  /** GitHub's numeric id, stable across renames. */
+  repoId: number;
+  projectId: string | null;
+  /** The branch finished work is opened against; the repository's default unless edited. */
+  baseBranch: string;
+  lastSyncAt: string | null;
+  lastFullSyncAt: string | null;
+  lastSyncError: string | null;
+  counts: { open: number; awaiting: number; changesRequested: number; approved: number };
+  /** Logins the last sync could not match to anybody on the team. */
+  unmatchedLogins?: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+/** `companies/{cid}/integrations/github`. The token lives in the server's environment, never here. */
+export interface GithubIntegration {
+  lastSyncAt: string | null;
+  lastError: string | null;
+  /** The account the token belongs to. */
+  login: string | null;
+  /** Roles whose holders review and merge: the CTO's, by default. */
+  approverRoleIds: string[];
+  /** Notion status labels that mean "development finished, a pull request is owed". */
+  finishedStatuses: string[];
+}
+
+export type PullRequestState = 'open' | 'merged' | 'closed';
+export type ReviewState = 'none' | 'commented' | 'changes_requested' | 'approved';
+
+/**
+ * A pull request as the engine sees it — `companies/{cid}/pullRequests/{gh_<repoId>_<number>}`.
+ * Written by the sync only. Linked to a task by the code in its branch, title
+ * or body, and to a project by the task or, failing that, the repository.
+ */
+export interface PullRequest {
+  id: string;
+  companyId: string;
+  /** `GithubRepo.id`: what the rule and the listener key on. */
+  repoId: string;
+  number: number;
+  title: string;
+  url: string;
+  state: PullRequestState;
+  draft: boolean;
+  baseRef: string;
+  headRef: string;
+  authorLogin: string;
+  authorUserId: string | null;
+  reviewerLogins: string[];
+  reviewerUserIds: string[];
+  /** Author and reviewers with an account, deduplicated: who may read it assigned-only. */
+  peopleUserIds: string[];
+  createdAt: string;
+  updatedAt: string;
+  mergedAt: string | null;
+  closedAt: string | null;
+  /** When the head commit was made. */
+  lastPushAt: string | null;
+  reviewState: ReviewState;
+  lastReviewAt: string | null;
+  lastReviewBy: string | null;
+  /** The author's last push or comment: what says they answered a review. */
+  lastAuthorActivityAt: string | null;
+  taskCode: string | null;
+  taskId: string | null;
+  projectId: string | null;
+  syncedAt: string;
 }

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { DailyPlan, Membership, NotionSource, Project, Role, Task, User } from './types';
+import type { DailyPlan, GithubRepo, Membership, NotionSource, Project, PullRequest, Role, Task, User } from './types';
 import {
   pickableTasks,
   roleAssignedOnlyIds,
   roleSourceIds,
   scopeFor,
   teamSignals,
+  visiblePullRequests,
   visibleProjects,
   visibleSignals,
   visibleTasks,
@@ -73,6 +74,55 @@ const source = (id: string): NotionSource => ({
   counts: { pages: 0, open: 0, unmatchedPeople: 0 },
   createdBy: 'ana',
   createdAt: '2026-01-01',
+});
+
+const repo = (id: string, projectId: string | null = null): GithubRepo => ({
+  id,
+  companyId: 'c',
+  owner: 'aditum',
+  name: id,
+  fullName: `aditum/${id}`,
+  repoId: 1,
+  projectId,
+  baseBranch: 'development',
+  lastSyncAt: null,
+  lastFullSyncAt: null,
+  lastSyncError: null,
+  counts: { open: 0, awaiting: 0, changesRequested: 0, approved: 0 },
+  createdBy: 'ana',
+  createdAt: '2026-01-01',
+});
+
+const pull = (id: string, repoId: string, people: string[], extra: Partial<PullRequest> = {}): PullRequest => ({
+  id,
+  companyId: 'c',
+  repoId,
+  number: 1,
+  title: id,
+  url: `https://github.com/aditum/${repoId}/pull/1`,
+  state: 'open',
+  draft: false,
+  baseRef: 'development',
+  headRef: 'feature/TAR-1',
+  authorLogin: people[0] ?? 'nobody',
+  authorUserId: people[0] ?? null,
+  reviewerLogins: [],
+  reviewerUserIds: people.slice(1),
+  peopleUserIds: people,
+  createdAt: '2026-09-01T00:00:00Z',
+  updatedAt: '2026-09-01T00:00:00Z',
+  mergedAt: null,
+  closedAt: null,
+  lastPushAt: null,
+  reviewState: 'none',
+  lastReviewAt: null,
+  lastReviewBy: null,
+  lastAuthorActivityAt: null,
+  taskCode: null,
+  taskId: null,
+  projectId: null,
+  syncedAt: '2026-09-01T00:00:00Z',
+  ...extra,
 });
 
 const role = (id: string, sourceIds: string[], assignedOnlySourceIds?: string[]): Role => ({
@@ -369,6 +419,47 @@ describe('scopeFor', () => {
     expect(kinds).toContain('overdue:b');
     expect(kinds).toContain('blocked:c');
     expect(scope.partial).toBe(false);
+  });
+});
+
+describe('visiblePullRequests and repos on roles', () => {
+  const pulls = [
+    pull('pr_bob', 'gh_api', ['bob', 'ana']),
+    pull('pr_carla', 'gh_api', ['carla']),
+    pull('pr_web', 'gh_web', ['bob']),
+  ];
+
+  it('shows a pull request only through a repository the role reads', () => {
+    expect(ids(visiblePullRequests(pulls, 'bob', new Set(['gh_api'])))).toEqual(['pr_bob', 'pr_carla']);
+    expect(ids(visiblePullRequests(pulls, 'bob', new Set()))).toEqual([]);
+  });
+
+  it('of an assigned-only repository, shows only the pull requests that name the person', () => {
+    const api = new Set(['gh_api']);
+    expect(ids(visiblePullRequests(pulls, 'bob', api, api))).toEqual(['pr_bob']);
+    expect(ids(visiblePullRequests(pulls, 'ana', api, api))).toEqual(['pr_bob']);
+    expect(ids(visiblePullRequests(pulls, 'dana', api, api))).toEqual([]);
+  });
+
+  it('puts repositories on roles like sources, without touching "partial", and names the approvers', () => {
+    const base = input({
+      repos: [repo('gh_api', 'p_open'), repo('gh_web')],
+      pullRequests: pulls,
+      roles: [role('r_all', ['src_sw', 'src_sales', 'gh_api']), role('r_dev', ['src_sw', 'src_sales', 'gh_api'], ['gh_api'])],
+      members: [member('ana', 'owner', ['r_all']), member('bob', 'member', ['r_dev']), member('carla', 'member', ['r_dev'])],
+      approverRoleIds: ['r_all'],
+    });
+    const cto = scopeFor(base, 'ana', 'r_all');
+    expect(cto.repoIds).toEqual(['gh_api']);
+    expect(cto.sourceIds).toContain('gh_api');
+    expect(ids(cto.pullRequests)).toEqual(['pr_bob', 'pr_carla']);
+    expect(cto.partial).toBe(false);
+    expect(cto.approverUserIds).toEqual(['ana']);
+    expect(ids(cto.users).sort()).toEqual(['ana', 'bob', 'carla']);
+
+    const dev = scopeFor(base, 'bob', 'r_dev');
+    expect(ids(dev.pullRequests)).toEqual(['pr_bob']);
+    expect(dev.partial).toBe(false);
   });
 });
 
