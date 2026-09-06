@@ -504,6 +504,8 @@ export const dictionary = {
         'Una tarea en uno de estos estados sin pull request es una señal para su responsable, solo si su proyecto tiene repositorio.',
       syncDone: (n: number) => `Listo: ${n} ${n === 1 ? 'pull request leído' : 'pull requests leídos'}`,
       syncFailed: 'La sincronización falló',
+      syncRunning:
+        'Sincronizando en segundo plano. Podés salir de esta pantalla; el resultado aparece acá cuando termine. La primera lectura cubre 90 días y puede tardar varios minutos.',
     },
 
     settings: {
@@ -1186,6 +1188,8 @@ export const dictionary = {
         'A task in one of these statuses with no pull request is a signal for its owner, only when its project has a repository.',
       syncDone: (n: number) => `Done: ${n} pull ${n === 1 ? 'request' : 'requests'} read`,
       syncFailed: 'The sync failed',
+      syncRunning:
+        'Syncing in the background. You can leave this screen; the outcome shows here when it ends. The first read covers 90 days and can take several minutes.',
     },
 
     settings: {

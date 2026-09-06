@@ -11,6 +11,7 @@ import {
   type GithubPull,
   type GithubRepo,
   type GithubReview,
+  type GithubSyncRun,
   type KnownPerson,
   type PullRequest,
   type Role,
@@ -120,17 +121,79 @@ function countsOf(pulls: Iterable<PullRequest>): GithubRepo['counts'] {
   return counts;
 }
 
-export async function syncGithub(companyId: string, options: GithubSyncOptions = {}): Promise<GithubSyncReport[]> {
+/** The run in progress per company: a second caller joins it instead of reading GitHub twice. */
+const inFlight = new Map<string, Promise<GithubSyncReport[]>>();
+
+/** The run in progress for a company, if any. */
+export function githubSyncInFlight(companyId: string): Promise<GithubSyncReport[]> | null {
+  return inFlight.get(companyId) ?? null;
+}
+
+/**
+ * Runs the sync, or joins the run already going for the company — a full
+ * read of a busy repository takes minutes, and the screen's button must not
+ * start a second one. A joined run keeps its own options.
+ */
+export function syncGithub(companyId: string, options: GithubSyncOptions = {}): Promise<GithubSyncReport[]> {
+  const current = inFlight.get(companyId);
+  if (current) return current;
+  const run = runSync(companyId, options).finally(() => inFlight.delete(companyId));
+  inFlight.set(companyId, run);
+  return run;
+}
+
+/**
+ * The run itself. It marks the integration while it goes (`syncStartedAt`)
+ * and leaves a summary when it ends (`lastRun`), because the screen watches
+ * the document rather than the response.
+ */
+async function runSync(companyId: string, options: GithubSyncOptions): Promise<GithubSyncReport[]> {
   const repos = await loadRepos(companyId, options.only);
   if (repos.length === 0) return [];
 
+  const base = adminDb().collection('companies').doc(companyId);
+  const integration = base.collection('integrations').doc('github');
+  const runStartedAt = isoNow();
+  await integration.set({ syncStartedAt: runStartedAt }, { merge: true });
+
+  try {
+    return await readRepos(companyId, repos, options, runStartedAt);
+  } catch (cause) {
+    const error = cause instanceof Error ? cause.message : String(cause);
+    await integration
+      .set(
+        {
+          syncStartedAt: null,
+          lastError: error,
+          lastRun: { startedAt: runStartedAt, finishedAt: isoNow(), pulls: 0, written: 0, error } satisfies GithubSyncRun,
+        },
+        { merge: true },
+      )
+      .catch(() => undefined);
+    throw cause;
+  }
+}
+
+async function readRepos(
+  companyId: string,
+  repos: GithubRepo[],
+  options: GithubSyncOptions,
+  runStartedAt: string,
+): Promise<GithubSyncReport[]> {
   const base = adminDb().collection('companies').doc(companyId);
   let client: GithubClient;
   try {
     client = new GithubClient();
   } catch (cause) {
     const error = cause instanceof Error ? cause.message : String(cause);
-    await base.collection('integrations').doc('github').set({ lastError: error }, { merge: true });
+    await base.collection('integrations').doc('github').set(
+      {
+        lastError: error,
+        syncStartedAt: null,
+        lastRun: { startedAt: runStartedAt, finishedAt: isoNow(), pulls: 0, written: 0, error } satisfies GithubSyncRun,
+      },
+      { merge: true },
+    );
     return repos.map((r) => ({
       repoId: r.id,
       fullName: r.fullName,
@@ -316,11 +379,21 @@ export async function syncGithub(companyId: string, options: GithubSyncOptions =
     /* the sync already reported what failed */
   }
   const roles = rolesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Role);
+  const error = reports.find((r) => r.error)?.error ?? null;
+  const lastRun: GithubSyncRun = {
+    startedAt: runStartedAt,
+    finishedAt: isoNow(),
+    pulls: reports.reduce((sum, r) => sum + r.pulls, 0),
+    written: reports.reduce((sum, r) => sum + r.written, 0),
+    error,
+  };
   await integration.set(
     {
-      lastSyncAt: isoNow(),
-      lastError: reports.find((r) => r.error)?.error ?? null,
+      lastSyncAt: lastRun.finishedAt,
+      lastError: error,
       login,
+      syncStartedAt: null,
+      lastRun,
       ...(existing.exists
         ? {}
         : { approverRoleIds: defaultApproverRoleIds(roles), finishedStatuses: [...DEFAULT_FINISHED_STATUSES] }),

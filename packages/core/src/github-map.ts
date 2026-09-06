@@ -84,6 +84,16 @@ export function defaultApproverRoleIds(roles: Pick<Role, 'id' | 'name'>[]): stri
 /* Identity                                                             */
 /* ------------------------------------------------------------------ */
 
+/** A sync marker older than this is a run the server lost (a restart mid-run); the screen ignores it. */
+export const GITHUB_SYNC_STALE_MS = 20 * 60_000;
+
+/** Whether a sync is running, as far as the screen can tell from the marker on the integration. */
+export function githubSyncRunning(startedAt: string | null | undefined, now: number): boolean {
+  if (!startedAt) return false;
+  const started = Date.parse(startedAt);
+  return Number.isFinite(started) && now - started < GITHUB_SYNC_STALE_MS;
+}
+
 export function githubDocId(repoId: string, number: number): string {
   return `gh_${repoId}_${number}`;
 }

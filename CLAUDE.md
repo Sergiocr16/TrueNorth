@@ -194,10 +194,12 @@ and `/api/engine/followup` take a `roleId`). `/api/engine/ask` answers one
 question from the same scoped context and may return a proposed action the
 client confirms before writing (ADR-004); `/api/notion/inspect` reads a
 database's schema for the Integrations screen and `/api/notion/sync` runs the
-sync now; `/api/engine/selftest` (`?step=followup`) proves Claude answers
-without touching the database. The three load-bearing flags in
-`server/engine/claude.ts` are `--restricted`, `--tools ""` and a draft-07 JSON
-schema; the model is pinned by `ENGINE_MODEL`. Signals name a task by its
+sync now (`/api/github/sync` too, but it answers at once and the run goes on
+in the server — the screen follows `integrations/github` — unless the caller
+passes `wait=1`, as the timer does); `/api/engine/selftest` (`?step=followup`)
+proves Claude answers without touching the database. The three load-bearing
+flags in `server/engine/claude.ts` are `--restricted`, `--tools ""` and a
+draft-07 JSON schema; the model is pinned by `ENGINE_MODEL`. Signals name a task by its
 title with the code after it, and give every task two clocks: anybody's
 activity (`idleDays`) and the owner's own progress (`progressDays` — a status
 change, an edit, or a comment by somebody responsible); the overdue signal
