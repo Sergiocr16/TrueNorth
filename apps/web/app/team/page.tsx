@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { AccessLevel, Membership, Role } from '@truenorth/core';
+import type { AccessLevel, Membership, Role, Weekday } from '@truenorth/core';
 import { WEEKDAYS, companySchedule, isOverdue, roleFocus, shareQuiet } from '@truenorth/core';
 import { LargeTitle, Screen } from '../../components/shell';
 import { Avatar, Banner, Card, PrimaryButton, SectionLabel, TextButton } from '../../components/ui';
@@ -413,6 +413,8 @@ function RoleSheet({
   const [draft, setDraft] = useState<Role>(role);
   const [armed, arm, disarm] = useConfirm();
   const week = companySchedule(company);
+  // Days whose notes field is open: the ones with notes, plus whichever was tapped.
+  const [noting, setNoting] = useState<Weekday[]>(WEEKDAYS.filter((day) => Boolean(role.schedule?.focus[day])));
   // In the registered order, so the toggles line up with the chips above.
   // Repositories sit on the same list as Notion databases (ADR-010).
   const selectedSources = [
@@ -532,17 +534,25 @@ function RoleSheet({
       <FieldGroup header={t.roles.focus} footer={t.roles.focusHint}>
         {WEEKDAYS.map((day, index) => {
           const working = week.workingDays.includes(day);
-          return (
+          const label = `${weekdayName(day, locale)}${working ? '' : ` · ${t.company.restDay}`}`;
+          return noting.includes(day) ? (
             <TextField
               key={day}
-              label={`${weekdayName(day, locale)}${working ? '' : ` · ${t.company.restDay}`}`}
+              label={label}
               value={draft.schedule?.focus[day] ?? ''}
               onChange={(text) =>
                 setDraft({ ...draft, schedule: { focus: { ...(draft.schedule?.focus ?? {}), [day]: text } } })
               }
-              placeholder={week.focus[day] ?? t.company.focusPlaceholder}
               isLast={index === 6}
             />
+          ) : (
+            <div
+              key={day}
+              className={`flex min-h-[52px] items-center justify-between gap-3 px-4 ${index === 6 ? '' : 'tn-hairline'}`}
+            >
+              <span className="text-[17px] text-[var(--ink)]">{label}</span>
+              <TextButton onClick={() => setNoting([...noting, day])}>{t.company.addNotes}</TextButton>
+            </div>
           );
         })}
       </FieldGroup>
