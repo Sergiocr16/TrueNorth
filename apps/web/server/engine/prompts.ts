@@ -14,7 +14,16 @@ import type {
   Task,
   User,
 } from '@truenorth/core';
-import { expectedProgressPct, idleDays, pickableTasks, progressDays, progressGap } from '@truenorth/core';
+import {
+  expectedObjectivePct,
+  idleDays,
+  indicatorProgressPct,
+  indicatorTargetDate,
+  objectiveGap,
+  objectiveProgressPct,
+  pickableTasks,
+  progressDays,
+} from '@truenorth/core';
 
 /**
  * The prompts. Two of them, both in the same shape: a short system prompt that
@@ -187,12 +196,16 @@ export interface FollowUpSubject {
 }
 
 function fmtObjective(objective: Objective, today: Date): string {
-  const expected = expectedProgressPct(objective.startDate, objective.targetDate, today);
-  const gap = progressGap(objective, today);
+  const expected = expectedObjectivePct(objective, today);
+  const gap = objectiveGap(objective, today);
+  const progress = objectiveProgressPct(objective);
   const indicators = objective.indicators
-    .map((i) => `${i.name}: ${i.current} ${i.unit} (base ${i.baseline}, meta ${i.target})`)
+    .map(
+      (i) =>
+        `${i.name}: ${i.current} ${i.unit} (base ${i.baseline}, meta ${i.target} para ${indicatorTargetDate(i, objective)}, ${indicatorProgressPct(i)}% recorrido)`,
+    )
     .join('; ');
-  return `- [${objective.id}] ${objective.title} — avance ${objective.progressPct}% vs esperado ${expected}% (brecha ${gap} pts), estado ${objective.status}, fecha ${objective.targetDate}, prioridad ${objective.priority}${indicators ? `. Indicadores: ${indicators}` : ''}`;
+  return `- [${objective.id}] ${objective.title} — avance ${progress}% vs esperado ${expected}% (brecha ${gap} pts), estado ${objective.status}, fecha ${objective.targetDate}, prioridad ${objective.priority}${indicators ? `. Indicadores: ${indicators}` : '. Sin indicadores: el avance es un número escrito a mano'}`;
 }
 
 function fmtProject(project: Project, objectives: Objective[]): string {

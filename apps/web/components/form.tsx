@@ -244,6 +244,29 @@ export function PercentField({
   );
 }
 
+/** A value the sheet shows but does not edit — derived from other fields, with a line saying from what. */
+export function StaticField({
+  label,
+  value,
+  hint,
+  isLast = false,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  isLast?: boolean;
+}) {
+  return (
+    <div className={`px-4 py-3 ${isLast ? '' : 'tn-hairline'}`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[17px] text-[var(--ink)]">{label}</span>
+        <span className="tn-tabular text-[17px] font-semibold text-[var(--ink)]">{value}</span>
+      </div>
+      {hint ? <p className="mt-1 text-[13px] leading-snug text-[var(--ter)]">{hint}</p> : null}
+    </div>
+  );
+}
+
 export function ToggleField({
   label,
   description,

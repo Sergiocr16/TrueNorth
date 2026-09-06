@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { Indicator, Objective, Priority } from '@truenorth/core';
+import { indicatorProgressPct, objectiveProgressPct } from '@truenorth/core';
 import {
   AddRow,
   DateField,
@@ -11,6 +12,7 @@ import {
   NumberField,
   PercentField,
   SelectField,
+  StaticField,
   TextAreaField,
   TextField,
   useConfirm,
@@ -20,7 +22,8 @@ import { makeIndicator, useStore } from '../../lib/store';
 
 /**
  * Create or edit an objective, including its indicators. Health is derived
- * from the dates and the progress, so it is never edited by hand.
+ * from the dates and the progress, so it is never edited by hand — and with
+ * indicators, neither is the progress.
  */
 export function ObjectiveEditor({
   objective,
@@ -119,22 +122,24 @@ export function ObjectiveEditor({
           value={draft.targetDate}
           onChange={(value) => setDraft({ ...draft, targetDate: value ?? draft.targetDate })}
         />
-        <PercentField
-          label={t.objectives.actual}
-          value={draft.progressPct}
-          onChange={(progressPct) => setDraft({ ...draft, progressPct })}
-          isLast
-        />
+        {draft.indicators.length > 0 ? (
+          <StaticField
+            label={t.objectives.actual}
+            value={`${objectiveProgressPct(draft)} %`}
+            hint={t.objectives.derivedFromIndicators}
+            isLast
+          />
+        ) : (
+          <PercentField
+            label={t.objectives.actual}
+            value={draft.progressPct}
+            onChange={(progressPct) => setDraft({ ...draft, progressPct })}
+            isLast
+          />
+        )}
       </FieldGroup>
 
-      <FieldGroup
-        header={t.objectives.indicators}
-        footer={
-          locale === 'es'
-            ? 'Los indicadores son lo que hace medible el objetivo. Sin ellos el avance es una opinión.'
-            : 'Indicators are what make the objective measurable. Without them progress is an opinion.'
-        }
-      >
+      <FieldGroup header={t.objectives.indicators} footer={t.objectives.indicatorsHint}>
         {draft.indicators.map((indicator, index) => (
           <div key={indicator.id} className="tn-hairline px-4 py-3">
             <div className="flex items-center gap-2">
@@ -152,6 +157,9 @@ export function ObjectiveEditor({
                 aria-label={locale === 'es' ? 'Unidad' : 'Unit'}
                 className="w-20 bg-transparent py-1.5 text-right text-[15px] text-[var(--sec)] outline-none"
               />
+              <span className="tn-tabular shrink-0 text-[13px] text-[var(--ter)]">
+                {indicatorProgressPct(indicator)} %
+              </span>
               <button
                 type="button"
                 onClick={() =>
@@ -187,6 +195,11 @@ export function ObjectiveEditor({
               ))}
             </div>
             <div className="mt-2">
+              <DateField
+                label={t.objectives.indicatorDue}
+                value={indicator.targetDate ?? null}
+                onChange={(targetDate) => patchIndicator(index, { targetDate })}
+              />
               <SelectField
                 label={locale === 'es' ? 'Dirección' : 'Direction'}
                 value={indicator.direction}

@@ -160,6 +160,8 @@ export interface Indicator {
   target: number;
   /** Whether success means the number goes up or down. */
   direction: 'up' | 'down';
+  /** When the target is due. Null means with the objective. */
+  targetDate?: string | null;
   /** Appended whenever `current` changes. Empty until it does. */
   history?: Reading[];
 }
@@ -173,6 +175,11 @@ export interface Objective {
   targetDate: string;
   priority: Priority;
   ownerUserId: string;
+  /**
+   * Measured, not typed: the mean of the indicators' progress, recomputed on
+   * every write (`objectiveProgressPct`). Only an objective without
+   * indicators keeps the number typed by hand.
+   */
   progressPct: number;
   status: HealthStatus;
   indicators: Indicator[];

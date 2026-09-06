@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import type { Objective } from '@truenorth/core';
-import { expectedProgressPct, progressGap, shareHealthy } from '@truenorth/core';
+import { expectedObjectivePct, objectiveGap, shareHealthy } from '@truenorth/core';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
 import { Card, EmptyState, ProgressBar, SectionLabel, StatusPill } from '../../components/ui';
 import { AddRow } from '../../components/form';
@@ -44,12 +44,8 @@ export default function ObjectivesPage() {
 
         <div className="flex flex-col gap-2.5">
           {objectives.map((objective) => {
-            const expected = expectedProgressPct(
-              objective.startDate,
-              objective.targetDate,
-              today,
-            );
-            const gap = progressGap(objective, today);
+            const expected = expectedObjectivePct(objective, today);
+            const gap = objectiveGap(objective, today);
             const owner = users.find((u) => u.id === objective.ownerUserId);
             return (
               <Link key={objective.id} href={`${ROUTES.objectives}/${objective.id}`}>

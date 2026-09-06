@@ -3,11 +3,19 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import type { Indicator, Objective } from '@truenorth/core';
-import { expectedProgressPct, isOverdue, progressGap } from '@truenorth/core';
+import {
+  expectedObjectivePath,
+  expectedObjectivePct,
+  indicatorProgressPct,
+  indicatorTargetDate,
+  isOverdue,
+  objectiveGap,
+} from '@truenorth/core';
 import { LineChart, WorkloadBars, type Series } from '../../components/charts';
 import { LargeTitle, ROUTES, Screen } from '../../components/shell';
-import { Card, EmptyState, SectionLabel, Segmented } from '../../components/ui';
+import { Card, ChipButton, EmptyState, SectionLabel } from '../../components/ui';
 import { Chevron, ReportIcon } from '../../components/icons';
+import { formatShortDate } from '../../lib/i18n/dictionary';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
 
@@ -19,7 +27,7 @@ const toTime = (iso: string) => new Date(`${iso}T00:00:00`).getTime();
  * value. Three questions, three charts, in the order they matter:
  *
  *   1. Is this objective on the line it needs to be on?
- *   2. Is its indicator actually moving towards the target?
+ *   2. Is each of its indicators actually moving towards its target?
  *   3. Who is carrying the work, and how much of it is late?
  */
 export default function ReportsPage() {
@@ -35,7 +43,7 @@ export default function ReportsPage() {
     if (objectives.length === 0) return undefined;
     const chosen = objectives.find((o) => o.id === selectedId);
     if (chosen) return chosen;
-    return [...objectives].sort((a, b) => progressGap(b, today) - progressGap(a, today))[0];
+    return [...objectives].sort((a, b) => objectiveGap(b, today) - objectiveGap(a, today))[0];
   }, [objectives, selectedId, today]);
 
   const workload = useMemo(() => {
@@ -77,26 +85,29 @@ export default function ReportsPage() {
         </Card>
       ) : (
         <div className="mx-4 mt-3 lg:grid lg:grid-cols-2 lg:gap-4">
+          {objectives.length > 1 ? (
+            // Chips that wrap, before the chart: six objectives with long
+            // names do not fit a segmented control on a phone.
+            <div className="mb-3 flex flex-wrap gap-2 lg:col-span-2 lg:mb-0">
+              {objectives.map((o) => (
+                <ChipButton key={o.id} selected={o.id === objective?.id} onClick={() => setSelectedId(o.id)}>
+                  {o.title}
+                </ChipButton>
+              ))}
+            </div>
+          ) : null}
           {objective ? <GapCard objective={objective} /> : null}
 
-          {objectives.length > 1 ? (
-            <div className="mt-3 lg:col-span-2 lg:order-first lg:mt-0">
-              <Segmented
-                options={objectives.map((o) => ({
-                  value: o.id,
-                  label: o.title.length > 22 ? `${o.title.slice(0, 21)}…` : o.title,
-                }))}
-                value={objective?.id ?? ''}
-                onChange={setSelectedId}
-              />
-            </div>
+          {objective && objective.indicators.length === 0 ? (
+            <Card className="mt-3 p-4 text-[15px] leading-snug text-[var(--sec)] lg:mt-0">
+              {t.reports.noIndicators}
+            </Card>
           ) : null}
-
-          {objective?.indicators[0] ? (
-            <div className="mt-3 lg:mt-0">
-              <IndicatorCard indicator={objective.indicators[0]} />
+          {objective?.indicators.map((indicator) => (
+            <div key={indicator.id} className="mt-3 lg:mt-0">
+              <IndicatorCard indicator={indicator} objective={objective} />
             </div>
-          ) : null}
+          ))}
 
           <div className="mt-3 lg:col-span-2">
             <SectionLabel>{t.reports.workload}</SectionLabel>
@@ -164,20 +175,19 @@ function GapCard({ objective }: { objective: Objective }) {
           [{ x: now, y: objective.progressPct }],
   };
 
-  // The expected line is computed, not recorded: it is simply linear from the
-  // start date to the target date.
+  // The expected line is computed, not recorded: linear from the start date,
+  // with a bend wherever an indicator comes due.
+  const path = expectedObjectivePath(objective).map((p) => ({ x: toTime(p.date), y: p.pct }));
   const expected: Series = {
     label: t.objectives.expected,
     color: 'var(--slate)',
     dashed: true,
-    points: [
-      { x: start, y: 0 },
-      { x: end, y: 100 },
-    ],
+    points: path,
   };
+  const last = Math.max(end, path[path.length - 1]?.x ?? end);
 
-  const expectedNow = expectedProgressPct(objective.startDate, objective.targetDate, today);
-  const gap = progressGap(objective, today);
+  const expectedNow = expectedObjectivePct(objective, today);
+  const gap = objectiveGap(objective, today);
 
   return (
     <Card className="p-4">
@@ -194,9 +204,9 @@ function GapCard({ objective }: { objective: Objective }) {
         <LineChart
           title={`${t.reports.gapByObjective} · ${objective.title}`}
           series={[expected, actual]}
-          xDomain={[start, Math.max(end, now)]}
+          xDomain={[start, Math.max(last, now)]}
           yDomain={[0, 100]}
-          xTicks={monthTicks(start, Math.max(end, now), locale)}
+          xTicks={monthTicks(start, Math.max(last, now), locale)}
           gapAt={
             gap > 0
               ? {
@@ -226,10 +236,11 @@ function GapCard({ objective }: { objective: Objective }) {
   );
 }
 
-/** One indicator moving towards its target. */
-function IndicatorCard({ indicator }: { indicator: Indicator }) {
+/** One indicator moving towards its target, by its own date. */
+function IndicatorCard({ indicator, objective }: { indicator: Indicator; objective: Objective }) {
   const { t, locale } = usePreferences();
   const { today } = useStore();
+  const due = indicatorTargetDate(indicator, objective);
 
   const history = indicator.history ?? [];
   const points =
@@ -276,13 +287,13 @@ function IndicatorCard({ indicator }: { indicator: Indicator }) {
           yDomain={[min - padding, max + padding]}
           reference={{
             at: indicator.target,
-            label: `${t.objectives.target} ${indicator.target} ${indicator.unit}`,
+            label: `${t.objectives.target} ${indicator.target} ${indicator.unit} · ${formatShortDate(due, locale)}`,
             color: 'var(--green)',
           }}
           caption={
             <span className="tn-tabular">
               {t.objectives.baseline} {indicator.baseline} · {t.objectives.current}{' '}
-              {indicator.current} {indicator.unit}
+              {indicator.current} {indicator.unit} · {indicatorProgressPct(indicator)} %
             </span>
           }
         />

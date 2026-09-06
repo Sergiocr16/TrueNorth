@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import type { PlanItem, PlanItemVerdict, Task } from '@truenorth/core';
-import { notionUrl, progressGap } from '@truenorth/core';
+import { notionUrl, objectiveGap } from '@truenorth/core';
 import { CompanySwitcher, LargeTitle, ROUTES, Screen } from '../../components/shell';
 import {
   Banner,
@@ -61,7 +61,7 @@ export default function TodayPage() {
     [objectives, plan.items],
   );
 
-  const gap = headlineObjective ? progressGap(headlineObjective, today) : 0;
+  const gap = headlineObjective ? objectiveGap(headlineObjective, today) : 0;
 
   /**
    * A real round trip: this same server runs Claude Code and writes the new
