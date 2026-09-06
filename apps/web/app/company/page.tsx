@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { CompanySchedule } from '@truenorth/core';
+import type { CompanySchedule, Weekday } from '@truenorth/core';
 import { daysUntil, formatShortDate, weekdayName } from '../../lib/i18n/dictionary';
 import { CompanyLogoPicker } from '../../components/company-switcher';
 import { HealthCompass } from '../../components/day-compass';
@@ -136,7 +136,7 @@ export default function CompanyPage() {
                 <span
                   className={`min-w-0 flex-1 text-[15px] leading-snug ${working && focus ? 'text-[var(--ink)]' : 'text-[var(--ter)]'}`}
                 >
-                  {working ? (focus ?? t.company.noFocus) : t.company.restDayMode}
+                  {working ? (focus ?? t.company.normalDay) : t.company.restDayMode}
                 </span>
               </div>
             );
@@ -204,7 +204,11 @@ export default function CompanyPage() {
   );
 }
 
-/** One group per weekday: whether it is a working day, and its focus, if any. */
+/**
+ * The week, one row per day: a switch for rest, and notes for the day if
+ * anybody wants to add some. Notes are hidden behind "add" so a plain week
+ * is seven switches, not fourteen fields.
+ */
 function ScheduleSheet({
   initial,
   onCancel,
@@ -216,6 +220,7 @@ function ScheduleSheet({
 }) {
   const { t, locale } = usePreferences();
   const [draft, setDraft] = useState<CompanySchedule>(initial);
+  const [noting, setNoting] = useState<Weekday[]>(WEEKDAYS.filter((day) => Boolean(initial.focus[day])));
 
   return (
     <EditSheet
@@ -225,41 +230,42 @@ function ScheduleSheet({
       onSave={() => onSave(companySchedule({ schedule: draft }))}
       canSave={draft.workingDays.length > 0}
     >
-      {WEEKDAYS.map((day, index) => {
-        const working = draft.workingDays.includes(day);
-        return (
-          <FieldGroup
-            key={day}
-            header={weekdayName(day, locale)}
-            footer={
-              index === 6
-                ? draft.workingDays.length === 0
-                  ? t.company.atLeastOneDay
-                  : t.company.scheduleHint
-                : undefined
-            }
-          >
-            <ToggleField
-              label={t.company.workingDay}
-              description={working ? t.company.normalDay : t.company.restDayMode}
-              value={working}
-              onChange={(on) =>
-                setDraft({
-                  ...draft,
-                  workingDays: on ? [...draft.workingDays, day] : draft.workingDays.filter((d) => d !== day),
-                })
-              }
-            />
-            <TextField
-              label={t.company.focus}
-              value={draft.focus[day] ?? ''}
-              onChange={(text) => setDraft({ ...draft, focus: { ...draft.focus, [day]: text } })}
-              placeholder={t.company.focusPlaceholder}
-              isLast
-            />
-          </FieldGroup>
-        );
-      })}
+      <FieldGroup
+        header={t.company.restDays}
+        footer={draft.workingDays.length === 0 ? t.company.atLeastOneDay : t.company.scheduleHint}
+      >
+        {WEEKDAYS.map((day, index) => {
+          const rest = !draft.workingDays.includes(day);
+          return (
+            <div key={day} className={index === 6 ? '' : 'tn-hairline'}>
+              <ToggleField
+                label={weekdayName(day, locale)}
+                description={rest ? t.company.restDayMode : t.company.normalDay}
+                value={rest}
+                onChange={(on) =>
+                  setDraft({
+                    ...draft,
+                    workingDays: on ? draft.workingDays.filter((d) => d !== day) : [...draft.workingDays, day],
+                  })
+                }
+                isLast
+              />
+              {noting.includes(day) ? (
+                <TextField
+                  label={t.company.notes}
+                  value={draft.focus[day] ?? ''}
+                  onChange={(text) => setDraft({ ...draft, focus: { ...draft.focus, [day]: text } })}
+                  isLast
+                />
+              ) : (
+                <div className="-mt-1 px-4 pb-1">
+                  <TextButton onClick={() => setNoting([...noting, day])}>{t.company.addNotes}</TextButton>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </FieldGroup>
     </EditSheet>
   );
 }
