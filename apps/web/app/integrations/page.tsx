@@ -7,6 +7,7 @@ import { Banner, Card, EmptyState, SectionLabel, TextButton } from '../../compon
 import { AddRow } from '../../components/form';
 import { NotionMark } from '../../components/icons';
 import { AddSourceSheet, SourceSheet, StatusLegend } from '../../components/notion-source';
+import { GithubSection } from '../../components/github-repo';
 import { formatShortDate } from '../../lib/i18n/dictionary';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
@@ -198,6 +199,8 @@ export default function IntegrationsPage() {
           </p>
         </div>
       ) : null}
+
+      <GithubSection isAdmin={isAdmin} when={when} />
 
       {adding ? <AddSourceSheet onClose={() => setAdding(false)} /> : null}
       {editing ? <SourceSheet source={editing} onClose={() => setEditing(null)} /> : null}

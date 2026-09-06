@@ -17,6 +17,35 @@ export interface KnownPerson {
   notionUserId?: string;
   /** Further Notion identities of the same person; see `Membership.notionUserIds`. */
   notionUserIds?: string[];
+  githubLogin?: string;
+  githubLogins?: string[];
+}
+
+/** Every GitHub login a known person answers to, lowercased. */
+export function githubLoginsOf(person: Pick<KnownPerson, 'githubLogin' | 'githubLogins'>): string[] {
+  return [
+    ...new Set(
+      [person.githubLogin, ...(person.githubLogins ?? [])]
+        .filter((login): login is string => Boolean(login))
+        .map((login) => login.toLowerCase()),
+    ),
+  ];
+}
+
+/**
+ * The team member a GitHub user is: a stored login first, then the profile's
+ * name through the same rules as a Notion person. A login nobody claims and a
+ * profile with no name is nobody — GitHub is not the roster, Notion is, so no
+ * member is ever created from here.
+ */
+export function matchGithubUser(
+  github: { login: string; name?: string | null },
+  people: KnownPerson[],
+): KnownPerson | null {
+  const login = github.login.toLowerCase();
+  const byLogin = people.find((p) => githubLoginsOf(p).includes(login));
+  if (byLogin) return byLogin;
+  return github.name ? matchPerson({ name: github.name }, people) : null;
 }
 
 /** Every Notion id a known person answers to. */
@@ -78,6 +107,8 @@ export function knownPeople(users: User[], memberships: Membership[]): KnownPers
       displayName: u.displayName,
       notionUserId: membership?.notionUserId,
       notionUserIds: membership?.notionUserIds,
+      githubLogin: membership?.githubLogin,
+      githubLogins: membership?.githubLogins,
     };
   });
 }

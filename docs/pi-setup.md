@@ -162,6 +162,11 @@ WORKER_ID=pi-01                 # the heartbeat document the app watches
 # notion.so/my-integrations with read content, read comments and read user
 # information, then share each database with it (••• → Connections).
 NOTION_TOKEN=…
+# GitHub (ADR-010). A personal access token of the account that owns the
+# repositories, with read access to pull requests, contents and metadata.
+# Repositories are registered from the app (Integraciones), not here.
+# On a machine with `gh` logged in: `gh auth token`.
+GITHUB_TOKEN=…
 ```
 
 ```bash
@@ -310,6 +315,9 @@ Type=oneshot
 User=truenorth
 EnvironmentFile=/etc/truenorth/env
 ExecStart=/usr/bin/curl -fsS --max-time 600 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" "http://localhost:3000/api/notion/sync?company=<company id>"
+# GitHub after Notion: a pull request finds its task by the code in its
+# branch, and the task has to be there first (ADR-010).
+ExecStart=/usr/bin/curl -fsS --max-time 600 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" "http://localhost:3000/api/github/sync?company=<company id>"
 ```
 
 ```ini
@@ -480,6 +488,8 @@ A release is then: merge `main` into `production`, push, and run
 | The engine ran but every message repeats yesterday's | It should not: identical signals are dropped in code. Check `followups/{date}_{uid}_{roleId}` in Firestore for what was actually written. |
 | The picker lists no database | The database was never shared with the integration in Notion (••• → Connections). Sharing a parent page shares what is under it. |
 | *Integraciones* says the sync failed | `NOTION_TOKEN` missing in the env; the database not shared with the integration (••• → Connections in Notion); the integration lacking the read-comments or read-users capability; or Notion answering 429 — the client retries three times and gives up. The error text on the source says which. |
+| *Integraciones* says GitHub is not connected | `GITHUB_TOKEN` missing in the env, or expired: `GET /api/github/status` says which. A fine-grained token needs Pull requests, Contents and Metadata read on every repository to read. |
+| A pull request shows nobody as its author | Nobody on the team declared that GitHub username and the profile name matched nobody. Write the username on the person under *Equipo*; the repository row lists the unmatched ones. |
 | No Notion tasks on a screen that had them | Which role is on? A source is readable only while it is on the active role (*Equipo → Roles*). A listener for a source the role does not read is refused and empties quietly. |
 | "Insufficient permissions" everywhere after a deploy | Rules and code moved together in ADR-008: deploy `firestore:rules,firestore:indexes` (§5b) and `truenorth-deploy` in the same sitting. |
 

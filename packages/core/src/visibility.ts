@@ -2,10 +2,12 @@ import { PRIORITY_WEIGHT } from './notion-status';
 import { computeSignals, signalsForUser } from './signals';
 import type {
   DailyPlan,
+  GithubRepo,
   Membership,
   NotionSource,
   Objective,
   Project,
+  PullRequest,
   Role,
   Signal,
   Task,
@@ -109,6 +111,23 @@ export function visibleTasks(
   return out;
 }
 
+/**
+ * A pull request is readable while its repository is on the role — a
+ * repository is a source like a Notion database (ADR-010) — and, when the
+ * role reads that repository assigned-only, while it names the person as
+ * author or reviewer.
+ */
+export function visiblePullRequests(
+  pullRequests: PullRequest[],
+  userId: string,
+  sourceIds: ReadonlySet<string>,
+  assignedOnly: ReadonlySet<string> = NONE,
+): PullRequest[] {
+  return pullRequests.filter(
+    (pr) => sourceIds.has(pr.repoId) && (!assignedOnly.has(pr.repoId) || pr.peopleUserIds.includes(userId)),
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Scope: everything one person in one role may see, signals included  */
 /* ------------------------------------------------------------------ */
@@ -123,6 +142,13 @@ export interface ScopeInput {
   members: (User & { membership: Membership })[];
   /** A week of plans for everybody, newest first. */
   planHistory: DailyPlan[];
+  /** GitHub repositories registered as sources (ADR-010). */
+  repos?: GithubRepo[];
+  pullRequests?: PullRequest[];
+  /** Roles whose holders review and merge pull requests. */
+  approverRoleIds?: string[];
+  /** Notion status labels that mean development finished and a pull request is owed. */
+  finishedStatuses?: string[];
 }
 
 export interface Scoped {
@@ -131,6 +157,11 @@ export interface Scoped {
   sourceIds: string[];
   /** Among `sourceIds`, the ones this role reads only through the person's assignments. */
   assignedOnlySourceIds: string[];
+  /** Among `sourceIds`, the GitHub repositories. */
+  repoIds: string[];
+  pullRequests: PullRequest[];
+  /** The people who review and merge, visible or not: an approver signal names them. */
+  approverUserIds: string[];
   /**
    * True when the company has sources this role does not read, or reads only
    * through assignments: either way, part of the work is out of view.
@@ -159,12 +190,21 @@ export interface Scoped {
  */
 export function scopeFor(input: ScopeInput, userId: string, roleId: string | null): Scoped {
   const role = input.roles.find((r) => r.id === roleId) ?? null;
-  const sourceIds = roleSourceIds(role, input.sources);
-  const assignedOnly = roleAssignedOnlyIds(role, input.sources);
+  const repos = input.repos ?? [];
+  const allSources = [...input.sources, ...repos];
+  const sourceIds = roleSourceIds(role, allSources);
+  const assignedOnly = roleAssignedOnlyIds(role, allSources);
+  // Partial is about the work: a repository the role does not read hides
+  // pull requests, not tasks, and says nothing about an objective's work.
   const partial = input.sources.some((s) => !sourceIds.has(s.id) || assignedOnly.has(s.id));
 
   const projects = visibleProjects(input.projects, userId, sourceIds, assignedOnly);
   const tasks = visibleTasks(input.tasks, input.projects, userId, sourceIds, assignedOnly);
+  const pullRequests = visiblePullRequests(input.pullRequests ?? [], userId, sourceIds, assignedOnly);
+  const approverRoleIds = new Set(input.approverRoleIds ?? []);
+  const approverUserIds = input.members
+    .filter((m) => m.membership.roleIds.some((id) => approverRoleIds.has(id)))
+    .map((m) => m.id);
 
   const involved = new Set<string>([userId]);
   for (const t of tasks) for (const id of t.assigneeUserIds) involved.add(id);
@@ -172,6 +212,7 @@ export function scopeFor(input: ScopeInput, userId: string, roleId: string | nul
     involved.add(p.ownerUserId);
     for (const id of p.memberUserIds) involved.add(id);
   }
+  for (const pr of pullRequests) for (const id of pr.peopleUserIds) involved.add(id);
   const users = input.members.filter((m) => involved.has(m.id));
 
   const viewer = input.members.find((m) => m.id === userId);
@@ -187,12 +228,19 @@ export function scopeFor(input: ScopeInput, userId: string, roleId: string | nul
     tasks,
     users,
     planHistory,
+    pullRequests,
+    repos: repos.filter((r) => sourceIds.has(r.id)),
+    approverUserIds,
+    finishedStatuses: input.finishedStatuses,
   }).filter((s) => !(partial && s.kind === 'empty_objective'));
 
   return {
     role,
     sourceIds: [...sourceIds],
     assignedOnlySourceIds: [...assignedOnly],
+    repoIds: repos.filter((r) => sourceIds.has(r.id)).map((r) => r.id),
+    pullRequests,
+    approverUserIds,
     partial,
     objectives: input.objectives,
     projects,

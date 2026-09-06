@@ -110,7 +110,7 @@ npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/cor
 | `/follow-up` | Managers only: how each person is doing, private situations, and today's messages — greeting first, ready to copy |
 | `/assistant` | The chief of staff as a conversation: ask about the day, by text or voice, and confirm what it proposes — a situation, a message to copy, a follow-up marked sent, an expectation |
 | `/risks` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
-| `/integrations` | Notion: pick databases from the list the integration can see, check the suggested mapping and status table, sync now |
+| `/integrations` | Notion: pick databases from the list the integration can see, check the suggested mapping and status table, sync now. GitHub: pick repositories, say which project each belongs to and who approves, sync now |
 | `/settings` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
 
 Every main screen carries a small compass in its corner: that screen's health
@@ -168,6 +168,25 @@ silent" as the different problems they are.
 Every Notion status collapses onto one of four internal states through the source's own map, started from Notion's groups: *Depende de otra TAR* becomes *blocked*; *Finalizada* and *Archivadas* become *done*. `NOTION_TASK_STATUS` in `packages/core/src/notion-status.ts` is the known default for "Tareas Software" and is pinned by a test. Changing the four states requires an ADR.
 
 Writes go back to Notion when a dictated update is confirmed. Notion always wins: if the page changed since the last sync, the app shows the conflict instead of overwriting.
+
+## GitHub
+
+Work ships through pull requests, and the engine reads them too (ADR-010).
+A repository is registered from *Integraciones* — picked from the list the
+token can see — and belongs to a project; it then sits on roles in the same
+list as a Notion database, whole or only the pull requests naming the person.
+A pull request is tied to a task by the code in its branch, title or body
+(`feature/TAR-966`), and to a project by that task or by the repository.
+
+The sync (`apps/web/server/github/`) runs after Notion's, reads the pull
+requests updated since the last run with their reviews and the author's last
+push or comment, and matches GitHub logins to the team by the username the
+person declared or by the profile's name — never creating people, Notion is
+the roster. Who reviews and merges is a role, prefilled with the one called
+CTO. From that the engine computes four signals: a task in a "development
+finished" status with no pull request, a pull request waiting for review,
+one with changes requested and no answer, and one approved but unmerged.
+The token is `GITHUB_TOKEN` in the Pi's environment.
 
 ## The assistant
 

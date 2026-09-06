@@ -149,6 +149,18 @@ service cloud.firestore {
       return resource.data.source == 'app';
     }
 
+    // A pull request is readable while its repository is on the caller's
+    // active role — repositories share the role's `sourceIds` list with the
+    // Notion databases (ADR-010) — and, when the role reads that repository
+    // assigned-only, while the pull request names the caller as its author
+    // or a reviewer. `people` is the record's own `peopleUserIds`, passed raw
+    // for the same reason as in readsSource.
+    function readsRepo(companyId, people) {
+      return resource.data.repoId in activeSourceIds(companyId)
+             && (!(resource.data.repoId in activeAssignedOnlyIds(companyId))
+                 || request.auth.uid in people);
+    }
+
     /* ---------------------------------------------------------------- */
     /* Invitations — top level, keyed by email address                   */
     /* ---------------------------------------------------------------- */
@@ -312,6 +324,22 @@ service cloud.firestore {
       match /notionSources/{sourceId} {
         allow read: if isMember(companyId);
         allow write: if isAdmin(companyId);
+      }
+
+      // A registered GitHub repository and the project it belongs to. Who
+      // reads its pull requests lives on the roles, like a Notion source.
+      match /githubRepos/{repoId} {
+        allow read: if isMember(companyId);
+        allow write: if isAdmin(companyId);
+      }
+
+      // Two queries, one per repository the active role reads:
+      //   where('repoId', '==', <id>)                                          read whole
+      //   where('repoId', '==', <id>).where('peopleUserIds', 'array-contains', uid)  assigned-only
+      // Written by the sync only; the browser never edits a pull request.
+      match /pullRequests/{pullId} {
+        allow read: if isMember(companyId) && readsRepo(companyId, resource.data.peopleUserIds);
+        allow write: if false;
       }
 
       // Briefings and plans are written by the engine only, one per person

@@ -3,10 +3,13 @@ import 'server-only';
 import type {
   Company,
   DailyPlan,
+  GithubIntegration,
+  GithubRepo,
   Membership,
   NotionSource,
   Objective,
   Project,
+  PullRequest,
   Risk,
   Role,
   Scoped,
@@ -52,6 +55,10 @@ export interface Captured {
   /** Every task. Never prompt from this. */
   tasks: Task[];
   risks: Risk[];
+  /** GitHub repositories registered as sources, and their pull requests (ADR-010). */
+  repos: GithubRepo[];
+  pullRequests: PullRequest[];
+  github: GithubIntegration | null;
   /** Private notes about people, for the follow-up. Owners and admins only. */
   situations: Situation[];
   /** Yesterday's plans by `${uid}_${roleId}`, for continuity. */
@@ -76,6 +83,9 @@ interface MemberDoc {
   /** Absent on every document written before expectations existed. */
   expectations?: string;
   notionUserId?: string;
+  notionUserIds?: string[];
+  githubLogin?: string;
+  githubLogins?: string[];
   commsTone?: Membership['commsTone'];
 }
 
@@ -96,6 +106,9 @@ export async function captureCompany(
     tasksSnap,
     risksSnap,
     situationsSnap,
+    reposSnap,
+    pullsSnap,
+    githubSnap,
   ] = await Promise.all([
     base.get(),
     base.collection('members').get(),
@@ -106,6 +119,9 @@ export async function captureCompany(
     base.collection('tasks').get(),
     base.collection('risks').get(),
     base.collection('situations').get(),
+    base.collection('githubRepos').get(),
+    base.collection('pullRequests').get(),
+    base.collection('integrations').doc('github').get(),
   ]);
 
   if (!companySnap.exists) {
@@ -140,6 +156,9 @@ export async function captureCompany(
         hasAccount: m.hasAccount ?? true,
         expectations: typeof m.expectations === 'string' ? m.expectations : '',
         notionUserId: m.notionUserId,
+        notionUserIds: m.notionUserIds,
+        githubLogin: m.githubLogin,
+        githubLogins: m.githubLogins,
         commsTone: m.commsTone,
       },
     };
@@ -149,6 +168,9 @@ export async function captureCompany(
   const projects = projectsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Project);
   const tasks = tasksSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task);
   const risks = risksSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Risk);
+  const repos = reposSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as GithubRepo);
+  const pullRequests = pullsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as PullRequest);
+  const github = githubSnap.exists ? (githubSnap.data() as GithubIntegration) : null;
 
   // A situation with a past end date is over, and reading it would nudge the
   // engine to be gentle about something that is no longer happening.
@@ -182,6 +204,9 @@ export async function captureCompany(
     projects,
     tasks,
     risks,
+    repos,
+    pullRequests,
+    github,
     situations,
     yesterdayPlans,
     planHistory,
@@ -205,6 +230,10 @@ export function scopeOf(captured: Captured, userId: string, roleId: string | nul
       roles: captured.roles,
       members: captured.members,
       planHistory: captured.planHistory,
+      repos: captured.repos,
+      pullRequests: captured.pullRequests,
+      approverRoleIds: captured.github?.approverRoleIds ?? [],
+      finishedStatuses: captured.github?.finishedStatuses,
     },
     userId,
     roleId,
@@ -223,6 +252,9 @@ export function contextFor(captured: Captured, scope: Scoped): CompanyContext {
     role: scope.role,
     sources: captured.sources.filter((s) => scope.sourceIds.includes(s.id)),
     assignedOnlySourceIds: scope.assignedOnlySourceIds,
+    repos: captured.repos.filter((r) => scope.repoIds.includes(r.id)),
+    pullRequests: scope.pullRequests,
+    approverUserIds: scope.approverUserIds,
     today: captured.today,
     todayIso: captured.todayIso,
   };

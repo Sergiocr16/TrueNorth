@@ -408,11 +408,17 @@ function RoleSheet({
   onRemove?: () => void;
 }) {
   const { t, locale } = usePreferences();
-  const { sources } = useStore();
+  const { sources, repos } = useStore();
   const [draft, setDraft] = useState<Role>(role);
   const [armed, arm, disarm] = useConfirm();
   // In the registered order, so the toggles line up with the chips above.
-  const selectedSources = sources.filter((s) => draft.sourceIds.includes(s.id));
+  // Repositories sit on the same list as Notion databases (ADR-010).
+  const selectedSources = [
+    ...sources.filter((s) => draft.sourceIds.includes(s.id)).map((s) => ({ id: s.id, title: s.title })),
+    ...repos.filter((r) => draft.sourceIds.includes(r.id)).map((r) => ({ id: r.id, title: r.fullName })),
+  ];
+  const sourceOnly = (ids: string[]) => ids.filter((id) => !repos.some((r) => r.id === id));
+  const repoOnly = (ids: string[]) => ids.filter((id) => repos.some((r) => r.id === id));
 
   return (
     <EditSheet
@@ -457,19 +463,38 @@ function RoleSheet({
         <ChipSelectField
           label={t.roles.sources}
           options={sources.map((s) => ({ value: s.id, label: s.title }))}
-          selected={draft.sourceIds}
-          onChange={(sourceIds) =>
+          selected={sourceOnly(draft.sourceIds)}
+          onChange={(picked) => {
+            const sourceIds = [...picked, ...repoOnly(draft.sourceIds)];
             setDraft({
               ...draft,
               sourceIds,
               assignedOnlySourceIds: (draft.assignedOnlySourceIds ?? []).filter((id) =>
                 sourceIds.includes(id),
               ),
-            })
-          }
+            });
+          }}
           emptyHint={sources.length === 0 ? t.roles.noSourcesYet : undefined}
-          isLast
+          isLast={repos.length === 0}
         />
+        {repos.length > 0 ? (
+          <ChipSelectField
+            label={t.roles.repos}
+            options={repos.map((r) => ({ value: r.id, label: r.fullName }))}
+            selected={repoOnly(draft.sourceIds)}
+            onChange={(picked) => {
+              const sourceIds = [...sourceOnly(draft.sourceIds), ...picked];
+              setDraft({
+                ...draft,
+                sourceIds,
+                assignedOnlySourceIds: (draft.assignedOnlySourceIds ?? []).filter((id) =>
+                  sourceIds.includes(id),
+                ),
+              });
+            }}
+            isLast
+          />
+        ) : null}
       </FieldGroup>
 
       {selectedSources.length > 0 ? (
@@ -591,6 +616,7 @@ function PersonEditor({
                 roleDescription: draft.roleDescription,
                 access: draft.access,
                 expectations: draft.expectations.trim(),
+                githubLogin: (draft.githubLogin ?? '').trim(),
               },
           profile ? name : undefined,
         )
@@ -645,6 +671,18 @@ function PersonEditor({
                 ? 'Que el cierre financiero corra en menos de dos minutos, y que cada tarea suya en curso tenga un comentario al menos cada dos días.'
                 : 'The financial close runs in under two minutes, and every task in flight gets a comment at least every two days.'
             }
+            isLast
+          />
+        </FieldGroup>
+      )}
+
+      {self ? null : (
+        <FieldGroup footer={t.team.githubLoginHint}>
+          <TextField
+            label={t.team.githubLogin}
+            value={draft.githubLogin ?? ''}
+            onChange={(githubLogin) => setDraft({ ...draft, githubLogin })}
+            placeholder="jbelda"
             isLast
           />
         </FieldGroup>

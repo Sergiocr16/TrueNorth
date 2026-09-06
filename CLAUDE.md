@@ -24,7 +24,8 @@ apps/web/            Next.js 16 App Router, PWA, served from the Raspberry Pi
   app/api/           route handlers: engine (daily, replan, followup, ask,
                      selftest), notion (inspect, sync), push, company logo
   server/            admin.ts (Admin SDK, authorizeCaller), engine/ (capture,
-                     prompts, run, claude) and notion/ (client, inspect, sync)
+                     prompts, run, claude), notion/ (client, inspect, sync),
+                     github/ (client, sync) and writer.ts (batched writes)
                      — never imported by the browser
   components/        design system: ui.tsx, form.tsx, shell.tsx, icons.tsx,
                      day-compass.tsx, plan-calendar.tsx, follow-up.tsx
@@ -124,7 +125,10 @@ Five sentences, enforced in `firestore.rules`:
    among their own. A synced task or project is readable while its source is
    on the active role — and, for a source the role lists in
    `assignedOnlySourceIds` (ADR-009), only while the record names the person;
-   app-native records keep the project visibility above. The engine applies
+   app-native records keep the project visibility above. A GitHub repository
+   is a source in the same list (ADR-010): its pull requests are readable
+   while the repository is on the active role, assigned-only meaning the ones
+   naming the person as author or reviewer. The engine applies
    the same scope in code and recomputes signals from it, so nothing one role
    cannot see reaches its plan, briefing or follow-up; when the person has no
    work of their own, the plan may only offer unowned tasks from sources the
@@ -204,7 +208,7 @@ sees whole (ADR-009).
 
 ## Testing
 
-- `packages/core` uses vitest: signals, visibility and scope by role, follow-up guardrails, health shares, people matching, Notion mapping (`notion-map.test.ts` runs `suggestMapping` and `pageToTask` against ADITUM's recorded schemas in `notion-schemas.fixture.ts`). Every new signal or guard ships with a test.
+- `packages/core` uses vitest: signals, visibility and scope by role, follow-up guardrails, health shares, people matching (Notion and GitHub identities), Notion mapping (`notion-map.test.ts` runs `suggestMapping` and `pageToTask` against ADITUM's recorded schemas in `notion-schemas.fixture.ts`), GitHub mapping (`github-map.test.ts`: task code from a branch, review state GitHub's way, pull request to record). Every new signal or guard ships with a test.
 - Golden cases for the engine belong in `packages/core` alongside the signal tests: a company snapshot in, an expected plan shape out.
 - Firestore rules have emulator tests in `packages/core/src/rules.test.ts` (Java 21+). The ones that matter most: nobody reads another company, nobody reads a private project they are not a member of, and nobody reads a Notion record whose source is not on their active role, or one of an assigned-only source that does not name them; then situations stay with admins and a follow-up stays with its manager. `pnpm test:rules` assumes macOS (`/usr/libexec/java_home`); on the Pi run `npx firebase-tools emulators:exec --only firestore --project truenorth-rules-test "pnpm --filter @truenorth/core exec vitest run src/rules.test.ts"`.
 

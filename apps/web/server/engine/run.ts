@@ -25,6 +25,8 @@ import {
 } from '@truenorth/core';
 import { adminDb } from '../admin';
 import { syncCompany } from '../notion/sync';
+import { syncGithub } from '../github/sync';
+import type { GithubSyncReport } from '../github/types';
 import type { SyncReport } from '../notion/types';
 import { askClaude, type ClaudeUsage } from './claude';
 import {
@@ -62,6 +64,8 @@ export interface RunReport {
   /** True when the company had nothing to reason about, so no model call was made. */
   skipped?: boolean;
   sync: SyncReport[];
+  /** GitHub after Notion, so pull requests find their tasks (ADR-010). */
+  githubSync: GithubSyncReport[];
   /** Kept for the daily route and the heartbeat: false when any briefing failed. */
   analysis: { ok: boolean; usage?: ClaudeUsage; error?: string };
   plans: { uid: string; roleId: string; ok: boolean; skipped?: boolean; usage?: ClaudeUsage; error?: string }[];
@@ -84,6 +88,7 @@ export async function runDaily(companyId: string, dateIso?: string): Promise<Run
     companyId,
     date,
     sync: [],
+    githubSync: [],
     analysis: { ok: true },
     plans: [],
     followUps: [],
@@ -98,6 +103,15 @@ export async function runDaily(companyId: string, dateIso?: string): Promise<Run
   } catch (cause) {
     report.sync = [];
     report.analysis = { ok: true, error: `sync: ${describe(cause)}` };
+  }
+  // GitHub second: a pull request is linked to a task by the code in its
+  // branch, and the task has to be here first. A missing token is a skipped
+  // report, not a failed run.
+  try {
+    report.githubSync = await syncGithub(companyId);
+  } catch (cause) {
+    report.githubSync = [];
+    report.analysis = { ok: true, error: `github sync: ${describe(cause)}` };
   }
 
   const captured = await captureCompany(companyId, date);
@@ -174,6 +188,7 @@ export async function replan(companyId: string, uid: string, roleId?: string | n
     companyId,
     date,
     sync: [],
+    githubSync: [],
     analysis: { ok: result.ok },
     plans: [{ uid, roleId: role, ...result }],
     followUps: [],
@@ -554,7 +569,10 @@ async function recentFollowUps(
 /** The app reads this to say whether the engine is up and what it last did. */
 async function heartbeat(report: RunReport): Promise<void> {
   const db = adminDb();
-  const syncError = report.sync.find((s) => s.error)?.error ?? null;
+  const syncError =
+    report.sync.find((s) => s.error)?.error ??
+    report.githubSync.find((s) => s.error && s.mode !== 'skipped')?.error ??
+    null;
   await db
     .collection('workers')
     .doc(WORKER_ID)

@@ -392,3 +392,16 @@ export function NotionMark({ size = 22 }: IconProps) {
     </svg>
   );
 }
+
+/** GitHub, drawn like the Notion mark: a rounded frame with the octocat's silhouette reduced to a branch fork. */
+export function GithubMark({ size = 22 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="8.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="15.5" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="12" cy="16.5" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8.5 9.6v1.2a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2V9.6M12 12.8v2.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}

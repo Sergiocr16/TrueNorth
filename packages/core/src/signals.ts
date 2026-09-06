@@ -1,8 +1,10 @@
 import type {
   DailyPlan,
+  GithubRepo,
   HealthStatus,
   Objective,
   Project,
+  PullRequest,
   Signal,
   Task,
   User,
@@ -44,6 +46,13 @@ export interface SignalContext {
   projects: Project[];
   tasks: Task[];
   users: User[];
+  /** Pull requests in view, from the repositories the role reads (ADR-010). */
+  pullRequests?: PullRequest[];
+  repos?: GithubRepo[];
+  /** Who reviews and merges: an approver signal is addressed to them. */
+  approverUserIds?: string[];
+  /** Notion status labels that mean development finished and a pull request is owed. */
+  finishedStatuses?: string[];
   /**
    * Recent plans for everybody, newest first. The engine reads a week of them;
    * the browser only ever has its own, so these signals are a server affair.
