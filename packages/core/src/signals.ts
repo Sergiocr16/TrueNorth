@@ -2,6 +2,7 @@ import type {
   DailyPlan,
   GithubRepo,
   HealthStatus,
+  Indicator,
   Objective,
   Project,
   PullRequest,
@@ -109,6 +110,83 @@ export function healthFrom(
   return progressGap(item, today) > AT_RISK_GAP_POINTS ? 'at_risk' : 'on_track';
 }
 
+/**
+ * An objective is measured by its indicators. Each is a number with a
+ * baseline, a current value and a target, and its progress is the share of
+ * that distance covered; the objective's progress is their mean, and its
+ * expected progress puts each indicator on its own ramp to its own date. An
+ * objective without indicators has nothing to measure, so the number typed
+ * by hand and the objective's own dates stand.
+ */
+
+/** How far an indicator has come, 0–100. A target equal to the baseline is a level to hold: met or not. */
+export function indicatorProgressPct(
+  indicator: Pick<Indicator, 'baseline' | 'current' | 'target' | 'direction'>,
+): number {
+  const span = indicator.target - indicator.baseline;
+  if (span === 0) {
+    const met =
+      indicator.direction === 'down' ? indicator.current <= indicator.target : indicator.current >= indicator.target;
+    return met ? 100 : 0;
+  }
+  const covered = (indicator.current - indicator.baseline) / span;
+  return Math.max(0, Math.min(100, Math.round(covered * 100)));
+}
+
+/** When an indicator is due: its own date when it has one, else the objective's. */
+export function indicatorTargetDate(
+  indicator: Pick<Indicator, 'targetDate'>,
+  objective: Pick<Objective, 'targetDate'>,
+): string {
+  return indicator.targetDate || objective.targetDate;
+}
+
+/** The mean of the indicators' progress; the typed number while there are none. */
+export function objectiveProgressPct(objective: Pick<Objective, 'indicators' | 'progressPct'>): number {
+  if (objective.indicators.length === 0) return objective.progressPct;
+  const sum = objective.indicators.reduce((acc, i) => acc + indicatorProgressPct(i), 0);
+  return Math.round(sum / objective.indicators.length);
+}
+
+type MeasuredObjective = Pick<Objective, 'startDate' | 'targetDate' | 'indicators' | 'progressPct'>;
+
+/** Expected progress on a day: each indicator's ramp to its own date, averaged; the objective's ramp without them. */
+export function expectedObjectivePct(objective: Omit<MeasuredObjective, 'progressPct'>, today: Date): number {
+  if (objective.indicators.length === 0) {
+    return expectedProgressPct(objective.startDate, objective.targetDate, today);
+  }
+  const sum = objective.indicators.reduce(
+    (acc, i) => acc + expectedProgressPct(objective.startDate, indicatorTargetDate(i, objective), today),
+    0,
+  );
+  return Math.round(sum / objective.indicators.length);
+}
+
+/** Positive means behind: what the objective should show today minus what it measures. */
+export function objectiveGap(objective: MeasuredObjective, today: Date): number {
+  return expectedObjectivePct(objective, today) - objectiveProgressPct(objective);
+}
+
+/**
+ * The expected line for a chart: a bend wherever an indicator comes due, so a
+ * key result due in three months is not drawn as if it had the whole year.
+ */
+export function expectedObjectivePath(objective: Omit<MeasuredObjective, 'progressPct'>): { date: string; pct: number }[] {
+  const dates = new Set<string>([
+    objective.startDate,
+    objective.targetDate,
+    ...objective.indicators.map((i) => indicatorTargetDate(i, objective)),
+  ]);
+  return [...dates].sort().map((date) => ({ date, pct: expectedObjectivePct(objective, toDate(date)) }));
+}
+
+/** Health from measured progress: done, late past the objective's date, at risk beyond the gap threshold. */
+export function objectiveHealth(objective: MeasuredObjective, today: Date): HealthStatus {
+  if (objectiveProgressPct(objective) >= 100) return 'done';
+  if (toDate(objective.targetDate) < today) return 'late';
+  return objectiveGap(objective, today) > AT_RISK_GAP_POINTS ? 'at_risk' : 'on_track';
+}
+
 /** Whole days between the calendar day of a timestamp and today. */
 function daysSince(timestamp: string, today: Date): number | null {
   const at = new Date(timestamp);
@@ -210,19 +288,19 @@ export function computeSignals(ctx: SignalContext): Signal[] {
 
   for (const objective of objectives) {
     if (objective.status === 'done') continue;
-    const gap = progressGap(objective, today);
+    const gap = objectiveGap(objective, today);
     if (gap > AT_RISK_GAP_POINTS) {
-      const expected = expectedProgressPct(objective.startDate, objective.targetDate, today);
+      const expected = expectedObjectivePct(objective, today);
       signals.push({
         id: `gap:${objective.id}`,
         kind: 'progress_gap',
-        severity: healthFrom(objective, today) === 'late' ? 'critical' : 'warning',
+        severity: objectiveHealth(objective, today) === 'late' ? 'critical' : 'warning',
         summary: {
           es: `${objective.title} va ${gap} pts por detrás de lo esperado`,
           en: `${objective.title} is ${gap} pts behind plan`,
         },
         objectiveId: objective.id,
-        data: { gap, expected, actual: objective.progressPct },
+        data: { gap, expected, actual: objectiveProgressPct(objective) },
       });
     }
 

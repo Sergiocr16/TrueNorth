@@ -35,6 +35,8 @@ import {
   shiftIso,
   todayIso,
   healthFrom,
+  objectiveHealth,
+  objectiveProgressPct,
   type Company,
   type CompanyAnalysis,
   type DailyPlan,
@@ -1069,7 +1071,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       upsertObjective: (objective) =>
         write((db, cid) => {
-          const { id, ...rest } = withHealth(objective);
+          // Progress is measured by the indicators whenever there are any; the
+          // typed number only stands for an objective without them.
+          const measured = { ...objective, progressPct: objectiveProgressPct(objective) };
+          const { id, ...rest } = { ...measured, status: objectiveHealth(measured, new Date(`${TODAY}T00:00:00`)) };
           const previous = objectives.find((o) => o.id === id);
           return setDoc(doc(db, 'companies', cid, 'objectives', id), {
             ...rest,
@@ -1944,6 +1949,7 @@ export function makeIndicator(): Indicator {
     current: 0,
     target: 100,
     direction: 'up',
+    targetDate: null,
   };
 }
 

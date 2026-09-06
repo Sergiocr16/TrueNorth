@@ -7,11 +7,17 @@ import {
   SILENT_OWNER_TASKS,
   STALE_TASK_DAYS,
   computeSignals,
+  expectedObjectivePath,
+  expectedObjectivePct,
   expectedProgressPct,
   healthFrom,
   idleDays,
+  indicatorProgressPct,
   isOverdue,
   lastMovementAt,
+  objectiveGap,
+  objectiveHealth,
+  objectiveProgressPct,
   progressGap,
 } from './signals';
 import { NOTION_TASK_STATUS, taskStatusFromNotion } from './notion-status';
@@ -296,6 +302,61 @@ describe('pull request signals (ADR-010)', () => {
     expect(signal?.userIds).toEqual(['u2']);
     expect(signal?.summary.es).toContain('está aprobado hace 3 días y sin fusionar');
     expect(byId(run({ pullRequests: [pull({ ...approved, state: 'merged' })] }), 'pr_approved_unmerged:gh_api_42')).toBeUndefined();
+  });
+});
+
+describe('objectives measured by their indicators', () => {
+  const up = { id: 'i_up', name: 'Coverage', unit: '%', baseline: 0, current: 40, target: 100, direction: 'up' as const };
+  const down = { id: 'i_down', name: 'Tickets', unit: 'tickets', baseline: 240, current: 213, target: 168, direction: 'down' as const };
+
+  it('reads an indicator as the share of the distance from baseline to target', () => {
+    expect(indicatorProgressPct(up)).toBe(40);
+    expect(indicatorProgressPct(down)).toBe(38);
+    expect(indicatorProgressPct({ ...up, current: 130 })).toBe(100);
+    expect(indicatorProgressPct({ ...down, current: 260 })).toBe(0);
+    // A level to hold: met or not.
+    expect(indicatorProgressPct({ ...down, baseline: 0, target: 0, current: 0 })).toBe(100);
+    expect(indicatorProgressPct({ ...down, baseline: 0, target: 0, current: 2 })).toBe(0);
+    expect(indicatorProgressPct({ ...up, baseline: 5, target: 5, current: 5 })).toBe(100);
+  });
+
+  it('measures the objective by its indicators, and only falls back to the typed number without them', () => {
+    expect(objectiveProgressPct(objective({ progressPct: 90 }))).toBe(90);
+    expect(objectiveProgressPct(objective({ progressPct: 90, indicators: [up, { ...down, current: 168 }] }))).toBe(70);
+  });
+
+  it('puts each indicator on its own ramp to its own date', () => {
+    const april = new Date('2026-04-01T00:00:00');
+    const o = objective({ indicators: [{ ...up, targetDate: '2026-04-01' }, down] });
+    // The first is due today (100 %); the second runs with the objective (25 %).
+    expect(expectedObjectivePct(o, april)).toBe(63);
+    expect(expectedObjectivePct(objective(), april)).toBe(25);
+    expect(objectiveGap(o, april)).toBe(63 - 39);
+    expect(expectedObjectivePath(o)).toEqual([
+      { date: '2026-01-01', pct: 0 },
+      { date: '2026-04-01', pct: 63 },
+      { date: '2026-12-31', pct: 100 },
+    ]);
+  });
+
+  it('derives health from what the indicators measure, not from the typed number', () => {
+    const april = new Date('2026-04-01T00:00:00');
+    expect(objectiveHealth(objective({ progressPct: 50 }), april)).toBe('on_track');
+    expect(objectiveHealth(objective({ progressPct: 50, indicators: [{ ...up, current: 5 }] }), april)).toBe('at_risk');
+    expect(objectiveHealth(objective({ indicators: [{ ...up, current: 100 }] }), april)).toBe('done');
+    expect(objectiveHealth(objective({ indicators: [up] }), new Date('2027-01-05T00:00:00'))).toBe('late');
+  });
+
+  it('feeds the gap signal with measured progress', () => {
+    const signals = computeSignals({
+      today: TODAY,
+      objectives: [objective({ progressPct: 90, indicators: [{ ...up, current: 10 }] })],
+      projects: [project()],
+      tasks: [task()],
+      users,
+    });
+    const gap = signals.find((s) => s.kind === 'progress_gap');
+    expect(gap?.data?.actual).toBe(10);
   });
 });
 

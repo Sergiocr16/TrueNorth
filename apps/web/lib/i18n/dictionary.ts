@@ -130,6 +130,10 @@ export const dictionary = {
       actual: 'Avance real',
       gap: (n: number) => `${n} pts de brecha`,
       owner: 'Responsable',
+      derivedFromIndicators: 'Promedio de lo que recorrió cada indicador de su base a su meta.',
+      indicatorDue: 'Fecha meta',
+      indicatorsHint:
+        'Los indicadores son lo que hace medible el objetivo: con ellos el avance se calcula solo. Un indicador sin fecha propia vence con el objetivo.',
     },
 
     projects: {
@@ -585,6 +589,8 @@ export const dictionary = {
       seeBriefing: 'Ver briefing ejecutivo',
       noHistory:
         'Sin historial todavía: el gráfico se llena a medida que actualices el avance.',
+      noIndicators:
+        'Este objetivo no tiene indicadores: el avance es un número escrito a mano y la línea esperada es una recta hasta la fecha meta. Agregale indicadores desde Objetivos.',
     },
 
     briefing: {
@@ -812,6 +818,10 @@ export const dictionary = {
       actual: 'Actual progress',
       gap: (n: number) => `${n} pts behind`,
       owner: 'Owner',
+      derivedFromIndicators: 'The mean of how far each indicator has come from its baseline to its target.',
+      indicatorDue: 'Due',
+      indicatorsHint:
+        'Indicators are what make the objective measurable: with them progress is computed. An indicator without a date of its own is due with the objective.',
     },
 
     projects: {
@@ -1266,6 +1276,8 @@ export const dictionary = {
       gapTrend: 'Gap over time',
       seeBriefing: 'See the executive briefing',
       noHistory: 'No history yet: the chart fills in as you update progress.',
+      noIndicators:
+        'This objective has no indicators: progress is a number typed by hand and the expected line is a straight ramp to the target date. Add indicators under Objectives.',
     },
 
     briefing: {

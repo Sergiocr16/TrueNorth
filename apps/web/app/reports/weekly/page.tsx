@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useMemo } from 'react';
 import type { Objective, Reading } from '@truenorth/core';
-import { isOverdue, progressGap } from '@truenorth/core';
+import { expectedObjectivePct, isOverdue, objectiveGap } from '@truenorth/core';
 import { DeltaRow, LineChart } from '../../../components/charts';
 import { DetailHeader, ROUTES, Screen } from '../../../components/shell';
 import { Card, SectionLabel } from '../../../components/ui';
@@ -82,7 +82,7 @@ export default function WeeklyReportPage() {
 
   // The objective furthest behind is the one the summary is about.
   const worst: Objective | undefined = useMemo(
-    () => [...objectives].sort((a, b) => progressGap(b, today) - progressGap(a, today))[0],
+    () => [...objectives].sort((a, b) => objectiveGap(b, today) - objectiveGap(a, today))[0],
     [objectives, today],
   );
 
@@ -94,11 +94,9 @@ export default function WeeklyReportPage() {
       .filter((entry) => toTime(entry.date) >= from)
       .map((entry) => ({
         x: toTime(entry.date),
-        // The gap is what this chart is about, not raw progress.
-        y: Math.max(
-          0,
-          progressGap({ ...worst, progressPct: entry.value }, new Date(toTime(entry.date))),
-        ),
+        // The gap is what this chart is about, not raw progress: what was
+        // expected that day minus what was measured that day.
+        y: Math.max(0, expectedObjectivePct(worst, new Date(toTime(entry.date))) - entry.value),
       }));
     return points.length >= 2 ? points : null;
   }, [worst, today]);
@@ -127,8 +125,8 @@ export default function WeeklyReportPage() {
         <p className="mt-1.5 text-[17px] leading-snug text-[var(--ink)] text-pretty">
           {worst
             ? es
-              ? `${worst.title} va ${progressGap(worst, today)} pts por detrás y es lo que más pesa esta semana. Hay ${overdueNow} ${overdueNow === 1 ? 'tarea vencida' : 'tareas vencidas'} en la empresa.`
-              : `${worst.title} is ${progressGap(worst, today)} pts behind and carries the most weight this week. There ${overdueNow === 1 ? 'is' : 'are'} ${overdueNow} overdue ${overdueNow === 1 ? 'task' : 'tasks'} across the company.`
+              ? `${worst.title} va ${objectiveGap(worst, today)} pts por detrás y es lo que más pesa esta semana. Hay ${overdueNow} ${overdueNow === 1 ? 'tarea vencida' : 'tareas vencidas'} en la empresa.`
+              : `${worst.title} is ${objectiveGap(worst, today)} pts behind and carries the most weight this week. There ${overdueNow === 1 ? 'is' : 'are'} ${overdueNow} overdue ${overdueNow === 1 ? 'task' : 'tasks'} across the company.`
             : es
               ? 'Todavía no hay objetivos que resumir.'
               : 'No objectives to summarise yet.'}
@@ -172,7 +170,7 @@ export default function WeeklyReportPage() {
                   label: t.reports.gapTrend,
                   color: 'var(--red)',
                   endpoint: true,
-                  endpointLabel: `${progressGap(worst, today)} pts`,
+                  endpointLabel: `${objectiveGap(worst, today)} pts`,
                   points: trend,
                 },
               ]}

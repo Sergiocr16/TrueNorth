@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { expectedProgressPct, progressGap } from '@truenorth/core';
+import { expectedObjectivePct, indicatorProgressPct, indicatorTargetDate, objectiveGap } from '@truenorth/core';
 import { DetailHeader, ROUTES, Screen } from '../../../components/shell';
 import {
   Card,
@@ -39,8 +39,8 @@ export default function ObjectiveDetailPage() {
     );
   }
 
-  const expected = expectedProgressPct(objective.startDate, objective.targetDate, store.today);
-  const gap = progressGap(objective, store.today);
+  const expected = expectedObjectivePct(objective, store.today);
+  const gap = objectiveGap(objective, store.today);
   const owner = store.users.find((u) => u.id === objective.ownerUserId);
   const linked = store.projects.filter((p) => p.objectiveIds.includes(objective.id));
 
@@ -106,9 +106,7 @@ export default function ObjectiveDetailPage() {
           <SectionLabel>{t.objectives.indicators}</SectionLabel>
           <Card className="overflow-hidden">
             {objective.indicators.map((indicator, index) => {
-              const span = indicator.target - indicator.baseline;
-              const moved = indicator.current - indicator.baseline;
-              const pct = span === 0 ? 100 : Math.round((moved / span) * 100);
+              const pct = indicatorProgressPct(indicator);
               return (
                 <div
                   key={indicator.id}
@@ -125,18 +123,15 @@ export default function ObjectiveDetailPage() {
                     </span>
                   </div>
                   <div className="mt-2">
-                    <ProgressBar
-                      value={Math.max(0, Math.min(100, pct))}
-                      status={objective.status}
-                      height={6}
-                    />
+                    <ProgressBar value={pct} status={objective.status} height={6} />
                   </div>
                   <div className="tn-tabular mt-1.5 flex justify-between text-[12px] text-[var(--ter)]">
                     <span>
                       {t.objectives.baseline} {indicator.baseline}
                     </span>
                     <span>
-                      {t.objectives.target} {indicator.target}
+                      {t.objectives.target} {indicator.target} ·{' '}
+                      {formatShortDate(indicatorTargetDate(indicator, objective), locale)}
                     </span>
                   </div>
                 </div>
