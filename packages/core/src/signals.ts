@@ -1,3 +1,5 @@
+import type { DayResolution } from './schedule';
+import { WEEKDAY_NAMES } from './schedule';
 import type {
   DailyPlan,
   GithubRepo,
@@ -64,6 +66,8 @@ export interface SignalContext {
   approverUserIds?: string[];
   /** Notion status labels that mean development finished and a pull request is owed. */
   finishedStatuses?: string[];
+  /** The day itself (ADR-012): absent means nothing is said about it. */
+  day?: DayResolution;
   /**
    * Recent plans for everybody, newest first. The engine reads a week of them;
    * the browser only ever has its own, so these signals are a server affair.
@@ -282,9 +286,37 @@ function taskName(task: Pick<Task, 'code' | 'title'>): string {
 }
 
 export function computeSignals(ctx: SignalContext): Signal[] {
-  const { today, objectives, projects, tasks, users } = ctx;
+  const { today, objectives, projects, tasks, users, day } = ctx;
   const signals: Signal[] = [];
   const openTasks = tasks.filter((t) => t.status !== 'done');
+
+  // The day itself, so a plan can cite it: a rest day is what an optional
+  // suggestion rests on; a focus is what an action born of it rests on.
+  if (day && !day.working) {
+    const name = WEEKDAY_NAMES[day.weekday];
+    signals.push({
+      id: `rest_day:${day.iso}`,
+      kind: 'rest_day',
+      severity: 'info',
+      summary: {
+        es: `${capitalize(name.es)}: día no laboral`,
+        en: `${name.en}: rest day`,
+      },
+      data: { weekday: day.weekday, ...(day.focus ? { focus: day.focus } : {}) },
+    });
+  } else if (day?.focus) {
+    const name = WEEKDAY_NAMES[day.weekday];
+    signals.push({
+      id: `day_focus:${day.iso}`,
+      kind: 'day_focus',
+      severity: 'info',
+      summary: {
+        es: `Enfoque del ${name.es}: ${day.focus}`,
+        en: `${name.en} focus: ${day.focus}`,
+      },
+      data: { weekday: day.weekday, focus: day.focus },
+    });
+  }
 
   for (const objective of objectives) {
     if (objective.status === 'done') continue;
@@ -844,6 +876,12 @@ export function signalsForUser(signals: Signal[], userId: string, projects: Proj
       s.userIds?.includes(userId) ||
       (s.projectId && ownedProjectIds.has(s.projectId)) ||
       s.kind === 'progress_gap' ||
-      s.kind === 'orphan_project',
+      s.kind === 'orphan_project' ||
+      s.kind === 'rest_day' ||
+      s.kind === 'day_focus',
   );
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

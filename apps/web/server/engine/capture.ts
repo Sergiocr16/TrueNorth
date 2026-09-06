@@ -17,7 +17,14 @@ import type {
   Task,
   User,
 } from '@truenorth/core';
-import { atMidnight, scopeFor, shiftIso, todayIso as computeTodayIso } from '@truenorth/core';
+import {
+  atMidnight,
+  resolveDay,
+  scopeFor,
+  shiftIso,
+  todayIso as computeTodayIso,
+  type DayResolution,
+} from '@truenorth/core';
 import { adminDb } from '../admin';
 import type { CompanyContext } from './prompts';
 
@@ -215,6 +222,12 @@ export async function captureCompany(
   };
 }
 
+/** The character of the day for a role (ADR-012): working or not, and its focus. */
+export function dayFor(captured: Captured, roleId: string | null): DayResolution {
+  const role = roleId ? (captured.roles.find((r) => r.id === roleId) ?? null) : null;
+  return resolveDay(captured.company, role, captured.todayIso);
+}
+
 /**
  * One person's view in one role, signals included. The only way a prompt
  * gets projects, tasks or signals; see visibility.ts for what it hides.
@@ -223,6 +236,7 @@ export function scopeOf(captured: Captured, userId: string, roleId: string | nul
   return scopeFor(
     {
       today: captured.today,
+      day: dayFor(captured, roleId),
       objectives: captured.objectives,
       projects: captured.projects,
       tasks: captured.tasks,
@@ -257,6 +271,7 @@ export function contextFor(captured: Captured, scope: Scoped): CompanyContext {
     approverUserIds: scope.approverUserIds,
     today: captured.today,
     todayIso: captured.todayIso,
+    day: dayFor(captured, scope.role?.id ?? null),
   };
 }
 

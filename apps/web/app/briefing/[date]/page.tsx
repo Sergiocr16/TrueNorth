@@ -133,7 +133,7 @@ export default function BriefingDayPage() {
                         {verdict && verdict !== 'done'
                           ? ` · ${verdict === 'skipped' ? t.today.skipped : t.today.irrelevant}`
                           : ''}
-                        {!verdict ? ` · ${t.briefing.noVerdict}` : ''}
+                        {!verdict ? ` · ${item.optional ? t.today.optional : t.briefing.noVerdict}` : ''}
                       </div>
                     </div>
                   </div>

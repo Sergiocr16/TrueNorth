@@ -1,4 +1,5 @@
-import type { Locale } from '@truenorth/core';
+import type { Locale, Weekday } from '@truenorth/core';
+import { WEEKDAYS } from '@truenorth/core';
 
 /**
  * Every user-facing string lives here. Spanish is the default and is written
@@ -52,6 +53,11 @@ export const dictionary = {
       recalculatingHint: 'Estoy revisando lo que cambió desde ayer. Toma unos segundos.',
       recalculateFailed: 'No se pudo recalcular el plan.',
       ifNotToday: 'Si no se hace hoy,',
+      restDay: 'Día no laboral · sugerencias opcionales de mejora',
+      focusToday: (focus: string) => `Enfoque de hoy: ${focus}`,
+      suggestions: 'Sugerencias para hoy',
+      suggestionCount: (n: number) => `Sugerencias · ${n} ${n === 1 ? 'opcional' : 'opcionales'}`,
+      optional: 'opcional',
       signal: 'señal',
       minutes: 'min',
       done: 'Hecho',
@@ -116,6 +122,19 @@ export const dictionary = {
       plan6: 'A 6 meses',
       plan12: 'A 12 meses',
       overall: 'Estado general',
+      northStarHint: 'Es obligatoria. Todo lo que el agente prioriza se mide contra ella.',
+      schedule: 'Horario semanal',
+      scheduleHint:
+        'El rol no cambia según el día. Un día laboral trae el plan normal, ordenado por el enfoque si lo hay; un día de descanso trae solo sugerencias opcionales de mejora, sin plazos ni seguimiento.',
+      editSchedule: 'Editar horario',
+      workingDay: 'Día laboral',
+      restDay: 'descanso',
+      normalDay: 'Plan normal del rol',
+      restDayMode: 'Descanso · sugerencias opcionales',
+      focus: 'Enfoque (opcional)',
+      focusPlaceholder: 'Ej.: cerrar pendientes y dejar todo listo para el lunes',
+      noFocus: 'Sin enfoque',
+      atLeastOneDay: 'Marcá al menos un día laboral.',
     },
 
     objectives: {
@@ -340,6 +359,9 @@ export const dictionary = {
       sources: 'Bases de Notion que ve',
       sourcesHint:
         'Solo lo que está marcado entra al plan, al briefing y al seguimiento de este rol. Sin bases, ve solo lo registrado en la app. Abajo se decide cuánto ve de cada una.',
+      focus: 'Enfoque por día (opcional)',
+      focusHint:
+        'Solo para quien tenga este rol puesto, por encima del enfoque de la empresa. Vacío usa el de la empresa.',
       noSourcesYet: 'Todavía no hay bases registradas. Se agregan en Integraciones.',
       repos: 'Repositorios de GitHub que ve',
       scope: 'Qué ve de cada base',
@@ -742,6 +764,11 @@ export const dictionary = {
       recalculatingHint: "I'm checking what changed since yesterday. This takes a few seconds.",
       recalculateFailed: 'The plan could not be recalculated.',
       ifNotToday: "If this doesn't happen today,",
+      restDay: 'Rest day · optional improvement suggestions',
+      focusToday: (focus: string) => `Today's focus: ${focus}`,
+      suggestions: 'Suggestions for today',
+      suggestionCount: (n: number) => `Suggestions · ${n} optional`,
+      optional: 'optional',
       signal: 'signal',
       minutes: 'min',
       done: 'Done',
@@ -806,6 +833,19 @@ export const dictionary = {
       plan6: '6 months',
       plan12: '12 months',
       overall: 'Overall status',
+      northStarHint: 'Mandatory. Everything the agent prioritises is measured against it.',
+      schedule: 'Weekly schedule',
+      scheduleHint:
+        'The role does not change with the day. A working day brings the usual plan, ordered by the focus when there is one; a rest day brings only optional improvement suggestions, with no deadlines and no follow-up.',
+      editSchedule: 'Edit schedule',
+      workingDay: 'Working day',
+      restDay: 'rest',
+      normalDay: "The role's usual plan",
+      restDayMode: 'Rest · optional suggestions',
+      focus: 'Focus (optional)',
+      focusPlaceholder: 'E.g.: close what is pending and leave everything ready for Monday',
+      noFocus: 'No focus',
+      atLeastOneDay: 'Tick at least one working day.',
     },
 
     objectives: {
@@ -1030,6 +1070,8 @@ export const dictionary = {
       sources: 'Notion databases it sees',
       sourcesHint:
         'Only what is ticked goes into this role\'s plan, briefing and follow-up. With none, it sees only what was recorded in the app. Below, how much of each it sees.',
+      focus: 'Focus per day (optional)',
+      focusHint: "Only for whoever has this role on, over the company's focus. Empty uses the company's.",
       noSourcesYet: 'No databases registered yet. Add them under Integrations.',
       repos: 'GitHub repositories it sees',
       scope: 'What it sees of each database',
@@ -1404,6 +1446,15 @@ const NO_DATE = '—';
  * `RangeError: Invalid time value` on an invalid Date, and a throw here takes
  * the whole screen down, so an unset date renders as a dash instead.
  */
+/** "Lunes" / "Monday" (or "lun" / "Mon"). 5 January 2026 is a Monday; the week reads Monday-first. */
+export function weekdayName(weekday: Weekday, locale: Locale, width: 'long' | 'short' = 'long'): string {
+  const date = new Date(2026, 0, 5 + WEEKDAYS.indexOf(weekday));
+  const name = new Intl.DateTimeFormat(locale === 'es' ? 'es-CR' : 'en-US', { weekday: width })
+    .format(date)
+    .replace('.', '');
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 export function formatShortDate(iso: string, locale: Locale): string {
   const date = new Date(`${iso}T12:00:00`);
   if (Number.isNaN(date.getTime())) return NO_DATE;

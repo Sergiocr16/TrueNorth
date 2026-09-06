@@ -1,15 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { daysUntil, formatShortDate } from '../../lib/i18n/dictionary';
+import type { CompanySchedule } from '@truenorth/core';
+import { daysUntil, formatShortDate, weekdayName } from '../../lib/i18n/dictionary';
 import { CompanyLogoPicker } from '../../components/company-switcher';
 import { HealthCompass } from '../../components/day-compass';
 import { LargeTitle, Screen } from '../../components/shell';
 import { Card, SectionLabel, StatusPill, TextButton } from '../../components/ui';
-import { DateField, EditSheet, FieldGroup, TextAreaField } from '../../components/form';
+import { DateField, EditSheet, FieldGroup, TextAreaField, TextField, ToggleField } from '../../components/form';
 import { usePreferences } from '../../lib/preferences';
 import { useRiskCount, useStore } from '../../lib/store';
-import { shareHealthy, todayIso } from '@truenorth/core';
+import { WEEKDAYS, companySchedule, shareHealthy, todayIso } from '@truenorth/core';
 
 export default function CompanyPage() {
   const { t, locale } = usePreferences();
@@ -19,6 +20,8 @@ export default function CompanyPage() {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(company);
+  const [editingSchedule, setEditingSchedule] = useState(false);
+  const schedule = companySchedule(company);
 
   const open = () => {
     setDraft(company);
@@ -115,6 +118,44 @@ export default function CompanyPage() {
         </Card>
       </div>
 
+      {/* The week (ADR-012): which days are working days, and the focus of
+          any day that has one. The role never changes with the day. */}
+      <div className="mx-4 mt-4">
+        <SectionLabel
+          action={<TextButton onClick={() => setEditingSchedule(true)}>{t.company.editSchedule}</TextButton>}
+        >
+          {t.company.schedule}
+        </SectionLabel>
+        <Card className="overflow-hidden">
+          {WEEKDAYS.map((day, index) => {
+            const working = schedule.workingDays.includes(day);
+            const focus = schedule.focus[day];
+            return (
+              <div key={day} className={`flex items-baseline gap-3 px-4 py-3 ${index === 6 ? '' : 'tn-hairline'}`}>
+                <span className="w-24 shrink-0 text-[17px] text-[var(--ink)]">{weekdayName(day, locale)}</span>
+                <span
+                  className={`min-w-0 flex-1 text-[15px] leading-snug ${working && focus ? 'text-[var(--ink)]' : 'text-[var(--ter)]'}`}
+                >
+                  {working ? (focus ?? t.company.noFocus) : t.company.restDayMode}
+                </span>
+              </div>
+            );
+          })}
+        </Card>
+        <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">{t.company.scheduleHint}</p>
+      </div>
+
+      {editingSchedule ? (
+        <ScheduleSheet
+          initial={schedule}
+          onCancel={() => setEditingSchedule(false)}
+          onSave={(next) => {
+            store.updateCompany({ schedule: next });
+            setEditingSchedule(false);
+          }}
+        />
+      ) : null}
+
       <EditSheet
         open={editing}
         title={t.nav.company}
@@ -122,10 +163,7 @@ export default function CompanyPage() {
         onSave={save}
         canSave={draft.northStar.trim().length > 0}
       >
-        <FieldGroup
-          header={t.company.northStar}
-          footer="Es obligatoria. Todo lo que el agente prioriza se mide contra ella."
-        >
+        <FieldGroup header={t.company.northStar} footer={t.company.northStarHint}>
           <TextAreaField
             label={t.company.northStar}
             value={draft.northStar}
@@ -163,5 +201,65 @@ export default function CompanyPage() {
         </FieldGroup>
       </EditSheet>
     </Screen>
+  );
+}
+
+/** One group per weekday: whether it is a working day, and its focus, if any. */
+function ScheduleSheet({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: CompanySchedule;
+  onCancel: () => void;
+  onSave: (schedule: CompanySchedule) => void;
+}) {
+  const { t, locale } = usePreferences();
+  const [draft, setDraft] = useState<CompanySchedule>(initial);
+
+  return (
+    <EditSheet
+      open
+      title={t.company.schedule}
+      onCancel={onCancel}
+      onSave={() => onSave(companySchedule({ schedule: draft }))}
+      canSave={draft.workingDays.length > 0}
+    >
+      {WEEKDAYS.map((day, index) => {
+        const working = draft.workingDays.includes(day);
+        return (
+          <FieldGroup
+            key={day}
+            header={weekdayName(day, locale)}
+            footer={
+              index === 6
+                ? draft.workingDays.length === 0
+                  ? t.company.atLeastOneDay
+                  : t.company.scheduleHint
+                : undefined
+            }
+          >
+            <ToggleField
+              label={t.company.workingDay}
+              description={working ? t.company.normalDay : t.company.restDayMode}
+              value={working}
+              onChange={(on) =>
+                setDraft({
+                  ...draft,
+                  workingDays: on ? [...draft.workingDays, day] : draft.workingDays.filter((d) => d !== day),
+                })
+              }
+            />
+            <TextField
+              label={t.company.focus}
+              value={draft.focus[day] ?? ''}
+              onChange={(text) => setDraft({ ...draft, focus: { ...draft.focus, [day]: text } })}
+              placeholder={t.company.focusPlaceholder}
+              isLast
+            />
+          </FieldGroup>
+        );
+      })}
+    </EditSheet>
   );
 }

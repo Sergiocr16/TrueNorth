@@ -287,6 +287,11 @@ Persistent=true
 WantedBy=timers.target
 ```
 
+The timer runs seven days a week on purpose. The engine reads the company's
+weekly schedule (ADR-012): on a working day it writes the usual plan, ordered
+by the day's focus when there is one; on a rest day it writes a short plan of
+one to three optional improvement suggestions and follows nobody up.
+
 `Persistent=true` means a run missed because the Pi was off happens as soon as
 it comes back, rather than being skipped. Add `ENGINE_LOCAL_TOKEN=<random>` to
 `/etc/truenorth/env`; the route refuses calls without it, so nothing on the

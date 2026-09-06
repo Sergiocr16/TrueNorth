@@ -166,6 +166,21 @@ export default function TodayPage() {
         </div>
       ) : null}
 
+      {/* The day the plan was written for (ADR-012): a rest day, or a focus. */}
+      {hasPlan && plan.dayKind === 'rest' ? (
+        <div className="mt-3 px-4">
+          <Banner tone="info" icon={<CalendarIcon />}>
+            {t.today.restDay}
+          </Banner>
+        </div>
+      ) : hasPlan && plan.focus ? (
+        <div className="mt-3 px-4">
+          <Banner tone="info" icon={<CalendarIcon />}>
+            {t.today.focusToday(plan.focus)}
+          </Banner>
+        </div>
+      ) : null}
+
       {!hasRole ? (
         <Card className="mx-4 mt-4">
           <EmptyState title={t.roles.none} body={t.roles.noRoleBody} />
@@ -204,7 +219,11 @@ export default function TodayPage() {
               <DayCompass done={doneCount} total={plan.items.length} size={112} />
               <div className="min-w-0 flex-1">
                 <div className="text-[12px] font-bold uppercase tracking-[0.8px] text-[var(--accent)]">
-                  {doneCount >= plan.items.length ? t.today.allDone : t.today.priority}
+                  {doneCount >= plan.items.length
+                    ? t.today.allDone
+                    : plan.dayKind === 'rest'
+                      ? t.today.suggestions
+                      : t.today.priority}
                 </div>
                 {/* Body size, not display size: it shares the row with the
                     compass, and a headline is two lines of a sentence, not a
@@ -245,10 +264,12 @@ export default function TodayPage() {
                     {headlineObjective.title}: {headlineObjective.progressPct}% · {gap} pts
                   </p>
                 ) : null}
-                <p>
-                  <strong className="font-semibold text-[var(--warn)]">{t.today.ifNotToday}</strong>{' '}
-                  {plan.consequenceIfNotDone}.
-                </p>
+                {plan.consequenceIfNotDone ? (
+                  <p>
+                    <strong className="font-semibold text-[var(--warn)]">{t.today.ifNotToday}</strong>{' '}
+                    {plan.consequenceIfNotDone}.
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </Card>
@@ -257,7 +278,9 @@ export default function TodayPage() {
             <SectionLabel
               action={<TextButton onClick={recalculate}>{t.today.recalculate}</TextButton>}
             >
-              {t.today.planCount(plan.items.length)}
+              {plan.dayKind === 'rest'
+                ? t.today.suggestionCount(plan.items.length)
+                : t.today.planCount(plan.items.length)}
             </SectionLabel>
 
             <Card className="overflow-hidden">
@@ -380,6 +403,7 @@ function PlanItemRow({
               <ClockIcon /> {item.estimatedMinutes} {t.today.minutes}
             </span>
             {item.deadlineTime ? <span>· {item.deadlineTime}</span> : null}
+            {item.optional ? <span>· {t.today.optional}</span> : null}
             {task?.code ? <span>· {task.code}</span> : null}
             {verdict && verdict !== 'done' ? <span>· {t.today[verdict]}</span> : null}
           </div>
