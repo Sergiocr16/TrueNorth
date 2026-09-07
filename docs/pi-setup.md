@@ -383,11 +383,11 @@ on *Aviso diario* on the phone, from the installed app — iOS delivers nothing 
 Safari — and `NEXT_PUBLIC_FIREBASE_VAPID_KEY` in the env (Firebase console →
 Cloud Messaging → Web Push certificates).
 
-Note that the Pi's clock is UTC (`timedatectl`): the units above are written
-in Costa Rica time for reading, and the live daily timer fires at `08:00`
-UTC. The app never depends on the machine's zone — every date goes through
-`todayIso()` and a wall-clock time carries `TIME_ZONE_OFFSET` — but a unit
-file does.
+Note that the Pi's clock is UTC (`timedatectl`), so a unit that means a
+Costa Rica hour has to say so: the live daily timer reads
+`OnCalendar=*-*-* 02:00:00 America/Costa_Rica`. The app itself never depends
+on the machine's zone — every date goes through `todayIso()` and a wall-clock
+time carries `TIME_ZONE_OFFSET`.
 
 ### Personal reminders
 
