@@ -8,16 +8,17 @@ import { SidebarCompanyButton, CompanySwitcher } from './company-switcher';
 import { usePreferences } from '../lib/preferences';
 import { useStore } from '../lib/store';
 import {
+  AskIcon,
   BriefingIcon,
   ChevronDown,
   ChevronLeft,
   CompanyIcon,
   CompassGlyph,
-  AskIcon,
   FollowUpIcon,
   IntegrationIcon,
   ObjectiveIcon,
   ProjectIcon,
+  ReminderIcon,
   ReportIcon,
   RiskIcon,
   SettingsIcon,
@@ -116,6 +117,7 @@ const SIDEBAR_ITEMS = [
   { href: ROUTES.projects, key: 'projects', Icon: ProjectIcon },
   { href: ROUTES.team, key: 'team', Icon: TeamIcon },
   { href: ROUTES.followUps, key: 'followUps', Icon: FollowUpIcon },
+  { href: ROUTES.reminders, key: 'reminders', Icon: ReminderIcon },
   { href: ROUTES.ask, key: 'ask', Icon: AskIcon },
   { href: ROUTES.risks, key: 'risks', Icon: RiskIcon },
   { href: ROUTES.reports, key: 'reports', Icon: ReportIcon },
