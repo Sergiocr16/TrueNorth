@@ -7,6 +7,7 @@ import type {
   Membership,
   NotionSource,
   Objective,
+  ObjectiveScope,
   Project,
   PullRequest,
   Role,
@@ -133,6 +134,21 @@ export function visiblePullRequests(
 /* Scope: everything one person in one role may see, signals included  */
 /* ------------------------------------------------------------------ */
 
+/** The scope an objective was written with; the ones written before ADR-013 are general. */
+export function objectiveScope(objective: Pick<Objective, 'scope'>): ObjectiveScope {
+  return objective.scope === 'role' ? 'role' : 'general';
+}
+
+/** Whether an objective counts for a person in a role: general ones always, role ones only in that role. */
+export function objectiveApplies(objective: Pick<Objective, 'scope' | 'roleId'>, roleId: string | null): boolean {
+  return objectiveScope(objective) === 'general' || (roleId !== null && objective.roleId === roleId);
+}
+
+/** The objectives active for a role (ADR-013). The rest exist, but are somebody else's. */
+export function activeObjectives<T extends Pick<Objective, 'scope' | 'roleId'>>(objectives: T[], roleId: string | null): T[] {
+  return objectives.filter((o) => objectiveApplies(o, roleId));
+}
+
 export interface ScopeInput {
   today: Date;
   objectives: Objective[];
@@ -224,9 +240,13 @@ export function scopeFor(input: ScopeInput, userId: string, roleId: string | nul
     isManager ? involved.has(plan.userId) : plan.userId === userId,
   );
 
+  // Only the objectives that count for this role (ADR-013): a gap or an
+  // empty objective of another role is not this role's signal.
+  const objectives = activeObjectives(input.objectives, roleId);
+
   const signals = computeSignals({
     today: input.today,
-    objectives: input.objectives,
+    objectives,
     projects,
     tasks,
     users,
@@ -246,7 +266,7 @@ export function scopeFor(input: ScopeInput, userId: string, roleId: string | nul
     pullRequests,
     approverUserIds,
     partial,
-    objectives: input.objectives,
+    objectives,
     projects,
     tasks,
     users,

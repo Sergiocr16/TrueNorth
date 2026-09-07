@@ -46,7 +46,7 @@ export default function TodayPage() {
   const [whyOpen, setWhyOpen] = useState(false);
   const [offline, setOffline] = useState(false);
 
-  const { plan, objectives, tasks, currentMembership, company, today, activeRole } = store;
+  const { plan, objectives, activeObjectives, tasks, currentMembership, company, today, activeRole } = store;
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
 
@@ -99,7 +99,7 @@ export default function TodayPage() {
   const hasRole = currentMembership.roleIds.length > 0 && activeRole !== null;
   // Something to plan from, so the empty state can offer to generate rather
   // than send the person to set up the company.
-  const hasWork = objectives.length > 0 || tasks.length > 0;
+  const hasWork = activeObjectives.length > 0 || tasks.length > 0;
 
   /** The plan for a role that has none yet today: the same round trip as recalculating. */
   const generate = () => {

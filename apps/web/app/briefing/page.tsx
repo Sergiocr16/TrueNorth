@@ -67,7 +67,7 @@ export default function BriefingPage() {
             ? `${store.company.name} · ${t.briefing.generatedAt(generatedTime)}`
             : store.company.name
         }
-        trailing={<HealthCompass ratio={shareHealthy(store.objectives)} label={t.common.health} />}
+        trailing={<HealthCompass ratio={shareHealthy(store.activeObjectives)} label={t.common.health} />}
       />
 
       {!analysis ? (

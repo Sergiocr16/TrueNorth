@@ -127,8 +127,11 @@ Five sentences, enforced in `firestore.rules`:
    app-native records keep the project visibility above. A GitHub repository
    is a source in the same list (ADR-010): its pull requests are readable
    while the repository is on the active role, assigned-only meaning the ones
-   naming the person as author or reviewer. The engine applies
-   the same scope in code and recomputes signals from it, so nothing one role
+   naming the person as author or reviewer. An objective is the company's
+   or one role's (ADR-013): everybody reads all, but only the general ones
+   and the active role's count — on screen, in signals and in the plan —
+   and only the owner, admins, or the role's holders write them. The engine
+   applies the same scope in code and recomputes signals from it, so nothing one role
    cannot see reaches its plan, briefing or follow-up; when the person has no
    work of their own, the plan may only offer unowned tasks from sources the
    role sees whole (`pickableTasks`).

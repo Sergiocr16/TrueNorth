@@ -42,7 +42,8 @@ beforeAll(async () => {
       port: 8080,
     },
   });
-});
+  // Loading the rules into a cold emulator on the Pi can take longer than vitest's 10 s.
+}, 60_000);
 
 afterAll(async () => {
   await env?.cleanup();
@@ -146,6 +147,44 @@ describe('bootstrap', () => {
     // A plan is not starting data: only the engine writes one, so a person
     // seeding their own is refused — that is what keeps Today honest.
     await assertFails(db.doc('companies/c1/plans/d_u1').set({ uid: 'u1', items: [] }));
+  });
+});
+
+describe('objectives by scope (ADR-013)', () => {
+  beforeEach(async () => {
+    await seedCompany();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await db.doc('companies/c1/roles/r_sales').set({ name: 'Ventas', description: '', sourceIds: [] });
+      await db.doc('companies/c1/members/u_admin').set({ access: 'admin', roleIds: ['r_general'] });
+      await db.doc('companies/c1/members/u_sales').set({ access: 'member', roleIds: ['r_sales'] });
+      await db.doc('companies/c1/members/u_peer').set({ access: 'member', roleIds: ['r_general'] });
+      await db.doc('companies/c1/objectives/o_general').set({ title: 'General', scope: 'general' });
+      await db.doc('companies/c1/objectives/o_legacy').set({ title: 'Before the field' });
+      await db.doc('companies/c1/objectives/o_sales').set({ title: 'Ventas', scope: 'role', roleId: 'r_sales' });
+    });
+  });
+
+  it('lets the owner and an admin write any objective, and everybody read them', async () => {
+    await assertSucceeds(as('u_owner', FOUNDER).doc('companies/c1/objectives/o_general').update({ title: 'Meta' }));
+    await assertSucceeds(as('u_admin', 'admin@aditumcr.com').doc('companies/c1/objectives/o_sales').update({ title: 'V' }));
+    await assertSucceeds(as('u_admin', 'admin@aditumcr.com').doc('companies/c1/objectives/o_legacy').delete());
+    await assertSucceeds(as('u_sales', 'ventas@aditumcr.com').doc('companies/c1/objectives/o_general').get());
+  });
+
+  it('lets whoever holds a role write that role\'s objectives, and nobody else\'s', async () => {
+    const sales = as('u_sales', 'ventas@aditumcr.com');
+    await assertSucceeds(sales.doc('companies/c1/objectives/o_sales').update({ title: 'Ventas 2' }));
+    await assertSucceeds(
+      sales.doc('companies/c1/objectives/o_sales2').set({ title: 'Nuevo', scope: 'role', roleId: 'r_sales' }),
+    );
+    await assertFails(sales.doc('companies/c1/objectives/o_general').update({ title: 'Mine now' }));
+    await assertFails(sales.doc('companies/c1/objectives/o_legacy').update({ title: 'Mine now' }));
+    await assertFails(sales.doc('companies/c1/objectives/o_new').set({ title: 'General', scope: 'general' }));
+    await assertFails(
+      as('u_peer', 'marco@aditumcr.com').doc('companies/c1/objectives/o_sales').update({ title: 'Not mine' }),
+    );
+    await assertFails(as('u_peer', 'marco@aditumcr.com').doc('companies/c1/objectives/o_sales').delete());
   });
 });
 

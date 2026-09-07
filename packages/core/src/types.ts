@@ -242,7 +242,18 @@ export interface Objective {
   indicators: Indicator[];
   /** Appended whenever `progressPct` changes, so Reports can plot the gap. */
   history?: Reading[];
+  /**
+   * Who the objective is for (ADR-013): the whole company, or the people who
+   * hold one role. Absent means general — every objective written before
+   * this field. Everybody may read every objective; only the general ones
+   * and the ones of the role a person has on are *active* for them.
+   */
+  scope?: ObjectiveScope;
+  /** The role, when `scope` is `role`. */
+  roleId?: string | null;
 }
+
+export type ObjectiveScope = 'general' | 'role';
 
 export interface Project {
   id: string;

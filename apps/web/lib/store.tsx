@@ -30,6 +30,8 @@ import {
   objectiveHealth,
   objectiveProgressPct,
   resolveDay,
+  activeObjectives as objectivesInScope,
+  objectiveScope,
   DEFAULT_LEAD_MINUTES,
   nextRoundHour,
   type Company,
@@ -221,6 +223,10 @@ interface StoreValue {
   /** The sources my active role reads. */
   activeSourceIds: string[];
   objectives: Objective[];
+  /** The objectives active for the role on: the company's and that role's (ADR-013). */
+  activeObjectives: Objective[];
+  /** Whether this person may edit an objective: owner and admins any; a role's holders that role's. */
+  canEditObjective: (objective: Pick<Objective, 'scope' | 'roleId'>) => boolean;
   projects: Project[];
   tasks: Task[];
   risks: Risk[];
@@ -1051,9 +1057,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const approverUserIds = memberships
       .filter((m) => m.roleIds.some((id) => approverRoleIds.has(id)))
       .map((m) => m.userId);
+    const activeObjectiveList = objectivesInScope(objectives, activeRoleId);
     const signals = computeSignals({
       today,
-      objectives,
+      objectives: activeObjectiveList,
       projects,
       tasks,
       users,
@@ -1101,6 +1108,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       activeRole,
       activeSourceIds,
       objectives,
+      activeObjectives: activeObjectiveList,
+      canEditObjective: (objective) =>
+        currentMembership.access !== 'member' ||
+        (objectiveScope(objective) === 'role' &&
+          Boolean(objective.roleId) &&
+          currentMembership.roleIds.includes(objective.roleId as string)),
       projects,
       tasks,
       risks,
@@ -1120,8 +1133,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       upsertObjective: (objective) =>
         write((db, cid) => {
           // Progress is measured by the indicators whenever there are any; the
-          // typed number only stands for an objective without them.
-          const measured = { ...objective, progressPct: objectiveProgressPct(objective) };
+          // typed number only stands for an objective without them. The scope
+          // is one of two shapes: general, or a role with its id.
+          const roleId = objective.scope === 'role' ? (objective.roleId ?? null) : null;
+          const measured = {
+            ...objective,
+            scope: roleId ? ('role' as const) : ('general' as const),
+            roleId,
+            progressPct: objectiveProgressPct(objective),
+          };
           const { id, ...rest } = { ...measured, status: objectiveHealth(measured, new Date(`${TODAY}T00:00:00`)) };
           const previous = objectives.find((o) => o.id === id);
           return setDoc(doc(db, 'companies', cid, 'objectives', id), {
@@ -1942,11 +1962,14 @@ export function useRiskCount(): number {
 /* Factories for the editing sheets                                    */
 /* ------------------------------------------------------------------ */
 
-export function makeObjective(companyId: string, ownerUserId: string): Objective {
+/** A new objective starts as the role's (ADR-013); the editor's switch makes it the company's. */
+export function makeObjective(companyId: string, ownerUserId: string, roleId: string | null = null): Objective {
   const year = new Date(`${TODAY}T00:00:00`).getFullYear();
   return {
     id: newId('o'),
     companyId,
+    scope: roleId ? 'role' : 'general',
+    roleId,
     title: '',
     expectedResult: '',
     startDate: TODAY,

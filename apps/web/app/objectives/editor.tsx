@@ -15,10 +15,12 @@ import {
   StaticField,
   TextAreaField,
   TextField,
+  ToggleField,
   useConfirm,
 } from '../../components/form';
 import { usePreferences } from '../../lib/preferences';
 import { makeIndicator, useStore } from '../../lib/store';
+import { objectiveScope } from '@truenorth/core';
 
 /**
  * Create or edit an objective, including its indicators. Health is derived
@@ -39,24 +41,28 @@ export function ObjectiveEditor({
   onDelete?: () => void;
 }) {
   const { t, locale } = usePreferences();
-  const { users } = useStore();
+  const { users, roles, currentMembership, activeRole } = useStore();
   const [draft, setDraft] = useState<Objective>(objective);
   const [confirming, arm, disarm] = useConfirm();
 
-  const priorityOptions: { value: Priority; label: string }[] =
-    locale === 'es'
-      ? [
-          { value: 'low', label: 'Baja' },
-          { value: 'medium', label: 'Media' },
-          { value: 'high', label: 'Alta' },
-          { value: 'max', label: 'Máxima' },
-        ]
-      : [
-          { value: 'low', label: 'Low' },
-          { value: 'medium', label: 'Medium' },
-          { value: 'high', label: 'High' },
-          { value: 'max', label: 'Max' },
-        ];
+  const priorityOptions: { value: Priority; label: string }[] = (['low', 'medium', 'high', 'max'] as const).map(
+    (value) => ({ value, label: t.objectives.priorityLevels[value] }),
+  );
+
+  // Who the objective is for (ADR-013). Owner and admins choose freely; a
+  // member writes only for a role they hold.
+  const isAdmin = currentMembership.access !== 'member';
+  const general = objectiveScope(draft) === 'general';
+  const roleOptions = (isAdmin ? roles : roles.filter((r) => currentMembership.roleIds.includes(r.id))).map((r) => ({
+    value: r.id,
+    label: r.name,
+  }));
+  const setGeneral = (on: boolean) =>
+    setDraft({
+      ...draft,
+      scope: on ? 'general' : 'role',
+      roleId: on ? null : (draft.roleId ?? activeRole?.id ?? roleOptions[0]?.value ?? null),
+    });
 
   const patchIndicator = (index: number, patch: Partial<Indicator>) =>
     setDraft({
@@ -69,25 +75,38 @@ export function ObjectiveEditor({
   return (
     <EditSheet
       open
-      title={
-        isNew
-          ? locale === 'es'
-            ? 'Nuevo objetivo'
-            : 'New objective'
-          : locale === 'es'
-            ? 'Editar objetivo'
-            : 'Edit objective'
-      }
+      title={isNew ? t.objectives.new : t.objectives.edit}
       onCancel={onCancel}
       onSave={() => onSave(draft)}
-      canSave={draft.title.trim().length > 0}
+      canSave={draft.title.trim().length > 0 && (general || Boolean(draft.roleId))}
     >
+      <FieldGroup footer={general ? t.objectives.generalHint : t.objectives.roleHint}>
+        {isAdmin ? (
+          <ToggleField label={t.objectives.generalSwitch} value={general} onChange={setGeneral} isLast={general} />
+        ) : (
+          <StaticField
+            label={t.objectives.generalSwitch}
+            value={general ? t.common.yes : t.common.no}
+            isLast={general}
+          />
+        )}
+        {!general ? (
+          <SelectField
+            label={t.objectives.roleField}
+            value={draft.roleId ?? ''}
+            options={roleOptions}
+            onChange={(roleId) => setDraft({ ...draft, roleId })}
+            isLast
+          />
+        ) : null}
+      </FieldGroup>
+
       <FieldGroup>
         <TextAreaField
-          label={locale === 'es' ? 'Título' : 'Title'}
+          label={t.objectives.titleField}
           value={draft.title}
           onChange={(title) => setDraft({ ...draft, title })}
-          placeholder={locale === 'es' ? 'Reducir 30 % los tickets' : 'Cut support tickets by 30 %'}
+          placeholder={t.objectives.titlePlaceholder}
           rows={2}
         />
         <TextAreaField
@@ -107,7 +126,7 @@ export function ObjectiveEditor({
           onChange={(ownerUserId) => setDraft({ ...draft, ownerUserId })}
         />
         <SelectField
-          label={locale === 'es' ? 'Prioridad' : 'Priority'}
+          label={t.objectives.priority}
           value={draft.priority}
           options={priorityOptions}
           onChange={(priority) => setDraft({ ...draft, priority })}
@@ -223,15 +242,7 @@ export function ObjectiveEditor({
         <div className="mt-6">
           <div className="tn-card mx-4 overflow-hidden">
             <DestructiveRow
-              label={
-                confirming
-                  ? locale === 'es'
-                    ? 'Tocá otra vez para eliminar'
-                    : 'Tap again to delete'
-                  : locale === 'es'
-                    ? 'Eliminar objetivo'
-                    : 'Delete objective'
-              }
+              label={confirming ? t.objectives.deleteConfirm : t.objectives.delete}
               onClick={() => {
                 if (confirming) {
                   disarm();
@@ -242,11 +253,7 @@ export function ObjectiveEditor({
               }}
             />
           </div>
-          <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">
-            {locale === 'es'
-              ? 'Los proyectos que lo servían quedan sin objetivo y aparecerán en Riesgos.'
-              : 'Projects that served it become orphans and will show up in Risks.'}
-          </p>
+          <p className="px-5 pt-2 text-[13px] leading-snug text-[var(--ter)]">{t.objectives.deleteHint}</p>
         </div>
       ) : null}
     </EditSheet>

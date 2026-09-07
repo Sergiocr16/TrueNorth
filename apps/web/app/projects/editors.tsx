@@ -49,8 +49,20 @@ export function ProjectEditor({
   onDelete?: () => void;
 }) {
   const { t, locale } = usePreferences();
-  const { objectives, users } = useStore();
+  const { objectives, activeObjectives, roles, users } = useStore();
   const [draft, setDraft] = useState<Project>(project);
+  // The objectives this role may serve, plus any the project already serves
+  // from another role, so saving does not silently drop that link (ADR-013).
+  const objectiveOptions = [
+    ...activeObjectives,
+    ...objectives.filter((o) => draft.objectiveIds.includes(o.id) && !activeObjectives.some((a) => a.id === o.id)),
+  ].map((o) => ({
+    value: o.id,
+    label:
+      o.scope === 'role' && !activeObjectives.some((a) => a.id === o.id)
+        ? `${o.title} · ${t.objectives.roleScope(roles.find((r) => r.id === o.roleId)?.name ?? '—')}`
+        : o.title,
+  }));
   const [confirming, arm, disarm] = useConfirm();
 
   const visibilityOptions: { value: ProjectVisibility; label: string }[] =
@@ -109,10 +121,7 @@ export function ProjectEditor({
       >
         <ChipSelectField
           label={t.projects.servesObjectives}
-          options={objectives.map((objective) => ({
-            value: objective.id,
-            label: objective.title,
-          }))}
+          options={objectiveOptions}
           selected={draft.objectiveIds}
           onChange={(objectiveIds) => setDraft({ ...draft, objectiveIds })}
           emptyHint={

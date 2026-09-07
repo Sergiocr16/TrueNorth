@@ -24,7 +24,7 @@ export default function WeeklyReportPage() {
   const { t, locale } = usePreferences();
   const store = useStore();
   const riskCount = useRiskCount();
-  const { objectives, tasks, today } = store;
+  const { activeObjectives: objectives, tasks, today } = store;
 
   const weekAgo = today.getTime() - 7 * DAY;
 

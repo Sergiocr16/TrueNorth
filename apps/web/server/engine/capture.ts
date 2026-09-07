@@ -256,9 +256,13 @@ export function scopeOf(captured: Captured, userId: string, roleId: string | nul
 
 /** The prompt context built from a scope and nothing else. */
 export function contextFor(captured: Captured, scope: Scoped): CompanyContext {
+  const active = new Set(scope.objectives.map((o) => o.id));
   return {
     company: captured.company,
     objectives: scope.objectives,
+    // The rest exist, but are other roles' (ADR-013): named only so a project
+    // serving one is not read as orphaned.
+    otherObjectives: captured.objectives.filter((o) => !active.has(o.id)),
     projects: scope.projects,
     tasks: scope.tasks,
     members: scope.users as MemberRecord[],
