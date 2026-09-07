@@ -122,7 +122,10 @@ Rules you must follow:
  */
 export interface CompanyContext {
   company: Company;
+  /** The objectives active for this role: the company's and the role's own (ADR-013). */
   objectives: Objective[];
+  /** Other roles' objectives, by id and title only, so a project serving one is not read as orphaned. */
+  otherObjectives?: Pick<Objective, 'id' | 'title'>[];
   projects: Project[];
   tasks: Task[];
   members: (User & { membership: Membership })[];
@@ -239,7 +242,8 @@ export interface FollowUpSubject {
   recent: { date: string; tone: string; ask: string; outcome: string }[];
 }
 
-function fmtObjective(objective: Objective, today: Date): string {
+function fmtObjective(objective: Objective, today: Date, roleName: string | null = null): string {
+  const scope = objective.scope === 'role' ? `rol ${roleName ?? objective.roleId ?? ''}`.trim() : 'general';
   const expected = expectedObjectivePct(objective, today);
   const gap = objectiveGap(objective, today);
   const progress = objectiveProgressPct(objective);
@@ -249,17 +253,25 @@ function fmtObjective(objective: Objective, today: Date): string {
         `${i.name}: ${i.current} ${i.unit} (base ${i.baseline}, meta ${i.target} para ${indicatorTargetDate(i, objective)}, ${indicatorProgressPct(i)}% recorrido)`,
     )
     .join('; ');
-  return `- [${objective.id}] ${objective.title} — avance ${progress}% vs esperado ${expected}% (brecha ${gap} pts), estado ${objective.status}, fecha ${objective.targetDate}, prioridad ${objective.priority}${indicators ? `. Indicadores: ${indicators}` : '. Sin indicadores: el avance es un número escrito a mano'}`;
+  return `- [${objective.id}] ${objective.title} (${scope}) — avance ${progress}% vs esperado ${expected}% (brecha ${gap} pts), estado ${objective.status}, fecha ${objective.targetDate}, prioridad ${objective.priority}${indicators ? `. Indicadores: ${indicators}` : '. Sin indicadores: el avance es un número escrito a mano'}`;
 }
 
-function fmtProject(project: Project, objectives: Objective[], members: CompanyContext['members'] = []): string {
+function fmtProject(
+  project: Project,
+  objectives: Objective[],
+  members: CompanyContext['members'] = [],
+  others: Pick<Objective, 'id' | 'title'>[] = [],
+): string {
   const serves = project.objectiveIds
     .map((id) => objectives.find((o) => o.id === id)?.title)
     .filter(Boolean)
     .join(', ');
+  // Linked only to another role's objective: served, just not by anything
+  // this role reads (ADR-013).
+  const elsewhere = !serves && project.objectiveIds.some((id) => others.some((o) => o.id === id));
   // Who answers for the project as a whole; the task lines say who does each one.
   const owner = members.find((m) => m.id === project.ownerUserId)?.displayName;
-  return `- [${project.id}] ${project.name} — avance ${project.progressPct}%, estado ${project.status}, fecha ${project.targetDate}${owner ? `, responsable del proyecto: ${owner}` : ''}${serves ? `, sirve a: ${serves}` : ', SIN OBJETIVO'}`;
+  return `- [${project.id}] ${project.name} — avance ${project.progressPct}%, estado ${project.status}, fecha ${project.targetDate}${owner ? `, responsable del proyecto: ${owner}` : ''}${serves ? `, sirve a: ${serves}` : elsewhere ? ', sirve a un objetivo de otro rol' : ', SIN OBJETIVO'}`;
 }
 
 function fmtTask(
@@ -369,10 +381,10 @@ ${company.northStar}
 Fecha objetivo: ${company.northStarDeadline}
 
 ## Objetivos
-${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
+${objectives.map((o) => fmtObjective(o, today, ctx.role?.name ?? null)).join('\n') || '(ninguno)'}
 
 ## Proyectos
-${projects.map((p) => fmtProject(p, objectives, ctx.members)).join('\n') || '(ninguno)'}
+${projects.map((p) => fmtProject(p, objectives, ctx.members, ctx.otherObjectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${openTasks.length})
 ${openTasks.map((t) => fmtTask(t, members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
@@ -417,10 +429,10 @@ ${company.northStar}
 Fecha objetivo: ${company.northStarDeadline}
 
 ## Objetivos
-${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
+${objectives.map((o) => fmtObjective(o, today, ctx.role?.name ?? null)).join('\n') || '(ninguno)'}
 
 ## Proyectos a la vista
-${projects.map((p) => fmtProject(p, objectives, ctx.members)).join('\n') || '(ninguno)'}
+${projects.map((p) => fmtProject(p, objectives, ctx.members, ctx.otherObjectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas a la vista (${openTasks.length})
 ${openTasks.map((t) => fmtTask(t, members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
@@ -483,10 +495,10 @@ ${company.northStar}
 ${briefing}
 
 ## Objetivos
-${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
+${objectives.map((o) => fmtObjective(o, today, ctx.role?.name ?? null)).join('\n') || '(ninguno)'}
 
 ## Sus proyectos
-${myProjects.map((p) => fmtProject(p, objectives, ctx.members)).join('\n') || '(ninguno)'}
+${myProjects.map((p) => fmtProject(p, objectives, ctx.members, ctx.otherObjectives)).join('\n') || '(ninguno)'}
 
 ## Sus tareas abiertas (${mine.length})
 ${mine.map((t) => fmtTask(t, ctx.members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
@@ -570,7 +582,7 @@ Fecha objetivo: ${company.northStarDeadline}
 ${briefing}
 
 ## Objetivos
-${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
+${objectives.map((o) => fmtObjective(o, today, ctx.role?.name ?? null)).join('\n') || '(ninguno)'}
 
 ## El equipo
 
@@ -622,10 +634,10 @@ ${company.northStar}
 Fecha objetivo: ${company.northStarDeadline}
 ${briefing ? `\n## Briefing de hoy\n${briefing}\n` : ''}
 ## Objetivos
-${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
+${objectives.map((o) => fmtObjective(o, today, ctx.role?.name ?? null)).join('\n') || '(ninguno)'}
 
 ## Proyectos
-${projects.map((p) => fmtProject(p, objectives, ctx.members)).join('\n') || '(ninguno)'}
+${projects.map((p) => fmtProject(p, objectives, ctx.members, ctx.otherObjectives)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${open.length})
 ${open.map((t) => fmtTask(t, ctx.members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}

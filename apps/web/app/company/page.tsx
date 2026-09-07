@@ -16,7 +16,7 @@ export default function CompanyPage() {
   const { t, locale } = usePreferences();
   const store = useStore();
   const riskCount = useRiskCount();
-  const { company, objectives } = store;
+  const { company, activeObjectives: objectives } = store;
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(company);

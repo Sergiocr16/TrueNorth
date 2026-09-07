@@ -371,6 +371,32 @@ describe('scopeFor', () => {
     expect(full.signals.some((s) => s.kind === 'empty_objective')).toBe(true);
   });
 
+  it('keeps general objectives for every role and a role objective for its role only (ADR-013)', () => {
+    const base = {
+      companyId: 'c',
+      expectedResult: '',
+      startDate: '2026-01-01',
+      targetDate: '2026-12-31',
+      priority: 'medium' as const,
+      ownerUserId: 'ana',
+      progressPct: 0,
+      status: 'on_track' as const,
+      indicators: [],
+    };
+    const objectives = [
+      { ...base, id: 'o_general', title: 'General' },
+      { ...base, id: 'o_legacy', title: 'Written before the field', scope: undefined },
+      { ...base, id: 'o_sales', title: 'Sales only', scope: 'role' as const, roleId: 'r_sales' },
+    ];
+    const cto = scopeFor(input({ objectives }), 'ana', 'r_all');
+    expect(ids(cto.objectives)).toEqual(['o_general', 'o_legacy']);
+    expect(cto.signals.some((s) => s.objectiveId === 'o_sales')).toBe(false);
+
+    const sales = scopeFor(input({ objectives }), 'carla', 'r_sales');
+    expect(ids(sales.objectives)).toEqual(['o_general', 'o_legacy', 'o_sales']);
+    expect(sales.signals.some((s) => s.kind === 'progress_gap' && s.objectiveId === 'o_sales')).toBe(true);
+  });
+
   it('restricts plan history to the viewer for a member and to the visible people for a manager', () => {
     const planHistory = [plan('ana', '2026-09-03'), plan('bob', '2026-09-03'), plan('carla', '2026-09-03')];
     const tasks = [task('sw0', null, 'bob', 'src_sw')];

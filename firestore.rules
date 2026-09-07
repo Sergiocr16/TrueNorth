@@ -112,6 +112,15 @@ service cloud.firestore {
       return me(companyId).get('activeRoleId', null);
     }
 
+    // An objective is the company's or one role's (ADR-013). Owner and
+    // admins write any; whoever holds a role writes that role's. Written
+    // before the field means general.
+    function canWriteObjective(companyId, data) {
+      return isAdmin(companyId)
+             || (data.get('scope', 'general') == 'role'
+                 && data.get('roleId', null) in me(companyId).get('roleIds', []));
+    }
+
     function activeRole(companyId) {
       return get(/databases/$(database)/documents/companies/$(companyId)/roles/$(activeRoleId(companyId))).data;
     }
@@ -248,9 +257,13 @@ service cloud.firestore {
         allow delete: if isAdmin(companyId);
       }
 
+      // Everybody reads every objective; who may write one depends on its
+      // scope (ADR-013). Deployed from a logged-in machine, not from the Pi;
+      // until then the screens and the engine already apply the scope.
       match /objectives/{objectiveId} {
         allow read: if isMember(companyId);
-        allow write: if isMember(companyId);
+        allow create, update: if isMember(companyId) && canWriteObjective(companyId, request.resource.data);
+        allow delete: if isMember(companyId) && canWriteObjective(companyId, resource.data);
       }
 
       // Roles: what the company calls its jobs, and which Notion sources each

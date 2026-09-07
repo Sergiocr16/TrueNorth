@@ -53,12 +53,19 @@ export default function ObjectiveDetailPage() {
           <h1 className="min-w-0 flex-1 text-[28px] font-bold leading-tight tracking-[-0.2px] text-[var(--ink)] text-pretty">
             {objective.title}
           </h1>
-          <div className="mt-1 shrink-0">
-            <TextButton onClick={() => setEditing(true)}>{t.team.editRole}</TextButton>
-          </div>
+          {store.canEditObjective(objective) ? (
+            <div className="mt-1 shrink-0">
+              <TextButton onClick={() => setEditing(true)}>{t.objectives.edit}</TextButton>
+            </div>
+          ) : null}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <StatusPill status={objective.status} />
+          <span className="rounded-full bg-[var(--chip-bg)] px-2.5 py-1 text-[13px] font-semibold text-[var(--sec)]">
+            {objective.scope === 'role'
+              ? t.objectives.roleScope(store.roles.find((r) => r.id === objective.roleId)?.name ?? '—')
+              : t.objectives.general}
+          </span>
           <span className="tn-tabular text-[13px] text-[var(--sec)]">
             {formatShortDate(objective.targetDate, locale)}
           </span>

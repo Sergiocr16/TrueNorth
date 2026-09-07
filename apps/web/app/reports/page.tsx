@@ -35,7 +35,7 @@ export default function ReportsPage() {
   const store = useStore();
   const riskCount = useRiskCount();
 
-  const { objectives, tasks, users, today } = store;
+  const { activeObjectives: objectives, tasks, users, today } = store;
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Default to the objective furthest behind: the one worth looking at.
