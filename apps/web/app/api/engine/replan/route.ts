@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminCredentials, adminDb } from '../../../../server/admin';
-import { replan } from '../../../../server/engine/run';
+import { replan, startReplan } from '../../../../server/engine/run';
 
 /**
  * "Recalcular mi plan", from the Today screen.
@@ -10,6 +10,10 @@ import { replan } from '../../../../server/engine/run';
  * company they name. Only their own plan is recomputed, in the role they have
  * on or the one they name; the role's briefing of the day is reused when it
  * exists, and made along with the plan when it does not.
+ *
+ * The answer is immediate (202) and the run goes on in the server, marked on
+ * the person's own document so the screen can follow it; a phone that drops
+ * the request changes nothing. `?wait=1` keeps the synchronous answer.
  */
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +55,10 @@ export async function POST(request: Request) {
   if (!member.exists) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
   try {
+    if (new URL(request.url).searchParams.get('wait') !== '1') {
+      const { started } = await startReplan(companyId, uid, body.roleId);
+      return NextResponse.json({ ok: true, started }, { status: 202 });
+    }
     const report = await replan(companyId, uid, body.roleId);
     const plan = report.plans[0];
     if (!plan?.ok) {

@@ -59,6 +59,7 @@ import {
   type VoiceUpdate,
   type WorkerHeartbeat,
   type Locale,
+  REPLAN_STALE_MS,
 } from '@truenorth/core';
 import type { InspectResult, SyncReport } from '../server/notion/types';
 import type { GithubRepoChoice, GithubStatus } from '../server/github/types';
@@ -327,7 +328,11 @@ interface StoreValue {
   /** Owner only: deletes the open company and everything under it, then leaves it. */
   deleteCompany: () => Promise<void>;
   /** Asks the engine on this server to recompute my plan for today, in a role (mine by default). */
+  /** Asks for a recalculation and returns at once; the run is followed on `replanning`. */
   replan: (roleId?: string) => Promise<void>;
+  /** A recalculation in progress for this company, as the server marked it; null when none (or the marker went stale). */
+  replanning: { roleId: string | null; startedAt: string } | null;
+  replanError: string | null;
 
   /** Local hour at which this person wants the plan announced. */
   notifyHour: number;
@@ -409,10 +414,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [analyses, setAnalyses] = useState<CompanyAnalysis[]>([]);
   const [voiceUpdates, setVoiceUpdates] = useState<VoiceUpdate[]>([]);
   const [engine, setEngine] = useState<WorkerHeartbeat | null>(null);
-  const [profile, setProfile] = useState<{ notifyHour: number; fcmTokens: string[]; reminders: Reminder[] }>({
+  const [profile, setProfile] = useState<{
+    notifyHour: number;
+    fcmTokens: string[];
+    reminders: Reminder[];
+    replanning: NonNullable<User['replanning']> | null;
+    replanError: string | null;
+  }>({
     notifyHour: 6,
     fcmTokens: [],
     reminders: [],
+    replanning: null,
+    replanError: null,
   });
   // The freshest reminders, for writes that must not reuse a stale closure.
   const remindersRef = useRef<Reminder[]>([]);
@@ -452,6 +465,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           notifyHour: typeof data.notifyHour === 'number' ? data.notifyHour : 6,
           fcmTokens: Array.isArray(data.fcmTokens) ? (data.fcmTokens as string[]) : [],
           reminders,
+          replanning: (data.replanning as NonNullable<User['replanning']> | undefined) ?? null,
+          replanError: typeof data.replanError === 'string' ? data.replanError : null,
         });
       },
       () => undefined,
@@ -1791,6 +1806,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return body;
       },
 
+      replanning:
+        profile.replanning &&
+        profile.replanning.companyId === companyId &&
+        Date.now() - Date.parse(profile.replanning.startedAt) < REPLAN_STALE_MS
+          ? { roleId: profile.replanning.roleId, startedAt: profile.replanning.startedAt }
+          : null,
+      replanError: profile.replanError,
       replan: async (roleId) => {
         if (!user || !companyId) return;
         // The route verifies this token with the Admin SDK and checks membership
