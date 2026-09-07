@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CitedSignal } from '@truenorth/core';
 import { formatShortDate } from '../../lib/i18n/dictionary';
-import { makeSituation, type AskAnswer } from '../../lib/store';
+import { makeReminder, makeSituation, type AskAnswer } from '../../lib/store';
+import type { LeadMinutes } from '@truenorth/core';
 import { LargeTitle, Screen } from '../../components/shell';
 import { Card, ChipButton } from '../../components/ui';
 import { MicIcon, SendIcon } from '../../components/icons';
@@ -245,6 +246,7 @@ function ActionCard({ action }: { action: NonNullable<AskAnswer['action']> }) {
     message: t.ask.actionMessage(name),
     mark_sent: t.ask.actionMarkSent(name),
     expectation: t.ask.actionExpectation(name),
+    reminder: t.ask.actionReminder,
     none: '',
   }[action.kind];
 
@@ -265,6 +267,14 @@ function ActionCard({ action }: { action: NonNullable<AskAnswer['action']> }) {
         store.memberships.find((m) => m.userId === action.userId)?.expectations?.trim() ?? '';
       store.updateMembership(action.userId, {
         expectations: current ? `${current}\n${action.text ?? ''}` : (action.text ?? ''),
+      });
+    } else if (action.kind === 'reminder' && action.date && action.time) {
+      store.upsertReminder({
+        ...makeReminder(),
+        title: action.text ?? '',
+        date: action.date,
+        time: action.time,
+        leadMinutes: (action.leadMinutes ?? 10) as LeadMinutes,
       });
     }
     setState('done');
@@ -289,6 +299,11 @@ function ActionCard({ action }: { action: NonNullable<AskAnswer['action']> }) {
       <div className="text-[13px] font-semibold uppercase tracking-wide text-[var(--accent)]">{title}</div>
       {action.text ? (
         <p className="mt-1.5 whitespace-pre-wrap text-[15px] leading-snug text-[var(--ink)]">{action.text}</p>
+      ) : null}
+      {action.kind === 'reminder' && action.date && action.time ? (
+        <p className="tn-tabular mt-1 text-[13px] text-[var(--ter)]">
+          {t.ask.reminderWhen(formatShortDate(action.date, locale), action.time, action.leadMinutes ?? 10)}
+        </p>
       ) : null}
       {action.kind === 'situation' ? (
         <p className="mt-1 text-[13px] text-[var(--ter)]">

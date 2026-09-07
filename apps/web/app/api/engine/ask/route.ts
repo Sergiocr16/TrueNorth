@@ -3,7 +3,7 @@ import { askSchema, ensureGreeting, teamSignals, visibleSignals } from '@truenor
 import { adminAuth, adminCredentials, adminDb } from '../../../../server/admin';
 import { askClaude } from '../../../../server/engine/claude';
 import { captureCompany, contextFor, roleFor, scopeOf } from '../../../../server/engine/capture';
-import type { AskAction, TeamFollowUp } from '@truenorth/core';
+import { DEFAULT_LEAD_MINUTES, LEAD_OPTIONS, type AskAction, type TeamFollowUp } from '@truenorth/core';
 import { ASK_SYSTEM, askPrompt, type AskTurn, type FollowUpSubject } from '../../../../server/engine/prompts';
 
 /**
@@ -135,7 +135,17 @@ export async function POST(request: Request) {
     // a manager may write stay with managers. Anything else becomes `none`.
     const proposed = answer.value.action;
     let action: (AskAction & { userName?: string }) | null = null;
-    if (proposed && proposed.kind !== 'none') {
+    if (proposed?.kind === 'reminder') {
+      // A reminder is the asker's own, needs a real day and time, and a lead
+      // from the list; anything else becomes `none`.
+      const date = proposed.date ?? '';
+      const time = proposed.time ?? '';
+      const text = (proposed.text ?? '').trim();
+      const lead = LEAD_OPTIONS.find((n) => n === proposed.leadMinutes) ?? DEFAULT_LEAD_MINUTES;
+      if (text && /^\d{4}-\d{2}-\d{2}$/.test(date) && /^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+        action = { ...proposed, userId: me.id, userName: me.displayName, text, date, time, leadMinutes: lead };
+      }
+    } else if (proposed && proposed.kind !== 'none') {
       // Only somebody in this role's view: the assistant may not reach
       // past what the screen shows.
       const person = proposed.userId

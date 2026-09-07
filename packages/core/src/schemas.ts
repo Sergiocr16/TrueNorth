@@ -128,7 +128,7 @@ export const teamFollowUpSchema = z.object({
  */
 export const askActionSchema = z.object({
   /** What the assistant proposes to do. `none` is the usual answer. */
-  kind: z.enum(['none', 'situation', 'message', 'mark_sent', 'expectation']),
+  kind: z.enum(['none', 'situation', 'message', 'mark_sent', 'expectation', 'reminder']),
   /** The person it concerns, by userId, for everything but `none`. */
   userId: z.string().optional(),
   /** For `mark_sent`: the id of today's message being reported as sent. */
@@ -139,6 +139,10 @@ export const askActionSchema = z.object({
   discreet: z.boolean().optional(),
   /** YYYY-MM-DD, when the situation has an end. */
   endsAt: z.string().optional(),
+  /** For `reminder`: the day and the wall-clock time (HH:mm) in Costa Rica, and how early to be told. */
+  date: z.string().optional(),
+  time: z.string().optional(),
+  leadMinutes: z.number().int().optional(),
   /** One line saying what will happen, shown on the confirmation card. */
   summary: z.string().max(160).optional(),
 });

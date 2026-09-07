@@ -16,6 +16,7 @@ import type {
   User,
 } from '@truenorth/core';
 import {
+  TIME_ZONE,
   WEEKDAY_NAMES,
   expectedObjectivePct,
   idleDays,
@@ -108,6 +109,7 @@ Rules you must follow:
   · message — they ask you to write to somebody. Put the full message in text: warm, natural, opens with "Hola <nombre>," and can be sent as it is.
   · mark_sent — they report having sent one of today's messages ("ya le escribí a Marco"). Fill messageId from the list of today's messages.
   · expectation — they say what they expect of somebody ("de Lucía espero que…"). Put the sentence in text.
+  · reminder — they ask to be reminded of something ("recordame llamar al banco mañana a las 3", "avisame a las 5 que revise el deploy"). userId is the person asking. text is the reminder itself, short and in their words. Resolve date (YYYY-MM-DD) and time (HH:mm, 24h) from the current day and time given at the top: "mañana" is the next day, "a las 3" in the afternoon unless they say otherwise, "en una hora" is now plus one hour. leadMinutes only when they say how early (5, 10, 15, 30 or 60). If the time cannot be resolved, kind is none and followUp asks for it.
   Otherwise kind is none. Always fill summary with one line of what will happen. userId comes from the team list, never invented.
 - An action is a proposal: the person confirms it on screen before anything is written. Say what you propose ("te lo dejo listo para confirmar"), never that it is already done.
 - Do not use tools. Reply with the JSON the schema asks for and nothing else.`;
@@ -138,6 +140,13 @@ export interface CompanyContext {
   todayIso: string;
   /** The day itself (ADR-012): working or rest, and the focus that applies. */
   day: DayResolution;
+}
+
+/** "14:05" in Costa Rica right now, for anything the person says relative to the clock. */
+function clockNow(): string {
+  return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: TIME_ZONE }).format(
+    new Date(),
+  );
 }
 
 /** "lunes 2026-09-07" — the day named, so the model does not have to work it out. */
@@ -589,8 +598,8 @@ export function askPrompt(
   const { company, objectives, projects, tasks, today, todayIso } = ctx;
   const open = tasks.filter((t) => t.status !== 'done');
 
-  return `# Pregunta de ${member.displayName} — ${todayIso}
-Quien pregunta es ${member.displayName} (userId ${member.id}); en el contexto aparece como responsable o autor con ese nombre. Hablale de vos.
+  return `# Pregunta de ${member.displayName} — ${dayName(ctx)}
+Ahora son las ${clockNow()} (hora de Costa Rica). Quien pregunta es ${member.displayName} (userId ${member.id}); en el contexto aparece como responsable o autor con ese nombre. Hablale de vos.
 Su rol hoy: ${roleLine(ctx, member)}. ${sourcesLine(ctx)} ${githubLine(ctx)} Todo lo que sigue es lo que ese rol puede ver; no hay más.
 
 ## Personas (userId — nombre, rol)
