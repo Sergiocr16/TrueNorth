@@ -58,6 +58,7 @@ Rules you must follow:
 - The plan is three to five concrete actions (one to three on a rest day, as the prompt says), each with the reason it matters today and each citing at least one signal id from the list. An action without a real signal behind it does not go in.
 - The prompt says what kind of day it is. On a working day with a focus, the focus is the first ordering criterion: actions serving it go first, but an overdue-and-silent or blocked signal is never dropped for it. On a rest day the plan is one to three optional suggestions of research or improvement — read, explore, document, try something — never obligations, deadlines or chasing overdue work, in a light tone; the briefing still says honestly where things stand.
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's. Never ask somebody carrying a workload signal to take on more.
+- Owning a project is not doing its tasks. A task belongs to the people it names as responsible; when that is somebody else, the reader's action is to follow up, decide, unblock, review or merge — say which and name the person ("pedile a Juan el orden de integración", "revisá el PR de Juan") — never to define, execute or organise that work themselves. The plan tells the reader to *do* only their own tasks, tasks they may take from the list, or what the day's focus asks of them.
 - Late is not the same as stuck. An overdue signal says whether the owner moved the task recently — a status change, an edit, a comment of theirs. If they did, the work is advancing: the action is to close it or fix its date, not to chase. Stuck is past its date with no word from the owner; somebody else's comment on it is a question, not progress.
 - When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
 - Pull requests: the developer responsible for a task opens the pull request when the work is done and answers requested changes; whoever holds an approver role reviews and merges. pr_missing and pr_changes_requested are the developer's action; pr_awaiting_review and pr_approved_unmerged are the approver's — they go in the approver's plan, and nobody is ever asked to approve their own pull request. Each task line says what its pull request is waiting on; read it before calling a task stuck.
@@ -71,6 +72,7 @@ Rules you must follow:
 - Only cite signal ids that appear in the list. An action without a real signal behind it does not go in the plan.
 - The prompt says what kind of day it is. On a working day with a focus, the focus is the first ordering criterion: actions serving it go first, but an overdue-and-silent or blocked signal is never dropped for it. On a rest day the plan is one to three optional suggestions of research or improvement — read, explore, document, try something — never obligations, deadlines or chasing overdue work, in a light tone.
 - Prefer actions that unblock the objective furthest behind. Prefer this person's own tasks over other people's.
+- Owning a project is not doing its tasks. A task belongs to the people it names as responsible; when that is somebody else, the reader's action is to follow up, decide, unblock, review or merge — say which and name the person ("pedile a Juan el orden de integración", "revisá el PR de Juan") — never to define, execute or organise that work themselves. The plan tells the reader to *do* only their own tasks, tasks they may take from the list, or what the day's focus asks of them.
 - When the person has no open task of their own (their signals include no_owned_work:<their id>) and the context lists tasks they could take, propose taking one or two of those, citing that signal (plus unassigned:<taskId> when it appears). Only ever propose work from that list: never from a database the role sees only through assignments, and never work that already belongs to somebody else.
 - Pull requests: the developer responsible for a task opens the pull request when the work is done and answers requested changes; whoever holds an approver role reviews and merges. pr_missing and pr_changes_requested are the developer's action; pr_awaiting_review and pr_approved_unmerged are the approver's — they go in the approver's plan, and nobody is ever asked to approve their own pull request. Each task line says what its pull request is waiting on; read it before calling a task stuck.
 - Be honest in "consequenceIfNotDone": a concrete, plausible cost, not a threat.
@@ -250,12 +252,14 @@ function fmtObjective(objective: Objective, today: Date): string {
   return `- [${objective.id}] ${objective.title} — avance ${progress}% vs esperado ${expected}% (brecha ${gap} pts), estado ${objective.status}, fecha ${objective.targetDate}, prioridad ${objective.priority}${indicators ? `. Indicadores: ${indicators}` : '. Sin indicadores: el avance es un número escrito a mano'}`;
 }
 
-function fmtProject(project: Project, objectives: Objective[]): string {
+function fmtProject(project: Project, objectives: Objective[], members: CompanyContext['members'] = []): string {
   const serves = project.objectiveIds
     .map((id) => objectives.find((o) => o.id === id)?.title)
     .filter(Boolean)
     .join(', ');
-  return `- [${project.id}] ${project.name} — avance ${project.progressPct}%, estado ${project.status}, fecha ${project.targetDate}${serves ? `, sirve a: ${serves}` : ', SIN OBJETIVO'}`;
+  // Who answers for the project as a whole; the task lines say who does each one.
+  const owner = members.find((m) => m.id === project.ownerUserId)?.displayName;
+  return `- [${project.id}] ${project.name} — avance ${project.progressPct}%, estado ${project.status}, fecha ${project.targetDate}${owner ? `, responsable del proyecto: ${owner}` : ''}${serves ? `, sirve a: ${serves}` : ', SIN OBJETIVO'}`;
 }
 
 function fmtTask(
@@ -368,7 +372,7 @@ Fecha objetivo: ${company.northStarDeadline}
 ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 
 ## Proyectos
-${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
+${projects.map((p) => fmtProject(p, objectives, ctx.members)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${openTasks.length})
 ${openTasks.map((t) => fmtTask(t, members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
@@ -390,7 +394,7 @@ export function briefingAndPlanPrompt(
   ctx: CompanyContext,
   member: CompanyContext['members'][number],
   personalSignals: Signal[],
-  yesterday: { headline: string; done: string[]; skipped: string[] } | null,
+  yesterday: { headline: string; done: string[]; skipped: string[]; irrelevant: string[] } | null,
 ): string {
   const { company, objectives, projects, tasks, members, signals, today, todayIso } = ctx;
   const openTasks = tasks.filter((t) => t.status !== 'done');
@@ -416,7 +420,7 @@ Fecha objetivo: ${company.northStarDeadline}
 ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 
 ## Proyectos a la vista
-${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
+${projects.map((p) => fmtProject(p, objectives, ctx.members)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas a la vista (${openTasks.length})
 ${openTasks.map((t) => fmtTask(t, members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
@@ -442,7 +446,8 @@ ${
 Prioridad: ${yesterday.headline}
 Hecho: ${yesterday.done.join('; ') || 'nada marcado'}
 Omitido: ${yesterday.skipped.join('; ') || 'nada'}
-Continuá lo que quedó abierto si sigue importando; no repitas lo hecho.`
+No aplica (la persona dijo que no era suyo o no tenía sentido): ${yesterday.irrelevant.join('; ') || 'nada'}
+Continuá lo que quedó abierto si sigue importando; no repitas lo hecho; y lo marcado como "no aplica" no lo vuelvas a proponer, ni nada equivalente — si era trabajo de otra persona, a lo sumo pedile cuentas a esa persona.`
     : ''
 }
 
@@ -455,7 +460,7 @@ export function planPrompt(
   member: CompanyContext['members'][number],
   personalSignals: Signal[],
   briefing: string,
-  yesterday: { headline: string; done: string[]; skipped: string[] } | null,
+  yesterday: { headline: string; done: string[]; skipped: string[]; irrelevant: string[] } | null,
 ): string {
   const { company, objectives, projects, tasks, today, todayIso } = ctx;
   const mine = tasks.filter((t) => t.assigneeUserIds.includes(member.id) && t.status !== 'done');
@@ -481,7 +486,7 @@ ${briefing}
 ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 
 ## Sus proyectos
-${myProjects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
+${myProjects.map((p) => fmtProject(p, objectives, ctx.members)).join('\n') || '(ninguno)'}
 
 ## Sus tareas abiertas (${mine.length})
 ${mine.map((t) => fmtTask(t, ctx.members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
@@ -495,7 +500,8 @@ ${
 Prioridad: ${yesterday.headline}
 Hecho: ${yesterday.done.join('; ') || 'nada marcado'}
 Omitido: ${yesterday.skipped.join('; ') || 'nada'}
-Continuá lo que quedó abierto si sigue importando; no repitas lo hecho.`
+No aplica (la persona dijo que no era suyo o no tenía sentido): ${yesterday.irrelevant.join('; ') || 'nada'}
+Continuá lo que quedó abierto si sigue importando; no repitas lo hecho; y lo marcado como "no aplica" no lo vuelvas a proponer, ni nada equivalente — si era trabajo de otra persona, a lo sumo pedile cuentas a esa persona.`
     : ''
 }
 
@@ -619,7 +625,7 @@ ${briefing ? `\n## Briefing de hoy\n${briefing}\n` : ''}
 ${objectives.map((o) => fmtObjective(o, today)).join('\n') || '(ninguno)'}
 
 ## Proyectos
-${projects.map((p) => fmtProject(p, objectives)).join('\n') || '(ninguno)'}
+${projects.map((p) => fmtProject(p, objectives, ctx.members)).join('\n') || '(ninguno)'}
 
 ## Tareas abiertas (${open.length})
 ${open.map((t) => fmtTask(t, ctx.members, today, ctx.sources, ctx.pullRequests)).join('\n') || '(ninguna)'}
