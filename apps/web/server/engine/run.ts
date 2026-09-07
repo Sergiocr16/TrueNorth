@@ -246,9 +246,9 @@ function yesterdaySummary(captured: Captured, member: MemberRecord, roleId: stri
         done: yesterday.items
           .filter((_, i) => yesterday.feedback?.[i] === 'done')
           .map((i) => i.title),
-        skipped: yesterday.items
-          .filter((_, i) => yesterday.feedback?.[i] && yesterday.feedback[i] !== 'done')
-          .map((i) => i.title),
+        skipped: yesterday.items.filter((_, i) => yesterday.feedback?.[i] === 'skipped').map((i) => i.title),
+        // "No aplica" is the person telling the engine it was wrong about them.
+        irrelevant: yesterday.items.filter((_, i) => yesterday.feedback?.[i] === 'irrelevant').map((i) => i.title),
       }
     : null;
 }
