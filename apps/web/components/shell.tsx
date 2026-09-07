@@ -37,6 +37,7 @@ export const ROUTES = {
   reports: '/reports',
   integrations: '/integrations',
   settings: '/settings',
+  reminders: '/reminders',
 } as const;
 
 /* ------------------------------------------------------------------ */

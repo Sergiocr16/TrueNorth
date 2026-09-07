@@ -194,7 +194,9 @@ service cloud.firestore {
 
     match /users/{uid} {
       // A person reads and writes only their own profile. Display name, locale,
-      // theme, notify hour and FCM tokens all live here.
+      // theme, notify hour, FCM tokens and personal reminders all live here —
+      // reminders as an array on purpose: a subcollection would need its own
+      // rule, and rules deploy only from a logged-in machine, not from the Pi.
       allow read, write: if signedIn() && request.auth.uid == uid;
 
       // Mirror of the companies this person belongs to, so the app can list

@@ -1,7 +1,7 @@
 'use client';
 
 import { arrayRemove, arrayUnion, doc, updateDoc } from 'firebase/firestore';
-import { deleteToken, getMessaging, getToken, isSupported } from 'firebase/messaging';
+import { deleteToken, getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging';
 import { firebase, vapidKey } from './firebase';
 
 /**
@@ -67,6 +67,30 @@ export async function enablePush(uid: string): Promise<PushState> {
     /* the server still has it; the toggle just cannot remember */
   }
   return 'on';
+}
+
+/**
+ * While the app is open, Firebase hands a message to the page instead of the
+ * worker, and nothing would show. This shows it the same way the worker
+ * does, so a reminder still appears while the person is looking at the app.
+ * Returns the function that stops listening.
+ */
+export async function listenForeground(): Promise<() => void> {
+  if ((await pushSupport()) !== 'ok' || Notification.permission !== 'granted' || !currentPushToken()) {
+    return () => undefined;
+  }
+  const { app } = firebase();
+  const registration =
+    (await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')) ?? (await registerWorker());
+  return onMessage(getMessaging(app), ({ data }) => {
+    void registration.showNotification(data?.title ?? 'TrueNorth', {
+      body: data?.body ?? '',
+      icon: '/icons/192',
+      badge: '/icons/192m',
+      tag: data?.tag ?? 'truenorth',
+      data: { url: data?.url ?? '/today' },
+    });
+  });
 }
 
 /** Unsubscribes this device and forgets its token. */

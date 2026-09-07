@@ -59,6 +59,7 @@ export default function SettingsPage() {
     { href: ROUTES.objectives, label: t.nav.objectives },
     { href: ROUTES.team, label: t.nav.team },
     { href: ROUTES.followUps, label: t.nav.followUps },
+    { href: ROUTES.reminders, label: t.nav.reminders },
     { href: ROUTES.ask, label: t.nav.ask },
     { href: ROUTES.reports, label: t.nav.reports },
     { href: ROUTES.integrations, label: t.nav.integrations },
@@ -116,7 +117,11 @@ export default function SettingsPage() {
           label={t.settings.language}
           value={locale}
           options={localeOptions}
-          onChange={prefs.setLocale}
+          onChange={(next) => {
+            prefs.setLocale(next);
+            // The server writes push text in this language too.
+            store.setProfileLocale(next);
+          }}
           isLast
         />
       </FieldGroup>

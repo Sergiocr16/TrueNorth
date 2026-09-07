@@ -208,6 +208,21 @@ export function CalendarIcon({ size = 20, strokeWidth = 1.7 }: IconProps) {
   );
 }
 
+/** A bell: a reminder is a nudge at a time, not a task. */
+export function ReminderIcon({ size = 20, strokeWidth = 1.7 }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <path
+        d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15l1.5-2Z"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinejoin="round"
+      />
+      <path d="M10 20.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** Two speech bubbles: the follow-up is a conversation, not a broadcast. */
 export function FollowUpIcon({ size = 24, strokeWidth = 1.8 }: IconProps) {
   return (
