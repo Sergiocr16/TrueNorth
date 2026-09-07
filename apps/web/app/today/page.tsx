@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import type { PlanItem, PlanItemVerdict, Task } from '@truenorth/core';
-import { notionUrl, objectiveGap } from '@truenorth/core';
+import { notionUrl, objectiveGap, resolveDay, todayIso } from '@truenorth/core';
 import { CompanySwitcher, LargeTitle, ROUTES, Screen } from '../../components/shell';
 import {
   Banner,
@@ -41,7 +41,9 @@ export default function TodayPage() {
 
   // Only the messages still waiting on a decision; the ones already sent or
   // waved off should not keep asking for attention.
-  const pendingFollowUps = (store.followUp?.messages ?? []).filter(
+  // A rest day (ADR-012) follows nobody up, whatever an older document says.
+  const restDay = !resolveDay(store.company, store.activeRole, todayIso()).working;
+  const pendingFollowUps = (restDay ? [] : (store.followUp?.messages ?? [])).filter(
     (message) => !store.followUp?.outcome?.[message.id],
   ).length;
 
