@@ -423,6 +423,8 @@ export const dictionary = {
 
     push: {
       planTitle: 'Tu plan de hoy',
+      replanReady: 'Tu plan está listo',
+      replanFailed: 'No se pudo recalcular tu plan',
       followUpTitle: 'Seguimiento de hoy',
       pending: (n: number) => (n === 1 ? '1 mensaje por enviar' : `${n} mensajes por enviar`),
     },
@@ -1170,6 +1172,8 @@ export const dictionary = {
 
     push: {
       planTitle: 'Your plan for today',
+      replanReady: 'Your plan is ready',
+      replanFailed: 'Your plan could not be recalculated',
       followUpTitle: "Today's follow-up",
       pending: (n: number) => (n === 1 ? '1 message to send' : `${n} messages to send`),
     },

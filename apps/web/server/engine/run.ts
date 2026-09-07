@@ -27,7 +27,9 @@ import {
   type TeamFollowUp,
   type TeamFollowUpOutput,
 } from '@truenorth/core';
+import { getDictionary } from '../../lib/i18n/dictionary';
 import { adminDb } from '../admin';
+import { sendToTokens } from '../push';
 import { syncCompany } from '../notion/sync';
 import { syncGithub } from '../github/sync';
 import type { GithubSyncReport } from '../github/types';
@@ -246,16 +248,57 @@ export async function startReplan(
         { replanning: null, replanError: plan?.ok ? null : (plan?.error ?? 'replan failed') },
         { merge: true },
       );
+      await notifyReplan(companyId, uid, report.date, plan?.ok ? plan.roleId : null, plan?.ok ? null : plan?.error ?? 'replan failed');
       return report;
     })
     .catch(async (cause: unknown) => {
       await profile.set({ replanning: null, replanError: describe(cause) }, { merge: true }).catch(() => undefined);
+      await notifyReplan(companyId, uid, computeTodayIso(), null, describe(cause));
       throw cause;
     })
     .finally(() => replans.delete(key));
   replans.set(key, run);
   run.catch(() => undefined);
   return { started: true };
+}
+
+/**
+ * A recalculation takes minutes and the person may have put the phone away:
+ * one push says it is ready — the new headline — or that it failed. Nothing
+ * is marked, so the morning alert is unaffected.
+ */
+async function notifyReplan(
+  companyId: string,
+  uid: string,
+  date: string,
+  roleId: string | null,
+  error: string | null,
+): Promise<void> {
+  try {
+    const profileRef = adminDb().collection('users').doc(uid);
+    const profileSnap = await profileRef.get();
+    const tokens = ((profileSnap.get('fcmTokens') as string[] | undefined) ?? []).filter(Boolean);
+    if (tokens.length === 0) return;
+    const t = getDictionary(profileSnap.get('locale') === 'en' ? 'en' : 'es');
+    let body = error ?? '';
+    if (!error && roleId) {
+      const plan = await adminDb()
+        .collection('companies')
+        .doc(companyId)
+        .collection('plans')
+        .doc(docId(date, uid, roleId))
+        .get();
+      body = String(plan.get('headline') ?? '');
+    }
+    await sendToTokens(profileRef, tokens, {
+      title: error ? t.push.replanFailed : t.push.replanReady,
+      body,
+      url: '/today',
+      tag: `replan-${date}`,
+    });
+  } catch {
+    /* the plan is written either way; the screen shows it */
+  }
 }
 
 /** Today's follow-up for one manager in a role, on demand. */
