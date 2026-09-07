@@ -222,13 +222,15 @@ export async function regenerateFollowUp(
   companyId: string,
   uid: string,
   roleId?: string | null,
-): Promise<{ ok: boolean; messages?: number; usage?: ClaudeUsage; error?: string }> {
+): Promise<{ ok: boolean; skipped?: boolean; messages?: number; usage?: ClaudeUsage; error?: string }> {
   const captured = await captureCompany(companyId);
   const manager = captured.members.find((m) => m.id === uid);
   if (!manager) throw new Error(`user ${uid} is not a member of ${companyId}`);
   if (manager.membership.access === 'member') throw new Error('managers only');
   const role = roleFor(manager, roleId);
   if (!role) throw new Error('no role to follow up in');
+  // Nobody is followed up with on a rest day (ADR-012), asked for or not.
+  if (!dayFor(captured, role).working) return { ok: true, skipped: true };
   return followUpFor(captured, manager, role);
 }
 

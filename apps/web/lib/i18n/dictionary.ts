@@ -657,6 +657,8 @@ export const dictionary = {
 
     followUps: {
       title: 'Seguimiento de hoy',
+      restDay: 'Día de descanso: sin seguimiento',
+      restDayBody: 'Hoy no se sigue a nadie. El seguimiento vuelve el próximo día laboral.',
       progress: 'Despachado',
       toSend: 'Por enviar',
       notManager: 'El seguimiento del equipo lo ven quienes administran la empresa.',
@@ -1366,6 +1368,8 @@ export const dictionary = {
 
     followUps: {
       title: "Today's follow-up",
+      restDay: 'Rest day: no follow-up',
+      restDayBody: 'Nobody is followed up with today. It comes back on the next working day.',
       progress: 'Dispatched',
       toSend: 'To send',
       notManager: 'Team follow-up is for company administrators.',
