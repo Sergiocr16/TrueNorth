@@ -17,7 +17,17 @@ import {
   StatusPill,
   TextButton,
 } from '../../components/ui';
-import { AskIcon, CalendarIcon, CheckIcon, Chevron, ClockIcon, OfflineIcon, SettingsIcon, WarningTriangle } from '../../components/icons';
+import {
+  AskIcon,
+  CalendarIcon,
+  CheckIcon,
+  Chevron,
+  ClockIcon,
+  OfflineIcon,
+  ReminderIcon,
+  SettingsIcon,
+  WarningTriangle,
+} from '../../components/icons';
 import { PlanCalendar } from '../../components/plan-calendar';
 import { TodayReminders } from '../../components/reminders';
 import { DayCompass } from '../../components/day-compass';
@@ -120,6 +130,15 @@ export default function TodayPage() {
               className="tn-press flex h-11 w-11 items-center justify-center rounded-full border border-[var(--hair)] bg-[var(--surface)] text-[var(--sec)]"
             >
               <SettingsIcon size={20} />
+            </Link>
+            {/* Reminders are the day's own appointments: one tap from the day. */}
+            <Link
+              href={ROUTES.reminders}
+              aria-label={t.nav.reminders}
+              title={t.nav.reminders}
+              className="tn-press flex h-11 w-11 items-center justify-center rounded-full border border-[var(--hair)] bg-[var(--surface)] text-[var(--accent)]"
+            >
+              <ReminderIcon size={20} />
             </Link>
             {/* The record of past days opens from here, next to the date it
                 belongs to, rather than from the briefing. */}
