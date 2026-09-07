@@ -3,10 +3,13 @@ import 'server-only';
 import { adminMessaging } from './admin';
 
 /**
- * Sending push from the Pi. One data-only multicast to a person's devices;
- * the service worker decides how it looks and where it opens. Tokens that
- * Firebase reports dead are removed from the profile, so a wiped phone stops
- * being tried.
+ * Sending push from the Pi. One multicast to a person's devices, carrying
+ * both a `notification` block and the same text as data: iOS shows a
+ * notification message on its own while the app is closed — a data-only
+ * message waited until the app was opened — and the data is what the
+ * service worker and the page read for the tag and where a tap opens.
+ * Tokens that Firebase reports dead are removed from the profile, so a
+ * wiped phone stops being tried.
  */
 
 export interface PushData {
@@ -34,9 +37,13 @@ export async function sendToTokens(
   if (tokens.length === 0) return { sent: 0, dead: [] };
   const result = await adminMessaging().sendEachForMulticast({
     tokens,
+    notification: { title: data.title, body: data.body },
     data: { ...data },
     apns: { headers: { 'apns-priority': '10' }, payload: { aps: { 'content-available': 1 } } },
-    webpush: { headers: { Urgency: 'high' } },
+    webpush: {
+      headers: { Urgency: 'high', TTL: '600' },
+      notification: { icon: '/icons/192', badge: '/icons/192m', tag: data.tag },
+    },
   });
   const dead = result.responses
     .map((r, i) => (r.success ? null : { token: tokens[i]!, code: r.error?.code ?? '' }))

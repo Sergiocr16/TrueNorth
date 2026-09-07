@@ -17,9 +17,12 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// The server sends data-only messages, so this worker decides how they look
-// and the notification opens the right screen rather than the app root.
+// A message with a `notification` block is shown by Firebase itself while
+// the app is closed — the only way iOS shows one — so this worker only draws
+// the ones that carry data alone. Either way the tap opens the right screen
+// rather than the app root.
 messaging.onBackgroundMessage((payload) => {
+  if (payload.notification) return;
   const data = payload.data || {};
   self.registration.showNotification(data.title || 'TrueNorth', {
     body: data.body || '',
@@ -32,7 +35,10 @@ messaging.onBackgroundMessage((payload) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/today';
+  // Ours carry `url`; the ones Firebase drew carry the whole message under FCM_MSG.
+  const data = event.notification.data || {};
+  const fcm = data.FCM_MSG && data.FCM_MSG.data;
+  const url = data.url || (fcm && fcm.url) || '/today';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const client of list) {
