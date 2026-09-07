@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { Situation, Standing } from '@truenorth/core';
-import { todayIso } from '@truenorth/core';
+import { resolveDay, todayIso } from '@truenorth/core';
 import { LargeTitle, Screen } from '../../components/shell';
 import { Avatar, Card, EmptyState, GlanceTile, PrimaryButton, SectionLabel, TextButton } from '../../components/ui';
 import {
@@ -38,7 +38,9 @@ export default function FollowUpsPage() {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
 
-  const { followUp, users, activeRole } = store;
+  const { followUp, users, activeRole, company } = store;
+  // A rest day (ADR-012): nobody is followed up with, and nothing offers to.
+  const restDay = !resolveDay(company, activeRole, todayIso()).working;
 
   const generate = () => {
     if (!activeRole) return;
@@ -75,6 +77,10 @@ export default function FollowUpsPage() {
       {!isManager ? (
         <Card className="mx-4 mt-4">
           <EmptyState icon={<SendIcon size={34} />} title={t.followUps.title} body={t.followUps.notManager} />
+        </Card>
+      ) : restDay ? (
+        <Card className="mx-4 mt-4">
+          <EmptyState icon={<SendIcon size={34} />} title={t.followUps.restDay} body={t.followUps.restDayBody} />
         </Card>
       ) : !followUp && activeRole ? (
         <Card className="mx-4 mt-4">

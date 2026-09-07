@@ -52,8 +52,9 @@ than recomputing the day, so it describes the plan that was written.
 
 **The briefing is still produced on a rest day; follow-ups are not.** The
 briefing feeds the executive screen and costs nothing extra. Following
-people up on their day off is not what the product is for; a manager who
-asks for one on demand still gets it.
+people up on their day off is not what the product is for — not from the
+timer, and not on demand either: the route answers `skipped` and the
+screen says it is a rest day.
 
 **The timer keeps running daily.** The engine decides what the day is.
 

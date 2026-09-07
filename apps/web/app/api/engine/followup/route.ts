@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   try {
     const result = await regenerateFollowUp(body.companyId, caller.uid, body.roleId);
     if (!result.ok) return NextResponse.json({ error: result.error ?? 'failed' }, { status: 502 });
-    return NextResponse.json({ ok: true, messages: result.messages, usage: result.usage });
+    return NextResponse.json({ ok: true, skipped: result.skipped ?? false, messages: result.messages, usage: result.usage });
   } catch (cause) {
     return NextResponse.json(
       { error: cause instanceof Error ? cause.message : String(cause) },
