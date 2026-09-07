@@ -383,6 +383,45 @@ on *Aviso diario* on the phone, from the installed app — iOS delivers nothing 
 Safari — and `NEXT_PUBLIC_FIREBASE_VAPID_KEY` in the env (Firebase console →
 Cloud Messaging → Web Push certificates).
 
+Note that the Pi's clock is UTC (`timedatectl`): the units above are written
+in Costa Rica time for reading, and the live daily timer fires at `08:00`
+UTC. The app never depends on the machine's zone — every date goes through
+`todayIso()` and a wall-clock time carries `TIME_ZONE_OFFSET` — but a unit
+file does.
+
+### Personal reminders
+
+A person's own reminders (*Recordatorios*) are pushed a few minutes before
+their time by `/api/push/reminders`, which a timer calls every minute. The
+route claims each due reminder before sending, so nothing goes out twice;
+one that is more than five minutes late is never sent.
+
+```ini
+# /etc/systemd/system/truenorth-reminders.service
+[Unit]
+Description=TrueNorth personal reminders push
+
+[Service]
+Type=oneshot
+User=truenorth
+EnvironmentFile=/etc/truenorth/env
+ExecStart=/usr/bin/curl -fsS --max-time 50 -X POST -H "Authorization: Bearer ${ENGINE_LOCAL_TOKEN}" http://localhost:3000/api/push/reminders
+```
+
+```ini
+# /etc/systemd/system/truenorth-reminders.timer
+[Unit]
+Description=Check personal reminders every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=10s
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+```
+
 ### Checking the engine
 
 Two routes exist for this, both behind the same token. The first talks to

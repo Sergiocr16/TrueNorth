@@ -10,6 +10,8 @@
 import type { Weekday } from './types';
 
 export const TIME_ZONE = 'America/Costa_Rica';
+/** Costa Rica has no daylight saving, so the offset is a constant. */
+export const TIME_ZONE_OFFSET = '-06:00';
 
 /** The week as the product reads it: Monday first. */
 export const WEEKDAYS: readonly Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];

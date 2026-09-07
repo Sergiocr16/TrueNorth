@@ -17,15 +17,7 @@ import {
   writeBatch,
   type Firestore,
 } from 'firebase/firestore';
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   atMidnight,
   computeSignals,
@@ -38,6 +30,8 @@ import {
   objectiveHealth,
   objectiveProgressPct,
   resolveDay,
+  DEFAULT_LEAD_MINUTES,
+  nextRoundHour,
   type Company,
   type CompanyAnalysis,
   type DailyPlan,
@@ -57,19 +51,21 @@ import {
   type PlanItemVerdict,
   type Project,
   type Reading,
+  type Reminder,
   type Risk,
   type Signal,
   type Task,
   type User,
   type VoiceUpdate,
   type WorkerHeartbeat,
+  type Locale,
 } from '@truenorth/core';
 import type { InspectResult, SyncReport } from '../server/notion/types';
 import type { GithubRepoChoice, GithubStatus } from '../server/github/types';
 import type { NotionTableSummary } from '@truenorth/core';
 import { useAuth } from './auth';
 import { firebase } from './firebase';
-import { currentPushToken, disablePush, enablePush, type PushState } from './push';
+import { currentPushToken, disablePush, enablePush, listenForeground, type PushState } from './push';
 
 /**
  * The editable business data, backed by Firestore.
@@ -340,6 +336,13 @@ interface StoreValue {
   pushEnabled: boolean;
   enablePush: () => Promise<PushState>;
   disablePush: () => Promise<void>;
+  /** The language the server writes push text in; the screen's own choice lives in preferences. */
+  setProfileLocale: (locale: Locale) => void;
+  /** Personal reminders, on the person's own document. */
+  reminders: Reminder[];
+  upsertReminder: (reminder: Reminder) => void;
+  deleteReminder: (id: string) => void;
+  setReminderDone: (id: string, done: boolean) => void;
   /** One question about today, answered from the day's context. */
   ask: (question: string, history: { role: 'user' | 'assistant'; text: string }[]) => Promise<AskAnswer>;
 }
@@ -406,10 +409,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [analyses, setAnalyses] = useState<CompanyAnalysis[]>([]);
   const [voiceUpdates, setVoiceUpdates] = useState<VoiceUpdate[]>([]);
   const [engine, setEngine] = useState<WorkerHeartbeat | null>(null);
-  const [profile, setProfile] = useState<{ notifyHour: number; fcmTokens: string[] }>({
+  const [profile, setProfile] = useState<{ notifyHour: number; fcmTokens: string[]; reminders: Reminder[] }>({
     notifyHour: 6,
     fcmTokens: [],
+    reminders: [],
   });
+  // The freshest reminders, for writes that must not reuse a stale closure.
+  const remindersRef = useRef<Reminder[]>([]);
   const [ready, setReady] = useState(false);
   const [needsBootstrap, setNeedsBootstrap] = useState(false);
   const [pendingInvite, setPendingInvite] = useState<PendingInvite | null>(null);
@@ -440,13 +446,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       doc(db, 'users', uid),
       (snap) => {
         const data = snap.data() ?? {};
+        const reminders = Array.isArray(data.reminders) ? (data.reminders as Reminder[]) : [];
+        remindersRef.current = reminders;
         setProfile({
           notifyHour: typeof data.notifyHour === 'number' ? data.notifyHour : 6,
           fcmTokens: Array.isArray(data.fcmTokens) ? (data.fcmTokens as string[]) : [],
+          reminders,
         });
       },
       () => undefined,
     );
+    // A push that arrives while the app is open shows through the worker.
+    let stopForeground = () => undefined as void;
+    void listenForeground().then((stop) => {
+      stopForeground = stop;
+    });
     const stopMemberships = onSnapshot(
       collection(db, 'users', uid, 'memberships'),
       (snap) => {
@@ -490,6 +504,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       stopProfile();
       stopMemberships();
+      stopForeground();
     };
   }, [uid, user]);
 
@@ -844,6 +859,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       );
     },
     [companyId],
+  );
+
+  /** Rewrites the person's reminders from the latest list; errors surface like any other write. */
+  const writeReminders = useCallback(
+    (change: (list: Reminder[]) => Reminder[]) => {
+      if (!uid) return;
+      const { db } = firebase();
+      const next = change(remindersRef.current);
+      remindersRef.current = next;
+      void updateDoc(doc(db, 'users', uid), { reminders: next }).catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : String(cause)),
+      );
+    },
+    [uid],
   );
 
   /** Health is derived, never stored by hand, so it is recomputed on write. */
@@ -1715,10 +1744,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const token = currentPushToken();
         return Boolean(token && profile.fcmTokens.includes(token));
       })(),
-      enablePush: async () => (uid ? enablePush(uid) : 'unsupported'),
+      enablePush: async () => {
+        if (!uid) return 'unsupported';
+        const state = await enablePush(uid);
+        if (state === 'on') void listenForeground();
+        return state;
+      },
       disablePush: async () => {
         if (uid) await disablePush(uid);
       },
+      setProfileLocale: (locale) => {
+        if (!uid) return;
+        const { db } = firebase();
+        void updateDoc(doc(db, 'users', uid), { locale }).catch((cause: unknown) =>
+          setError(cause instanceof Error ? cause.message : String(cause)),
+        );
+      },
+
+      // Reminders are one array on the person's document: every write sends
+      // the whole list, always built from the latest snapshot.
+      reminders: profile.reminders,
+      upsertReminder: (reminder) => writeReminders((list) => {
+        const before = list.find((r) => r.id === reminder.id);
+        // A moved reminder is a new appointment: it gets its push again.
+        const moved = before && (before.date !== reminder.date || before.time !== reminder.time);
+        const next = { ...reminder, notifiedAt: moved ? null : reminder.notifiedAt };
+        const rest = list.filter((r) => r.id !== reminder.id);
+        return trimReminders([...rest, next]);
+      }),
+      deleteReminder: (id) => writeReminders((list) => list.filter((r) => r.id !== id)),
+      setReminderDone: (id, done) =>
+        writeReminders((list) =>
+          list.map((r) => (r.id === id ? { ...r, doneAt: done ? new Date().toISOString() : null } : r)),
+        ),
 
       ask: async (question, history) => {
         if (!user || !companyId) throw new Error('not signed in');
@@ -1954,6 +2012,28 @@ export function makeIndicator(): Indicator {
     target: 100,
     direction: 'up',
     targetDate: null,
+  };
+}
+
+/** A document holds plenty, but not forever: past the cap the oldest done reminders go first. */
+const REMINDERS_CAP = 200;
+function trimReminders(list: Reminder[]): Reminder[] {
+  if (list.length <= REMINDERS_CAP) return list;
+  const done = list.filter((r) => r.doneAt).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+  const drop = new Set(done.slice(0, list.length - REMINDERS_CAP).map((r) => r.id));
+  return list.filter((r) => !drop.has(r.id));
+}
+
+export function makeReminder(now: Date = new Date()): Reminder {
+  return {
+    id: newId('rm'),
+    title: '',
+    note: '',
+    ...nextRoundHour(now),
+    leadMinutes: DEFAULT_LEAD_MINUTES,
+    doneAt: null,
+    notifiedAt: null,
+    createdAt: now.toISOString(),
   };
 }
 

@@ -11,5 +11,6 @@ export * from './followup';
 export * from './health';
 export * from './dates';
 export * from './schedule';
+export * from './reminders';
 export * from './visibility';
 export * as fixtures from './fixtures';

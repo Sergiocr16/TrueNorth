@@ -51,6 +51,32 @@ export interface User {
   locale: Locale;
   theme: ThemePreference;
   reduceTransparency: boolean;
+  /** Personal reminders, on the person's own document so nobody else reads them. */
+  reminders?: Reminder[];
+}
+
+/** How many minutes before a reminder the push goes out. */
+export const LEAD_OPTIONS = [5, 10, 15, 30, 60] as const;
+export type LeadMinutes = (typeof LEAD_OPTIONS)[number];
+
+/**
+ * A personal, one-off reminder. Lives as an array on `users/{uid}` — the
+ * owner's document, already theirs alone in the rules — and is pushed by the
+ * Pi `leadMinutes` before its time.
+ */
+export interface Reminder {
+  id: string;
+  title: string;
+  note: string;
+  /** YYYY-MM-DD, a calendar day in Costa Rica. */
+  date: string;
+  /** HH:mm, 24h, Costa Rica wall clock. */
+  time: string;
+  leadMinutes: LeadMinutes;
+  doneAt: string | null;
+  /** Set by the server once the push went out; moving the reminder clears it. */
+  notifiedAt: string | null;
+  createdAt: string;
 }
 
 /** Monday-first keys for the days of the week. */

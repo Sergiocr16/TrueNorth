@@ -19,6 +19,7 @@ import {
 } from '../../components/ui';
 import { AskIcon, CalendarIcon, CheckIcon, Chevron, ClockIcon, OfflineIcon, SettingsIcon, WarningTriangle } from '../../components/icons';
 import { PlanCalendar } from '../../components/plan-calendar';
+import { TodayReminders } from '../../components/reminders';
 import { DayCompass } from '../../components/day-compass';
 import { RoleSwitcher } from '../../components/role-switcher';
 import { formatShortDate } from '../../lib/i18n/dictionary';
@@ -182,6 +183,9 @@ export default function TodayPage() {
           </Banner>
         </div>
       ) : null}
+
+      {/* The day's own appointments come before the plan, whatever state the plan is in. */}
+      <TodayReminders />
 
       {!hasRole ? (
         <Card className="mx-4 mt-4">

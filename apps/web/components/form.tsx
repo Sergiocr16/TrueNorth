@@ -261,6 +261,36 @@ export function DateField({
   );
 }
 
+/** A wall-clock time, HH:mm; the native picker does the work. */
+export function TimeField({
+  label,
+  value,
+  onChange,
+  isLast = false,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (value: string | null) => void;
+  isLast?: boolean;
+}) {
+  const id = useId();
+  return (
+    <div className={rowClass(isLast)}>
+      <label htmlFor={id} className="shrink-0 text-[17px] text-[var(--ink)]">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="time"
+        step={60}
+        value={value ?? ''}
+        onChange={(event) => onChange(event.target.value || null)}
+        className="tn-tabular min-w-0 flex-1 bg-transparent py-2 text-right text-[17px] text-[var(--accent)] outline-none"
+      />
+    </div>
+  );
+}
+
 export function NumberField({
   label,
   value,

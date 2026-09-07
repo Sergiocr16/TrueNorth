@@ -75,6 +75,25 @@ async function seedCompany(companyId = 'c1', ownerUid = 'u_owner') {
   });
 }
 
+describe('users', () => {
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await ctx.firestore().doc('users/u1').set({ locale: 'es', reminders: [] });
+    });
+  });
+
+  it('keeps reminders on the person\'s own document, theirs to write and nobody else\'s to read', async () => {
+    const mine = as('u1', 'ana@aditumcr.com');
+    await assertSucceeds(
+      mine.doc('users/u1').update({
+        reminders: [{ id: 'rm_1', title: 'Llamar al banco', date: '2026-09-07', time: '09:15', leadMinutes: 10 }],
+      }),
+    );
+    await assertFails(as('u2', 'marco@aditumcr.com').doc('users/u1').get());
+    await assertFails(as('u2', 'marco@aditumcr.com').doc('users/u1').update({ reminders: [] }));
+  });
+});
+
 describe('bootstrap', () => {
   it('lets a founder create a company that records them as its creator', async () => {
     const db = as('u1', FOUNDER);
