@@ -217,6 +217,47 @@ export async function replan(companyId: string, uid: string, roleId?: string | n
   return report;
 }
 
+/** Recalculations in flight, one per person and role: a second tap joins the first. */
+const replans = new Map<string, Promise<RunReport>>();
+
+/**
+ * "Recalcular mi plan" without holding the phone's request open: the run is
+ * marked on the person's own document (`replanning`), started, and left to
+ * finish on its own; the marker is cleared — or `replanError` set — when it
+ * ends, and the Today screen follows the document. A phone that drops the
+ * request, or is put away, changes nothing.
+ */
+export async function startReplan(
+  companyId: string,
+  uid: string,
+  roleId?: string | null,
+): Promise<{ started: boolean }> {
+  const key = `${companyId}:${uid}:${roleId ?? 'active'}`;
+  if (replans.has(key)) return { started: false };
+  const profile = adminDb().collection('users').doc(uid);
+  await profile.set(
+    { replanning: { companyId, roleId: roleId ?? null, startedAt: new Date().toISOString() }, replanError: null },
+    { merge: true },
+  );
+  const run = replan(companyId, uid, roleId)
+    .then(async (report) => {
+      const plan = report.plans[0];
+      await profile.set(
+        { replanning: null, replanError: plan?.ok ? null : (plan?.error ?? 'replan failed') },
+        { merge: true },
+      );
+      return report;
+    })
+    .catch(async (cause: unknown) => {
+      await profile.set({ replanning: null, replanError: describe(cause) }, { merge: true }).catch(() => undefined);
+      throw cause;
+    })
+    .finally(() => replans.delete(key));
+  replans.set(key, run);
+  run.catch(() => undefined);
+  return { started: true };
+}
+
 /** Today's follow-up for one manager in a role, on demand. */
 export async function regenerateFollowUp(
   companyId: string,

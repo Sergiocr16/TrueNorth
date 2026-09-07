@@ -53,7 +53,17 @@ export interface User {
   reduceTransparency: boolean;
   /** Personal reminders, on the person's own document so nobody else reads them. */
   reminders?: Reminder[];
+  /**
+   * A "Recalcular mi plan" in progress, written by the server: the screen
+   * follows this rather than a request a phone would drop. Null between runs.
+   */
+  replanning?: { companyId: string; roleId: string | null; startedAt: string } | null;
+  /** Why the last recalculation failed, if it did; cleared when the next one starts. */
+  replanError?: string | null;
 }
+
+/** A recalculation marker older than this is a run the server lost. */
+export const REPLAN_STALE_MS = 10 * 60_000;
 
 /** How many minutes before a reminder the push goes out. */
 export const LEAD_OPTIONS = [5, 10, 15, 30, 60] as const;

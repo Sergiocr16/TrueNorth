@@ -77,16 +77,17 @@ export default function TodayPage() {
   const gap = headlineObjective ? objectiveGap(headlineObjective, today) : 0;
 
   /**
-   * A real round trip: this same server runs Claude Code and writes the new
-   * plan, and the live listener on the plan document repaints the screen when
-   * it lands. Nothing is queued; the request simply waits.
+   * The server starts the run and marks it on the person's own document; the
+   * live listener on that document keeps the screen in "recalculating" until
+   * the plan lands, whether or not the phone stays open.
    */
+  const running =
+    store.replanning !== null && (store.replanning.roleId === null || store.replanning.roleId === activeRole?.id);
   const recalculate = () => {
     setRecalculating(true);
     setRecalculateError(null);
     store
       .replan()
-      .then(() => store.markPlanStale(false))
       .catch((cause: unknown) =>
         setRecalculateError(cause instanceof Error ? cause.message : String(cause)),
       )
@@ -112,6 +113,8 @@ export default function TodayPage() {
       )
       .finally(() => setGenerating(false));
   };
+  // The server's word on a failed run, once nothing is running any more.
+  const failure = recalculateError ?? (running ? null : store.replanError);
 
   return (
     <Screen riskCount={riskCount}>
@@ -180,10 +183,10 @@ export default function TodayPage() {
         </div>
       ) : null}
 
-      {recalculateError ? (
+      {failure ? (
         <div className="mt-3 px-4">
           <Banner tone="warning" icon={<WarningTriangle />}>
-            <strong className="font-semibold">{t.today.recalculateFailed}</strong> {recalculateError}
+            <strong className="font-semibold">{t.today.recalculateFailed}</strong> {failure}
           </Banner>
         </div>
       ) : null}
@@ -210,7 +213,7 @@ export default function TodayPage() {
         <Card className="mx-4 mt-4">
           <EmptyState title={t.roles.none} body={t.roles.noRoleBody} />
         </Card>
-      ) : !hasPlan && generating ? (
+      ) : !hasPlan && (generating || running) ? (
         <RecalculatingState />
       ) : !hasPlan && hasWork && activeRole ? (
         <Card className="mx-4 mt-4">
@@ -232,7 +235,7 @@ export default function TodayPage() {
             }
           />
         </Card>
-      ) : recalculating ? (
+      ) : recalculating || running ? (
         <RecalculatingState />
       ) : (
         <>
