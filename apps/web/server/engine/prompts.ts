@@ -7,6 +7,7 @@ import type {
   Membership,
   NotionSource,
   Objective,
+  PlanRule,
   Project,
   PullRequest,
   Role,
@@ -179,6 +180,63 @@ function planInstruction(ctx: CompanyContext): string {
   return ctx.day.working
     ? 'un titular con la prioridad de hoy, el porqué ligado a un objetivo (objectiveId), de tres a cinco acciones con su porqué, minutos estimados, y qué pasa si no se hace hoy.'
     : `un titular liviano, el porqué, y de una a tres sugerencias opcionales de investigación o mejora (leer, explorar, documentar, probar algo), cada una citando rest_day:${ctx.day.iso} y, si aplica, otra señal; sin plazos, sin vencidos, sin «qué pasa si no se hace».`;
+}
+
+/**
+ * What the person says they actually did yesterday (ADR-014).
+ *
+ * Their own words, unmatched to anything. The three verdicts on a plan only
+ * ever describe what the engine proposed; this is the one place the work it
+ * never thought of can show up, so it is what a blind spot looks like.
+ */
+function dayLogSection(log: string | null): string {
+  if (!log) return '';
+  return `
+## Lo que realmente hizo ayer, en sus palabras
+${log}
+Leelo como la verdad sobre su día, no como un reporte de avance. Si hizo algo
+que el plan nunca le pidió y se repite, eso es un punto ciego del plan, no un
+desvío de la persona: tomalo en cuenta al priorizar hoy. No inventes tareas ni
+señales a partir de esto, y no supongas que algo quedó terminado en Notion
+porque lo mencionó.`;
+}
+
+/**
+ * The rules this person confirmed about how they work (ADR-014).
+ *
+ * Prose, like the role description: it changes how the plan is ordered and
+ * worded, never where an item comes from — todo ítem sigue citando una señal
+ * calculada en código.
+ */
+function planRulesSection(rules: PlanRule[]): string {
+  if (rules.length === 0) return '';
+  return `
+## Cómo trabaja esta persona — reglas que confirmó
+${rules.map((r) => `- ${r.text}`).join('\n')}
+Estas reglas las escribió o confirmó la persona sobre sí misma. Respetalas al
+elegir y redactar las acciones. Si una regla choca con una señal, la señal
+sigue siendo el hecho: no la escondas, replanteá la acción para que respete la
+regla (por ejemplo, pedir cuentas en vez de ejecutar).`;
+}
+
+/**
+ * The invitation to propose one rule, only when the day gave a reason.
+ *
+ * The engine interprets, the app writes, and the person confirms (ADR-004):
+ * what comes back is a proposal stored on the plan, never something that
+ * reaches a prompt on its own.
+ */
+function proposeRuleInstruction(log: string | null, hasIrrelevant: boolean): string {
+  if (!log && !hasIrrelevant) return '';
+  return `
+Además, si —y solo si— lo que hizo ayer o lo que marcó como "no aplica" revela
+una forma de trabajar que el plan debería respetar de ahora en adelante,
+devolvé una sola regla en \`proposedRule\`: una frase en primera persona sobre
+cómo trabaja esta persona, su alcance (\`general\` si vale en cualquier rol,
+\`role\` si es solo de este) y la evidencia concreta en \`why\`. Nada de reglas
+genéricas ("priorizar lo importante") ni de repetir algo que ya esté en la
+lista de arriba. Si no hay evidencia clara de una, omitila: una propuesta
+cada día no sirve de nada.`;
 }
 
 /** "Tareas Software (solo lo asignado a la persona)" or "Backlog Software (todo)". */
@@ -407,6 +465,8 @@ export function briefingAndPlanPrompt(
   member: CompanyContext['members'][number],
   personalSignals: Signal[],
   yesterday: { headline: string; done: string[]; skipped: string[]; irrelevant: string[] } | null,
+  dayLog: string | null,
+  rules: PlanRule[],
 ): string {
   const { company, objectives, projects, tasks, members, signals, today, todayIso } = ctx;
   const openTasks = tasks.filter((t) => t.status !== 'done');
@@ -461,9 +521,9 @@ Omitido: ${yesterday.skipped.join('; ') || 'nada'}
 No aplica (la persona dijo que no era suyo o no tenía sentido): ${yesterday.irrelevant.join('; ') || 'nada'}
 Continuá lo que quedó abierto si sigue importando; no repitas lo hecho; y lo marcado como "no aplica" no lo vuelvas a proponer, ni nada equivalente — si era trabajo de otra persona, a lo sumo pedile cuentas a esa persona.`
     : ''
-}
+}${dayLogSection(dayLog)}${planRulesSection(rules)}
 
-Escribí primero el briefing del día desde este rol: un párrafo, los tres riesgos que más pesan, las decisiones pendientes y una lectura breve desde cada perspectiva (ceo, coo, cto, cfo, pm). Después su plan: ${planInstruction(ctx)}`;
+Escribí primero el briefing del día desde este rol: un párrafo, los tres riesgos que más pesan, las decisiones pendientes y una lectura breve desde cada perspectiva (ceo, coo, cto, cfo, pm). Después su plan: ${planInstruction(ctx)}${proposeRuleInstruction(dayLog, (yesterday?.irrelevant.length ?? 0) > 0)}`;
 }
 
 /** One person's plan. Runs once per member, after the analysis. */
@@ -473,6 +533,8 @@ export function planPrompt(
   personalSignals: Signal[],
   briefing: string,
   yesterday: { headline: string; done: string[]; skipped: string[]; irrelevant: string[] } | null,
+  dayLog: string | null,
+  rules: PlanRule[],
 ): string {
   const { company, objectives, projects, tasks, today, todayIso } = ctx;
   const mine = tasks.filter((t) => t.assigneeUserIds.includes(member.id) && t.status !== 'done');
@@ -515,9 +577,9 @@ Omitido: ${yesterday.skipped.join('; ') || 'nada'}
 No aplica (la persona dijo que no era suyo o no tenía sentido): ${yesterday.irrelevant.join('; ') || 'nada'}
 Continuá lo que quedó abierto si sigue importando; no repitas lo hecho; y lo marcado como "no aplica" no lo vuelvas a proponer, ni nada equivalente — si era trabajo de otra persona, a lo sumo pedile cuentas a esa persona.`
     : ''
-}
+}${dayLogSection(dayLog)}${planRulesSection(rules)}
 
-Escribí su plan: ${planInstruction(ctx)}`;
+Escribí su plan: ${planInstruction(ctx)}${proposeRuleInstruction(dayLog, (yesterday?.irrelevant.length ?? 0) > 0)}`;
 }
 
 /**

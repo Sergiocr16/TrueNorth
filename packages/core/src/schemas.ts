@@ -24,11 +24,26 @@ export const planItemSchema = z.object({
   signalIds: z.array(z.string()).min(1),
 });
 
+/**
+ * One rule the engine offers about how this person works (ADR-014).
+ *
+ * The engine interprets; the app writes, and only after the person confirms
+ * (ADR-004). So a rule is a proposal, never a side effect: it is stored on
+ * the plan, shown on the screen, and reaches tomorrow's prompt only once it
+ * has been confirmed onto the person's own member document.
+ */
+export const proposedRuleSchema = z.object({
+  text: z.string().min(10).max(200),
+  scope: z.enum(['general', 'role']),
+  why: z.string().min(3).max(280),
+});
+
 export const dailyPlanSchema = z.object({
   headline: z.string().min(3).max(160),
   why: z.string().min(3).max(400),
   items: z.array(planItemSchema).min(3).max(5),
   consequenceIfNotDone: z.string().min(3).max(280),
+  proposedRule: proposedRuleSchema.optional(),
 });
 
 /**
@@ -46,6 +61,9 @@ export const restDayPlanSchema = z.object({
   headline: z.string().min(3).max(160),
   why: z.string().min(3).max(400),
   items: z.array(restDayPlanItemSchema).min(1).max(3),
+  // Carried here too: the two plan contracts compose rather than inherit, and
+  // a rest day is as good a day as any to notice how somebody works.
+  proposedRule: proposedRuleSchema.optional(),
 });
 
 export const perspectiveSchema = z.object({

@@ -39,6 +39,7 @@ export const ROUTES = {
   integrations: '/integrations',
   settings: '/settings',
   reminders: '/reminders',
+  planRules: '/plan-rules',
 } as const;
 
 /* ------------------------------------------------------------------ */

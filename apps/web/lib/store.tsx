@@ -34,6 +34,12 @@ import {
   objectiveScope,
   DEFAULT_LEAD_MINUTES,
   nextRoundHour,
+  dayLogId,
+  handledProposal,
+  rejectedFromProposal,
+  ruleFromProposal,
+  sortPlanRules,
+  trimPlanRules,
   type Company,
   type CompanyAnalysis,
   type DailyPlan,
@@ -42,6 +48,9 @@ import {
   type Indicator,
   type Membership,
   type NotionSource,
+  type DayLog,
+  type PlanRule,
+  type ProposedRule,
   type PullRequest,
   type Role,
   type AskAction,
@@ -134,6 +143,8 @@ interface MemberDoc {
   disabled?: boolean;
   /** Absent on every document written before expectations existed. */
   expectations?: string;
+  /** How this person works, in their own words (ADR-014). Theirs alone to write. */
+  planRules?: PlanRule[];
   notionUserId?: string;
   notionUserIds?: string[];
   githubLogin?: string;
@@ -354,6 +365,25 @@ interface StoreValue {
   upsertReminder: (reminder: Reminder) => void;
   deleteReminder: (id: string) => void;
   setReminderDone: (id: string, done: boolean) => void;
+
+  /* How the engine gets tuned, day by day (ADR-014). */
+  /** What I said I did today, if I have written anything yet. */
+  dayLog: DayLog | null;
+  /** The last few days of logs, newest first. */
+  dayLogs: DayLog[];
+  /** Writes today's log. Empty text is a no-op: there is no deleting one. */
+  saveDayLog: (text: string) => void;
+  /** The rules I confirmed about how I work, newest first. */
+  planRules: PlanRule[];
+  upsertPlanRule: (rule: PlanRule) => void;
+  deletePlanRule: (id: string) => void;
+  /**
+   * What the engine offered with today's plan, until I answer it. Null once
+   * answered, or when it never offered anything.
+   */
+  proposedRule: ProposedRule | null;
+  /** Answers today's proposal. Confirming puts it in the prompt from tomorrow. */
+  answerProposedRule: (verdict: 'confirm' | 'reject', text?: string) => void;
   /** One question about today, answered from the day's context. */
   ask: (question: string, history: { role: 'user' | 'assistant'; text: string }[]) => Promise<AskAnswer>;
 }
@@ -435,6 +465,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   });
   // The freshest reminders, for writes that must not reuse a stale closure.
   const remindersRef = useRef<Reminder[]>([]);
+  const [dayLogs, setDayLogs] = useState<DayLog[]>([]);
+  // The same, for the rules: they live on the member document.
+  const planRulesRef = useRef<PlanRule[]>([]);
   const [ready, setReady] = useState(false);
   const [needsBootstrap, setNeedsBootstrap] = useState(false);
   const [pendingInvite, setPendingInvite] = useState<PendingInvite | null>(null);
@@ -871,6 +904,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => subs.forEach((unsubscribe) => unsubscribe());
   }, [uid, companyId, activeRoleId]);
 
+  // My own day logs (ADR-014). Filtered by uid because the read rule inspects
+  // the document, and rules are not filters. Not by role: a day is a day
+  // whatever role it was lived in.
+  useEffect(() => {
+    if (!uid || !companyId) return;
+    const { db } = firebase();
+    const base = doc(db, 'companies', companyId);
+    return onSnapshot(
+      query(
+        collection(base, 'updates'),
+        where('uid', '==', uid),
+        orderBy('date', 'desc'),
+        limit(30),
+      ),
+      (snap) =>
+        setDayLogs(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }) as DayLog)
+            .filter((log) => log.kind === 'day_log'),
+        ),
+      () => setDayLogs([]),
+    );
+  }, [uid, companyId]);
+
   const write = useCallback(
     (fn: (db: Firestore, cid: string) => Promise<unknown>) => {
       if (!companyId) return;
@@ -894,6 +951,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       );
     },
     [uid],
+  );
+
+  /**
+   * Rewrites my plan rules from the latest list (ADR-014). They are one array
+   * on my member document, like the reminders on my profile, so every write
+   * sends the whole list — and only `planRules`, because that is all the
+   * security rule lets a plain member change in one go.
+   */
+  const writePlanRules = useCallback(
+    (change: (list: PlanRule[]) => PlanRule[]) => {
+      if (!uid || !companyId) return;
+      const { db } = firebase();
+      const next = trimPlanRules(change(planRulesRef.current));
+      planRulesRef.current = next;
+      void updateDoc(doc(db, 'companies', companyId, 'members', uid), { planRules: next }).catch(
+        (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)),
+      );
+    },
+    [uid, companyId],
   );
 
   /** Health is derived, never stored by hand, so it is recomputed on write. */
@@ -988,6 +1064,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     for (const task of [...appTasks, ...Object.values(sourceTasks).flat()]) byId.set(task.id, task);
     return [...byId.values()];
   }, [appTasks, sourceTasks]);
+
+  // My rules, newest first, straight off my member document — the engine
+  // reads the same array, so there is nothing to keep in sync (ADR-014).
+  const planRules = useMemo(
+    () => sortPlanRules(uid ? (members[uid]?.planRules ?? []) : []),
+    [uid, members],
+  );
+  // The ref is what writes build on, so a write never reuses a stale closure.
+  useEffect(() => {
+    planRulesRef.current = planRules;
+  }, [planRules]);
+
+  const dayLog = useMemo(() => dayLogs.find((log) => log.date === TODAY) ?? null, [dayLogs]);
+
+  // A proposal stands until it is answered, and the answer lives on the rule
+  // the person wrote — so nothing is ever written back to the plan document,
+  // which only the engine may write.
+  const proposedRule = useMemo(() => {
+    if (!plan?.proposedRule || !plan.id) return null;
+    return handledProposal(planRules, plan.id) ? null : plan.proposedRule;
+  }, [plan, planRules]);
 
   const value = useMemo<StoreValue>(() => {
     const today = new Date(`${TODAY}T00:00:00`);
@@ -1813,6 +1910,58 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           list.map((r) => (r.id === id ? { ...r, doneAt: done ? new Date().toISOString() : null } : r)),
         ),
 
+      // What I actually did today (ADR-014). One document per person per day,
+      // edited all day rather than appended to; the rules forbid deleting one.
+      dayLog,
+      dayLogs,
+      saveDayLog: (text) => {
+        const trimmed = text.trim();
+        if (!trimmed || !uid) return;
+        const now = new Date().toISOString();
+        write((db, cid) =>
+          setDoc(
+            doc(db, 'companies', cid, 'updates', dayLogId(TODAY, uid)),
+            {
+              companyId: cid,
+              // Both ids: the rules filter on `uid`, the engine reads `userId`.
+              uid,
+              userId: uid,
+              kind: 'day_log',
+              date: TODAY,
+              text: trimmed,
+              createdAt: dayLog?.createdAt ?? now,
+              updatedAt: now,
+              // Never applied: writing back to Notion is the voice flow's job.
+              appliedAt: null,
+            },
+            { merge: true },
+          ),
+        );
+      },
+
+      // The rules are one array on my member document: every write sends the
+      // whole list, always built from the latest snapshot.
+      planRules,
+      upsertPlanRule: (rule) =>
+        writePlanRules((list) => [rule, ...list.filter((r) => r.id !== rule.id)]),
+      deletePlanRule: (id) => writePlanRules((list) => list.filter((r) => r.id !== id)),
+      proposedRule,
+      answerProposedRule: (verdict, text) => {
+        if (!plan?.proposedRule || !plan.id) return;
+        const proposal = text?.trim() ? { ...plan.proposedRule, text: text.trim() } : plan.proposedRule;
+        const options = {
+          id: newId('pr'),
+          planId: plan.id,
+          roleId: activeRoleId,
+          now: new Date(),
+        };
+        const answered =
+          verdict === 'confirm'
+            ? ruleFromProposal(proposal, options)
+            : rejectedFromProposal(proposal, options);
+        writePlanRules((list) => [answered, ...list]);
+      },
+
       ask: async (question, history) => {
         if (!user || !companyId) throw new Error('not signed in');
         const token = await user.getIdToken();
@@ -1934,6 +2083,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     profile,
     plan,
     planHistory,
+    planRules,
+    dayLog,
+    dayLogs,
+    proposedRule,
+    writePlanRules,
     analyses,
     voiceUpdates,
     companyId,
@@ -2079,6 +2233,23 @@ export function makeReminder(now: Date = new Date()): Reminder {
     doneAt: null,
     notifiedAt: null,
     createdAt: now.toISOString(),
+  };
+}
+
+/**
+ * A rule the person is about to write themselves (ADR-014). It starts general;
+ * the editor pins it to a role if they narrow the scope.
+ */
+export function makePlanRule(now: Date = new Date()): PlanRule {
+  return {
+    id: newId('pr'),
+    text: '',
+    scope: 'general',
+    roleId: null,
+    status: 'confirmed',
+    source: { kind: 'manual' },
+    createdAt: now.toISOString(),
+    confirmedAt: now.toISOString(),
   };
 }
 

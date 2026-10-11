@@ -235,12 +235,23 @@ service cloud.firestore {
       // because a member may not read anyone else's users/{uid} document.
       match /members/{memberUid} {
         allow read: if isMember(companyId);
-        // A person may edit their own responsibility text and switch the role
-        // they have on — only to one of their own; an admin may edit anyone's
-        // roles, access level and expectations.
+        // A person may edit their own responsibility text, switch the role
+        // they have on — only to one of their own — and keep their own plan
+        // rules; an admin may edit anyone's roles, access level and
+        // expectations.
+        //
+        // `planRules` (ADR-014) is how a person describes their own way of
+        // working, so they may write it without being an admin — the one
+        // field here that a plain member adds to rather than only reads.
+        // Admins keep their blanket update, as everywhere else in this file.
+        // An array rather than a subcollection for the same reason as the
+        // personal reminders: a subcollection needs its own rule, and rules
+        // deploy from a logged-in machine, never from the Pi.
         allow update: if isAdmin(companyId)
                       || (request.auth.uid == memberUid
                           && changedOnly(['roleDescription']))
+                      || (request.auth.uid == memberUid
+                          && changedOnly(['planRules']))
                       || (request.auth.uid == memberUid
                           && changedOnly(['activeRoleId'])
                           && request.resource.data.activeRoleId in resource.data.get('roleIds', []));
@@ -391,6 +402,13 @@ service cloud.firestore {
 
       // Dictated updates: a person creates and edits their own until it is
       // applied. The engine and the Notion writer take it from there.
+      //
+      // Two kinds share the collection. A `day_log` (ADR-014) is what the
+      // person says they actually did, one document per day, never applied
+      // and so editable all day; the engine reads yesterday's into the plan
+      // prompt. A `voice` update is the ADR-004 flow, which applies and then
+      // freezes. Both are private to their author, and neither is deletable:
+      // the record of what somebody said they did is not theirs to erase.
       match /updates/{updateId} {
         allow read: if isMember(companyId) && resource.data.uid == request.auth.uid;
         allow create: if isMember(companyId)

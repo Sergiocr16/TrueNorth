@@ -101,7 +101,7 @@ npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/cor
 | Route | What it does |
 | --- | --- |
 | `/sign-in`, `/choose-company` | Sign in, then pick the company and see your role in it |
-| `/today` | The day as a compass — the needle swings north as the plan gets done — the plan, per-item feedback, recalculate, the calendar of past days |
+| `/today` | The day as a compass — the needle swings north as the plan gets done — the plan, per-item feedback, recalculate, the calendar of past days, and what you actually did today in your own words |
 | `/briefing` | Three numbers, the executive summary folded, ranked risks, decisions, five perspectives, how the team is doing |
 | `/company` | North star, target date, 3/6/12-month plans, overall status |
 | `/objectives` | Objectives with indicators and the expected-vs-actual gap |
@@ -111,6 +111,7 @@ npx firebase-tools emulators:exec --only firestore "pnpm --filter @truenorth/cor
 | `/assistant` | The chief of staff as a conversation: ask about the day, by text or voice, and confirm what it proposes — a situation, a message to copy, a follow-up marked sent, an expectation |
 | `/risks` | Every signal the engine raises, grouped by what to do about it, plus the risks you record |
 | `/integrations` | Notion: pick databases from the list the integration can see, check the suggested mapping and status table, sync now. GitHub: pick repositories, say which project each belongs to and who approves, sync now |
+| `/plan-rules` | How you work, in your own words: the sentences the plan prompt reads every morning, written by you or confirmed from what the engine proposed after reading your day |
 | `/settings` | Language, delivery time, notifications, six themes and five accents, reduced transparency, engine status |
 
 Every main screen carries a small compass in its corner: that screen's health

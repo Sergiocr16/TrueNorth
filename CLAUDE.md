@@ -166,6 +166,7 @@ generated; the data is safe in Firebase. That trade was made deliberately.
 - The Notion status map: every registered source carries its own `statusMap` (ADR-008), built from the database's own groups by `defaultStatusMap()` and edited on screen. `NOTION_TASK_STATUS` in `packages/core/src/notion-status.ts` is the known default, pinned by a test as what "Tareas Software" resolves to. The signal engine, the plan and the voice writer all depend on the four internal states.
 - The scope of a person (`scopeFor` in `packages/core/src/visibility.ts`, ADR-008, ADR-009): the active role's sources — each read whole or only through the person's assignments — plus app records, with signals recomputed from that subset. Documents are per person and role: `analyses/{date}_{uid}_{roleId}`, `plans/…`, `followups/…`.
 - The route paths (ADR-007): English, one folder per screen, `[date]` and `[id]` for dynamic segments.
+- How the engine is tuned (ADR-014): a `day_log` in `companies/{cid}/updates` is what a person says they actually did, read raw into the next day's prompt; `Membership.planRules` is the sentences they confirmed about how they work, read every morning. `proposedRule` on both plan contracts is a proposal only — the engine stores it on the plan, the person confirms it onto their own member document, and nothing reaches a prompt unconfirmed. Rules change ranking and wording; `enforceCitations` still drops any item citing a signal the person was not shown.
 
 ## Design system
 
@@ -212,7 +213,7 @@ sees whole (ADR-009).
 
 ## Testing
 
-- `packages/core` uses vitest: signals, visibility and scope by role, follow-up guardrails, health shares, people matching (Notion and GitHub identities), Notion mapping (`notion-map.test.ts` runs `suggestMapping` and `pageToTask` against ADITUM's recorded schemas in `notion-schemas.fixture.ts`), GitHub mapping (`github-map.test.ts`: task code from a branch, review state GitHub's way, pull request to record). Every new signal or guard ships with a test.
+- `packages/core` uses vitest: signals, visibility and scope by role, follow-up guardrails, health shares, people matching (Notion and GitHub identities), Notion mapping (`notion-map.test.ts` runs `suggestMapping` and `pageToTask` against ADITUM's recorded schemas in `notion-schemas.fixture.ts`), GitHub mapping (`github-map.test.ts`: task code from a branch, review state GitHub's way, pull request to record), and how the engine is tuned (`plan-rules.test.ts`: which rules reach a prompt, the cap, and a proposal confirmed or turned down). Every new signal or guard ships with a test.
 - Golden cases for the engine belong in `packages/core` alongside the signal tests: a company snapshot in, an expected plan shape out.
 - Firestore rules have emulator tests in `packages/core/src/rules.test.ts` (Java 21+). The ones that matter most: nobody reads another company, nobody reads a private project they are not a member of, and nobody reads a Notion record whose source is not on their active role, or one of an assigned-only source that does not name them; then situations stay with admins and a follow-up stays with its manager. `pnpm test:rules` assumes macOS (`/usr/libexec/java_home`); on the Pi run `npx firebase-tools emulators:exec --only firestore --project truenorth-rules-test "pnpm --filter @truenorth/core exec vitest run src/rules.test.ts"`.
 

@@ -60,6 +60,7 @@ export default function SettingsPage() {
     { href: ROUTES.team, label: t.nav.team },
     { href: ROUTES.followUps, label: t.nav.followUps },
     { href: ROUTES.reminders, label: t.nav.reminders },
+    { href: ROUTES.planRules, label: t.nav.planRules },
     { href: ROUTES.ask, label: t.nav.ask },
     { href: ROUTES.reports, label: t.nav.reports },
     { href: ROUTES.integrations, label: t.nav.integrations },

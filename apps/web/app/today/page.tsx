@@ -30,6 +30,7 @@ import {
 } from '../../components/icons';
 import { PlanCalendar } from '../../components/plan-calendar';
 import { TodayReminders } from '../../components/reminders';
+import { DayLog } from '../../components/day-log';
 import { DayCompass } from '../../components/day-compass';
 import { RoleSwitcher } from '../../components/role-switcher';
 import { formatShortDate } from '../../lib/i18n/dictionary';
@@ -367,6 +368,8 @@ export default function TodayPage() {
         </>
       )}
 
+      {/* What I actually did, whether or not a plan was written (ADR-014). */}
+      <DayLog />
     </Screen>
   );
 }
