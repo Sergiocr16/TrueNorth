@@ -489,12 +489,14 @@ describe('computeSignals', () => {
       objectives: [objective()],
       projects: [project()],
       tasks: [
+        // Midday UTC on purpose: midnight UTC is the previous day in Costa
+        // Rica, and the day these counts are in is always the local one.
         // The owner wrote on it yesterday: late but moving.
         task({
           id: 'moving',
           dueDate: '2026-08-20',
           status: 'in_progress',
-          statusChangedAt: '2026-07-01T00:00:00Z',
+          statusChangedAt: '2026-07-01T12:00:00Z',
           comments: [comment('u1', '2026-09-02T10:00:00Z')],
           lastCommentAt: '2026-09-02T10:00:00Z',
           lastCommentBy: 'u1',
@@ -504,7 +506,7 @@ describe('computeSignals', () => {
           id: 'silent',
           dueDate: '2026-08-20',
           status: 'in_progress',
-          statusChangedAt: '2026-07-01T00:00:00Z',
+          statusChangedAt: '2026-07-01T12:00:00Z',
           comments: [comment('u2', '2026-09-02T10:00:00Z')],
           lastCommentAt: '2026-09-02T10:00:00Z',
           lastCommentBy: 'u2',
