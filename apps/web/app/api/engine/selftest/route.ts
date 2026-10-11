@@ -119,7 +119,9 @@ export async function GET(request: Request) {
     }
 
     const personal = visibleSignals(scope, member.id);
-    const prompt = briefingAndPlanPrompt(ctx, member, personal, null);
+    // No yesterday, no day log and no rules: the selftest proves Claude answers
+    // the contract, not that a particular person's history reads well.
+    const prompt = briefingAndPlanPrompt(ctx, member, personal, null, null, []);
     // The contract follows the day (ADR-012), as the real run does.
     const answer = ctx.day.working
       ? await askClaude(prompt, personalBriefingSchema, { system: BRIEFING_PLAN_SYSTEM })

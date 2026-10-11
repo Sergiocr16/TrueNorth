@@ -186,6 +186,16 @@ export interface Membership {
    * "delivering what I expect" is the judgement, and that is the model's job.
    */
   expectations: string;
+  /**
+   * How this person works, in their own words, one sentence per rule
+   * (ADR-014). Only they write these; an admin may not put words in
+   * somebody's mouth, which is what separates them from `expectations`.
+   *
+   * An array rather than a subcollection for the same reason as the personal
+   * reminders: a subcollection needs its own security rule, and rules deploy
+   * from a logged-in machine, never from the Pi.
+   */
+  planRules?: PlanRule[];
   /** Notion's own user id, so a comment author maps back to this person. */
   notionUserId?: string;
   /**
@@ -534,6 +544,13 @@ export interface DailyPlan {
   deliveredAt: string | null;
   stale: boolean;
   feedback: Record<number, PlanItemVerdict>;
+  /**
+   * One rule the engine offers about how this person works (ADR-014), when
+   * the day gave it a reason to. A proposal, never a side effect: it reaches
+   * the prompt only once the person confirms it, and confirming writes to
+   * their own member document, not to this one.
+   */
+  proposedRule?: ProposedRule | null;
 }
 
 export type PerspectiveKey = 'ceo' | 'coo' | 'cto' | 'cfo' | 'pm';
@@ -566,6 +583,77 @@ export interface CompanyAnalysis {
   perspectives: Perspective[];
   model: string;
   costUsd: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tuning the engine (ADR-014)                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What the person actually did, in their own words — including the work the
+ * plan never asked for, which is the whole point: a blind spot in the signals
+ * shows up here and nowhere else.
+ *
+ * One document per person per day in `companies/{cid}/updates`, edited all
+ * day rather than appended to, so it serves both dictating at the close and
+ * jotting as the day goes. `kind` keeps the collection honest: the voice flow
+ * of ADR-004 writes `'voice'` documents into the same place.
+ */
+export interface DayLog {
+  id: string;
+  companyId: string;
+  /** The rules filter on this; `userId` is the domain field. Both are written. */
+  uid: string;
+  userId: string;
+  kind: 'day_log';
+  /** YYYY-MM-DD, the calendar day in Costa Rica the log is about. */
+  date: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+  /**
+   * Null for a day log, always. The field exists because the rules let a
+   * person edit an update only while it is unapplied, and nothing applies a
+   * day log: writing back to Notion is the voice flow's job.
+   */
+  appliedAt: string | null;
+}
+
+/** Whether a rule is about the person everywhere, or only in one role. */
+export type PlanRuleScope = 'general' | 'role';
+
+/** What the engine may offer. A sentence and the reason for it, nothing that writes. */
+export interface ProposedRule {
+  text: string;
+  scope: PlanRuleScope;
+  /** The evidence behind the proposal, shown to the person deciding. */
+  why: string;
+}
+
+/**
+ * One confirmed sentence about how a person works, which the plan prompt
+ * reads every day (ADR-014).
+ *
+ * Prose on purpose, like `Membership.expectations`. A rule shapes how the
+ * model ranks and words a plan; it never supplies the facts, because every
+ * item still has to cite a signal computed in code. Stored as an array on the
+ * person's member document — the engine already reads those, so a rule costs
+ * no extra read, and no new collection means no new security rule.
+ *
+ * A turned-down proposal is kept with `status: 'rejected'` rather than
+ * deleted, so the same sentence is not offered a second time.
+ */
+export interface PlanRule {
+  id: string;
+  text: string;
+  scope: PlanRuleScope;
+  /** The role it belongs to when `scope` is `'role'`; null otherwise. */
+  roleId: string | null;
+  status: 'confirmed' | 'rejected';
+  /** Where it came from: written by hand, or proposed with the plan it came with. */
+  source: { kind: 'manual' | 'proposed'; planId?: string; logId?: string };
+  createdAt: string;
+  confirmedAt: string | null;
 }
 
 /* ------------------------------------------------------------------ */

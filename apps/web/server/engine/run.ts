@@ -3,7 +3,9 @@ import 'server-only';
 import { FieldValue, type DocumentReference } from 'firebase-admin/firestore';
 import { hostname } from 'node:os';
 import {
+  activeRules,
   dailyPlanSchema,
+  dayLogText,
   ensureGreeting,
   isRepeat,
   leaksNote,
@@ -21,6 +23,7 @@ import {
   type DailyPlanOutput,
   type DayResolution,
   type FollowUp,
+  type PlanRule,
   type RestDayPlanOutput,
   type Scoped,
   type Signal,
@@ -337,6 +340,20 @@ function yesterdaySummary(captured: Captured, member: MemberRecord, roleId: stri
     : null;
 }
 
+/**
+ * What the person says they actually did yesterday (ADR-014) — including the
+ * work no plan ever asked for, which is the only way a blind spot in the
+ * signals ever reaches the prompt. Raw prose; nothing matches it to a task.
+ */
+function dayLogFor(captured: Captured, member: MemberRecord): string | null {
+  return dayLogText(captured.yesterdayLogs.get(member.id));
+}
+
+/** The rules this person confirmed about how they work, in this role (ADR-014). */
+function rulesFor(captured: Captured, member: MemberRecord, roleId: string): PlanRule[] {
+  return activeRules(member.membership.planRules ?? [], roleId);
+}
+
 /** An item may only cite signals it was shown; one that cites nothing real is dropped. */
 function enforceCitations<T extends { signalIds: string[] }>(items: T[], allowed: Set<string>): T[] {
   return items
@@ -380,6 +397,9 @@ async function writePlan(
       deliveredAt: new Date().toISOString(),
       stale: false,
       feedback: {},
+      // A proposal, never a side effect: it reaches a prompt only once the
+      // person confirms it onto their own member document (ADR-014).
+      proposedRule: 'proposedRule' in plan ? (plan.proposedRule ?? null) : null,
       model: usage.model,
       costUsd: usage.costUsd,
     });
@@ -438,7 +458,14 @@ async function briefingAndPlanFor(
   try {
     // Two contracts, chosen by the day (ADR-012): the schema is a hard
     // constraint on the model, so the choice is made here, not asked of it.
-    const prompt = briefingAndPlanPrompt(ctx, member, personal, yesterdaySummary(captured, member, roleId));
+    const prompt = briefingAndPlanPrompt(
+      ctx,
+      member,
+      personal,
+      yesterdaySummary(captured, member, roleId),
+      dayLogFor(captured, member),
+      rulesFor(captured, member, roleId),
+    );
     const answer = ctx.day.working
       ? await askClaude(prompt, personalBriefingSchema, { system: BRIEFING_PLAN_SYSTEM })
       : await askClaude(prompt, restDayBriefingSchema, { system: BRIEFING_PLAN_SYSTEM });
@@ -463,7 +490,15 @@ async function planOnlyFor(
   const allowed = new Set(personal.map((s) => s.id));
 
   try {
-    const prompt = planPrompt(ctx, member, personal, briefing, yesterdaySummary(captured, member, roleId));
+    const prompt = planPrompt(
+      ctx,
+      member,
+      personal,
+      briefing,
+      yesterdaySummary(captured, member, roleId),
+      dayLogFor(captured, member),
+      rulesFor(captured, member, roleId),
+    );
     const answer = ctx.day.working
       ? await askClaude(prompt, dailyPlanSchema, { system: PLAN_SYSTEM })
       : await askClaude(prompt, restDayPlanSchema, { system: PLAN_SYSTEM });

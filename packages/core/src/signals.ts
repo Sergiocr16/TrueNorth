@@ -1,3 +1,4 @@
+import { atMidnight, todayIso } from './dates';
 import type { DayResolution } from './schedule';
 import { WEEKDAY_NAMES } from './schedule';
 import type {
@@ -191,11 +192,20 @@ export function objectiveHealth(objective: MeasuredObjective, today: Date): Heal
   return objectiveGap(objective, today) > AT_RISK_GAP_POINTS ? 'at_risk' : 'on_track';
 }
 
-/** Whole days between the calendar day of a timestamp and today. */
+/**
+ * Whole days between the calendar day of a timestamp and today.
+ *
+ * The calendar day is the one in Costa Rica, never the one on the machine's
+ * clock. A stamp just after midnight UTC belongs to the previous day here, so
+ * reading it locally made "days overdue" depend on where the code ran: the Pi
+ * and a laptop in another zone would disagree by a day on the same task.
+ * `today` is already local midnight of a Costa Rica date, which is what
+ * `atMidnight(todayIso(at))` produces for the stamp, so the two are symmetric.
+ */
 function daysSince(timestamp: string, today: Date): number | null {
   const at = new Date(timestamp);
   if (Number.isNaN(at.getTime())) return null;
-  return daysBetween(new Date(at.getFullYear(), at.getMonth(), at.getDate()), today);
+  return daysBetween(atMidnight(todayIso(at)), today);
 }
 
 /**

@@ -3,11 +3,13 @@ import 'server-only';
 import type {
   Company,
   DailyPlan,
+  DayLog,
   GithubIntegration,
   GithubRepo,
   Membership,
   NotionSource,
   Objective,
+  PlanRule,
   Project,
   PullRequest,
   Risk,
@@ -72,6 +74,8 @@ export interface Captured {
   yesterdayPlans: Map<string, DailyPlan>;
   /** A week of plans for everybody, which is where the engagement signals come from. */
   planHistory: DailyPlan[];
+  /** Yesterday's day log by userId (ADR-014): what each person says they actually did. */
+  yesterdayLogs: Map<string, DayLog>;
   today: Date;
   todayIso: string;
 }
@@ -89,6 +93,8 @@ interface MemberDoc {
   hasAccount?: boolean;
   /** Absent on every document written before expectations existed. */
   expectations?: string;
+  /** How this person works, in their own words (ADR-014). Absent until they write one. */
+  planRules?: PlanRule[];
   notionUserId?: string;
   notionUserIds?: string[];
   githubLogin?: string;
@@ -162,6 +168,7 @@ export async function captureCompany(
         access: m.access,
         hasAccount: m.hasAccount ?? true,
         expectations: typeof m.expectations === 'string' ? m.expectations : '',
+        planRules: Array.isArray(m.planRules) ? m.planRules : [],
         notionUserId: m.notionUserId,
         notionUserIds: m.notionUserIds,
         githubLogin: m.githubLogin,
@@ -202,6 +209,19 @@ export async function captureCompany(
     if (plan.date === yesterdayIso) yesterdayPlans.set(`${plan.userId}_${plan.roleId ?? ''}`, plan);
   }
 
+  // What people say they actually did yesterday (ADR-014). One range query on
+  // the same field as the plans, so it carries the same single-field index.
+  // Keyed by person, not by role: a day is a day whatever role it was lived in.
+  const logsSnap = await base
+    .collection('updates')
+    .where('date', '==', yesterdayIso)
+    .get();
+  const yesterdayLogs = new Map<string, DayLog>();
+  for (const doc of logsSnap.docs) {
+    const log = { id: doc.id, ...doc.data() } as DayLog;
+    if (log.kind === 'day_log' && log.userId) yesterdayLogs.set(log.userId, log);
+  }
+
   return {
     company,
     members,
@@ -217,6 +237,7 @@ export async function captureCompany(
     situations,
     yesterdayPlans,
     planHistory,
+    yesterdayLogs,
     today: atMidnight(todayIso),
     todayIso,
   };

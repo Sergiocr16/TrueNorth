@@ -25,6 +25,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 const FOUNDER = 'sergio@aditumcr.com';
 const rulesPath = resolve(import.meta.dirname, '../../../firestore.rules');
+/** 8080 is what `firebase.json` starts; override both when something else already holds it. */
+const emulatorPort = Number(process.env.FIRESTORE_EMULATOR_PORT ?? 8080);
 
 let env: RulesTestEnvironment;
 
@@ -39,7 +41,7 @@ beforeAll(async () => {
     firestore: {
       rules: readFileSync(rulesPath, 'utf8'),
       host: '127.0.0.1',
-      port: 8080,
+      port: emulatorPort,
     },
   });
   // Loading the rules into a cold emulator on the Pi can take longer than vitest's 10 s.
@@ -779,6 +781,121 @@ describe('plans', () => {
       db.doc('companies/c1/plans/d_u_owner').update({ feedback: { 0: 'done' } }),
     );
     await assertFails(db.doc('companies/c1/plans/d_u_owner').update({ headline: 'Otra cosa' }));
+  });
+});
+
+describe('the day log (ADR-014)', () => {
+  const peer = () => as('u_peer', 'marco@aditumcr.com');
+
+  beforeEach(async () => {
+    await seedCompany();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await db.doc('companies/c1/members/u_peer').set({ access: 'member' });
+      await db.doc('companies/c1/updates/2026-10-10_u_owner').set({
+        uid: 'u_owner',
+        userId: 'u_owner',
+        kind: 'day_log',
+        date: '2026-10-10',
+        text: 'Revisé los PRs de Juan',
+        appliedAt: null,
+      });
+    });
+  });
+
+  it('keeps what somebody said they did to themselves', async () => {
+    await assertFails(peer().doc('companies/c1/updates/2026-10-10_u_owner').get());
+    await assertSucceeds(as('u_owner', FOUNDER).doc('companies/c1/updates/2026-10-10_u_owner').get());
+    // Rules are not filters: the list only works with the clause the app sends.
+    await assertFails(as('u_owner', FOUNDER).collection('companies/c1/updates').get());
+    await assertSucceeds(
+      as('u_owner', FOUNDER).collection('companies/c1/updates').where('uid', '==', 'u_owner').get(),
+    );
+  });
+
+  it('writes a log only in the author own name', async () => {
+    const db = as('u_owner', FOUNDER);
+    await assertSucceeds(
+      db.doc('companies/c1/updates/2026-10-11_u_owner').set({
+        uid: 'u_owner',
+        userId: 'u_owner',
+        kind: 'day_log',
+        date: '2026-10-11',
+        text: 'Cerré TAR-966',
+        appliedAt: null,
+      }),
+    );
+    // No uid, no create: the read rule has nothing to check against.
+    await assertFails(
+      db.doc('companies/c1/updates/2026-10-11_x').set({ kind: 'day_log', text: 'Algo' }),
+    );
+    // And never in somebody else's name.
+    await assertFails(
+      db.doc('companies/c1/updates/2026-10-11_u_peer').set({ uid: 'u_peer', text: 'Algo' }),
+    );
+  });
+
+  it('stays editable all day, because a day log is never applied', async () => {
+    const db = as('u_owner', FOUNDER);
+    await assertSucceeds(
+      db.doc('companies/c1/updates/2026-10-10_u_owner').update({ text: 'Y también cerré TAR-842' }),
+    );
+    await assertFails(
+      peer().doc('companies/c1/updates/2026-10-10_u_owner').update({ text: 'No fue así' }),
+    );
+  });
+
+  it('cannot be erased, not even by the person who wrote it', async () => {
+    await assertFails(as('u_owner', FOUNDER).doc('companies/c1/updates/2026-10-10_u_owner').delete());
+  });
+});
+
+describe('plan rules (ADR-014)', () => {
+  const peer = () => as('u_peer', 'marco@aditumcr.com');
+
+  beforeEach(async () => {
+    await seedCompany();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await ctx.firestore().doc('companies/c1/members/u_peer').set({
+        displayName: 'Marco',
+        access: 'member',
+        roleIds: ['r_general'],
+        activeRoleId: 'r_general',
+        expectations: 'Cerrar el módulo financiero',
+      });
+    });
+  });
+
+  const rule = [
+    {
+      id: 'pr_1',
+      text: 'En una tarea de otra persona mi acción es dar seguimiento',
+      scope: 'general',
+      roleId: null,
+      status: 'confirmed',
+      source: { kind: 'manual' },
+      createdAt: '2026-10-11T00:00:00Z',
+      confirmedAt: '2026-10-11T00:00:00Z',
+    },
+  ];
+
+  it('lets a plain member describe how they work', async () => {
+    await assertSucceeds(peer().doc('companies/c1/members/u_peer').update({ planRules: rule }));
+  });
+
+  it('refuses to let anyone write somebody else rules', async () => {
+    await assertFails(peer().doc('companies/c1/members/u_owner').update({ planRules: rule }));
+  });
+
+  it('still refuses the fields that were never theirs', async () => {
+    const db = peer();
+    await assertFails(db.doc('companies/c1/members/u_peer').update({ access: 'admin' }));
+    await assertFails(db.doc('companies/c1/members/u_peer').update({ roleIds: ['r_general', 'r_x'] }));
+    await assertFails(db.doc('companies/c1/members/u_peer').update({ expectations: 'Nada, en realidad' }));
+    // Not even smuggled in alongside a legitimate change.
+    await assertFails(
+      db.doc('companies/c1/members/u_peer').update({ planRules: rule, access: 'admin' }),
+    );
   });
 });
 
