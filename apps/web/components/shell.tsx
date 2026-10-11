@@ -107,7 +107,7 @@ export function TabBar({ riskCount }: { riskCount?: number }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Desktop sidebar — glass panel, nine destinations                     */
+/* Desktop sidebar — glass panel, every destination the tab bar cannot hold */
 /* ------------------------------------------------------------------ */
 
 const SIDEBAR_ITEMS = [
@@ -119,6 +119,7 @@ const SIDEBAR_ITEMS = [
   { href: ROUTES.team, key: 'team', Icon: TeamIcon },
   { href: ROUTES.followUps, key: 'followUps', Icon: FollowUpIcon },
   { href: ROUTES.reminders, key: 'reminders', Icon: ReminderIcon },
+  { href: ROUTES.planRules, key: 'planRules', Icon: CompassGlyph },
   { href: ROUTES.ask, key: 'ask', Icon: AskIcon },
   { href: ROUTES.risks, key: 'risks', Icon: RiskIcon },
   { href: ROUTES.reports, key: 'reports', Icon: ReportIcon },
